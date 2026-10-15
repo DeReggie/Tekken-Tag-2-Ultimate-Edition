@@ -16,3 +16,25 @@ __pycache__/
 *.bfma
 *.h264
 /captures/
+
+# Character packs (tools/characters) and the files they are made from hold the
+# games' assets: they must never be committed.
+character.ini
+[a-z][a-z][a-z].xml
+*.havok.xml
+*.tkmvst
+*.nud
+*.nut
+*.bon
+*.mop
+*.moveset
+*.motion
+*.mvl
+*.bin
+*.ofs
+*.uasset
+*.uexp
+*.ubulk
+*.pak
+*.nus3bank
+*.part

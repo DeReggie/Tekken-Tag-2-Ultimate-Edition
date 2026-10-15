@@ -60,7 +60,8 @@ add_library(cafe_runtime OBJECT
     src/gx2/state.cpp
     src/gx2/surface.cpp
     src/gx2/texture.cpp
-    src/title/presentation.cpp)
+    src/title/presentation.cpp
+    src/title/roster.cpp)
 target_include_directories(cafe_runtime PUBLIC include PRIVATE src)
 target_compile_features(cafe_runtime PUBLIC cxx_std_20)
 find_package(Vulkan REQUIRED)

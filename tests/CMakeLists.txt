@@ -108,3 +108,17 @@ target_compile_features(memory_model_test PRIVATE cxx_std_20)
 # The flags the port compiles generated code with.
 target_compile_options(memory_model_test PRIVATE -O2 -march=x86-64-v3 -Wno-unused-label)
 add_test(NAME memory_model_test COMMAND memory_model_test)
+
+# The character importer's formats (tools/characters; synthetic data, no game
+# files). Needs Python 3 with numpy and Pillow.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    execute_process(COMMAND "${Python3_EXECUTABLE}" -c "import numpy, PIL"
+        RESULT_VARIABLE character_import_modules OUTPUT_QUIET ERROR_QUIET)
+    if(character_import_modules EQUAL 0)
+        add_test(NAME character_import_test
+            COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s "${CMAKE_SOURCE_DIR}/tools/characters/tests")
+    else()
+        message(STATUS "character_import_test disabled: needs Python 3 with numpy and Pillow")
+    endif()
+endif()

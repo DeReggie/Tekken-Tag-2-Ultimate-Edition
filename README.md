@@ -173,9 +173,45 @@ a neutral one).
 | `TTT2_AUDIO_VOLUME=0..100` | volume in percent (default 100) |
 | `TTT2_SAVE_DIR=<folder>` | where saves go |
 | `TTT2_CONTROLLER=playstation/nintendo/xbox` | icons and menu buttons for this kind of controller, whichever is used |
+| `TTT2_CHARACTERS=<folder>` | where character packs are (default `~/.local/share/ttt2/characters`) |
 
 Debugging variables are listed in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#running-the-port).
+
+## Adding fighters
+
+Kazumi Mishima from Tekken 7 can join the roster, at the free place at the
+right end of the select screen's top row. Nothing of her is in this
+repository: an importer makes her from **your own copies of both games** and
+writes a character pack on your computer. You need:
+
+- Tekken 7 for PC (Steam), installed;
+- her and Heihachi's movesets, saved from the running game with
+  [TKMovesets2](https://github.com/Kiloutre/TKMovesets): Practice mode with
+  Kazumi as player 1 and Heihachi as player 2, then "Extract (all)". On
+  Linux, run TKMovesets2 in Tekken 7's Proton prefix (for example
+  `protontricks-launch --appid 389730 TKMovesets2.exe`);
+- the game installed with `ttt2 --install` (the importer reads its folder);
+- Python 3 with numpy and Pillow.
+
+```bash
+python3 tools/characters/import_character.py kazumi \
+    --tekken7 "$HOME/.local/share/Steam/steamapps/common/TEKKEN 7" \
+    --movesets /path/to/TKMovesets2/extracted_chars \
+    --game /path/to/your/install
+```
+
+The pack goes to `~/.local/share/ttt2/characters/kzm` (`$TTT2_CHARACTERS`
+picks another folder); delete that folder to remove her. **The pack holds
+Namco's assets: keep it to yourself and never upload or share it.** The
+importer refuses to write it inside this repository, and `.gitignore` keeps
+the games' file types out of commits.
+
+For now: her select-screen and loading-screen art shows another fighter's,
+both players wear her default colours, she uses Jun's voice and command
+list, and her Tekken 7-only moves (Rage Art, Rage Drive, the tiger's hits)
+are left out. One added fighter at a time; while she is installed she takes
+the place of a Fight Lab opponent (ZAKO A).
 
 ## How it works
 
@@ -193,7 +229,11 @@ Debugging variables are listed in
 - `runtime/src/title/`: what this game shows differently on a computer: the
   menu buttons, the icon sets, texts and the title screen, made at start-up
   from the game's archives (their format is described in
-  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#presentation-on-a-computer)).
+  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#presentation-on-a-computer)),
+  and an added fighter from a character pack.
+- `tools/characters/`: the importer that makes a character pack from the
+  player's own Tekken 7 and Tekken Tag Tournament 2
+  ([`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#added-fighters)).
 - `tests/`: a memory-model test, tests of reading split archives and of the
   game's file formats and the icons and texts made from them, and
   differential tests that run every instruction form the game uses against
@@ -224,7 +264,8 @@ cmake --build build      # also builds the tests
 ctest --test-dir build
 ```
 
-runs `memory_model_test`, `wua_layers_test` and `title_test`. The
+runs `memory_model_test`, `wua_layers_test`, `title_test` and, with Python 3,
+numpy and Pillow, `character_import_test` (the importer's formats). The
 differential tests (`semantics_test`, `control_flow_test`) also need `fmt`,
 the game's `Tekken.rpx` (by default
 `local/wua/000500001010f800_v16/code/Tekken.rpx`; otherwise configure with
@@ -270,3 +311,11 @@ built into the `ttt2` program). The port also links SDL3 (zlib), shaderc
 - [XenonRecomp](https://github.com/hedge-dev/XenonRecomp) and
   [N64Recomp](https://github.com/N64Recomp/N64Recomp), for showing how far
   function-level static recompilation can go.
+- [TKMovesets2](https://github.com/Kiloutre/TKMovesets) and
+  [TekkenMovesetExtractor](https://github.com/Kiloutre/TekkenMovesetExtractor),
+  whose research documented the Tekken 7 and TTT2 moveset layouts, their
+  animations and what their requirement and property ids mean, which the
+  character importer builds on (it reads the movesets TKMovesets2 saves);
+  [UE Viewer](https://github.com/gildor2/UEViewer) and
+  [CUE4Parse](https://github.com/FabianFG/CUE4Parse), for Tekken 7's Unreal
+  Engine 4.14 packages. The importer's code is its own.

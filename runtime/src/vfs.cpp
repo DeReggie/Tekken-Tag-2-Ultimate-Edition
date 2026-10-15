@@ -9,6 +9,10 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cstdlib>
+#include <cstdio>
+#include <chrono>
+#include <functional>
 #include <cerrno>
 #include <cstring>
 #include <map>
@@ -31,8 +35,10 @@ Source g_source;
 fs::path g_save_root;
 std::mutex g_mutex;
 
-// Archives served with entries replaced (replace_archive_entries), by the
-// relative path without extension, lower case.
+// Archives served with entries replaced or added (set_archive_entries), by
+// the relative path without extension, lower case: the entries asked for so
+// far, and the archive rebuilt with them.
+std::map<std::string, std::map<uint32_t, std::vector<uint8_t>>> g_overlay_entries;
 std::map<std::string, std::shared_ptr<const title::archive::Rebuilt>> g_overlays;
 
 struct File {
@@ -48,12 +54,25 @@ struct File {
     // the file opened above and of the replacements).
     std::shared_ptr<const title::archive::Rebuilt> overlay;
     bool overlay_index = false;
+    std::string archive_bin; // "content/hdd/data003" for an archive's .bin (watch_entry_reads)
 };
 struct Dir {
     std::vector<DirEntry> entries;
     size_t next = 0;
 };
 std::unordered_map<int32_t, File> g_files;
+
+// watch_entry_reads: the callback, and each archive's entries as {start,
+// end, name hash} in its .bin, sorted.
+std::function<void(uint32_t)> g_entry_reader;
+// TTT2_TRACE_ENTRIES=1: every archive entry the title reads, with the time.
+const bool g_trace_entries = std::getenv("TTT2_TRACE_ENTRIES") != nullptr;
+const auto g_trace_start = std::chrono::steady_clock::now();
+struct EntrySpan {
+    uint64_t start, end;
+    uint32_t hash;
+};
+std::map<std::string, std::vector<EntrySpan>> g_entry_spans;
 std::unordered_map<int32_t, Dir> g_dirs;
 int32_t g_next_handle = 1;
 
@@ -255,15 +274,53 @@ std::optional<std::vector<uint8_t>> read_underlying(const std::string& relative,
     return data;
 }
 
+// The entries of `archive` ("content/hdd/data003") a read of its .bin from
+// `start` to `end` touches. Called with g_mutex held.
+std::vector<uint32_t> entries_read(const std::string& archive, uint64_t start, uint64_t end) {
+    auto it = g_entry_spans.find(archive);
+    if (it == g_entry_spans.end()) {
+        std::vector<EntrySpan> spans;
+        std::optional<std::vector<uint8_t>> ofs;
+        if (const auto overlay = g_overlays.find(archive); overlay != g_overlays.end()) {
+            ofs = overlay->second->ofs;
+        } else {
+            ofs = read_underlying(archive + ".ofs", UINT64_MAX);
+        }
+        if (const auto index = ofs ? title::archive::parse_index(*ofs) : std::nullopt) {
+            for (const title::archive::Entry& e : index->entries) {
+                spans.push_back({title::archive::kPayload + e.offset, title::archive::kPayload + e.offset + e.size, e.hash});
+            }
+            std::sort(spans.begin(), spans.end(), [](const EntrySpan& a, const EntrySpan& b) { return a.start < b.start; });
+        }
+        it = g_entry_spans.emplace(archive, std::move(spans)).first;
+    }
+    std::vector<uint32_t> hashes;
+    const auto& spans = it->second;
+    auto span = std::upper_bound(spans.begin(), spans.end(), start, [](uint64_t at, const EntrySpan& s) { return at < s.start; });
+    if (span != spans.begin()) --span;
+    for (; span != spans.end() && span->start < end; ++span) {
+        if (span->end > start) hashes.push_back(span->hash);
+    }
+    return hashes;
+}
+
 } // namespace
 
-bool replace_archive_entries(const std::string& archive, const std::map<uint32_t, std::vector<uint8_t>>& stored) {
+void watch_entry_reads(std::function<void(uint32_t)> reader) {
+    std::lock_guard lock(g_mutex);
+    g_entry_reader = std::move(reader);
+}
+
+bool set_archive_entries(const std::string& archive, const std::map<uint32_t, std::vector<uint8_t>>& stored) {
     std::lock_guard lock(g_mutex);
     const auto ofs = read_underlying(archive + ".ofs", UINT64_MAX);
     const auto header = read_underlying(archive + ".bin", title::archive::kPayload);
     if (!ofs || !header) return false;
-    auto rebuilt = title::archive::rebuild(*ofs, *header, stored);
+    std::map<uint32_t, std::vector<uint8_t>> entries = g_overlay_entries[lower(archive)];
+    for (const auto& [hash, data] : stored) entries[hash] = data;
+    auto rebuilt = title::archive::rebuild(*ofs, *header, entries);
     if (!rebuilt) return false;
+    g_overlay_entries[lower(archive)] = std::move(entries);
     g_overlays[lower(archive)] = std::make_shared<const title::archive::Rebuilt>(std::move(*rebuilt));
     return true;
 }
@@ -305,8 +362,7 @@ std::optional<std::vector<uint8_t>> read_whole(std::string_view path) {
     return data;
 }
 
-Status open_file(std::string_view path, std::string_view mode, int32_t& handle) {
-    std::lock_guard lock(g_mutex);
+Status open_file_impl(std::string_view path, std::string_view mode, int32_t& handle) {
     const Resolved r = resolve(path);
     if (r.area == Area::kSave) return open_host(host_resolve(g_save_root, r.save_parts), mode, handle);
     if (r.area != Area::kGame) return kNotFound;
@@ -343,6 +399,20 @@ Status open_file(std::string_view path, std::string_view mode, int32_t& handle) 
     handle = g_next_handle++;
     g_files[handle] = file;
     return kOk;
+}
+
+Status open_file(std::string_view path, std::string_view mode, int32_t& handle) {
+    std::lock_guard lock(g_mutex);
+    const Status status = open_file_impl(path, mode, handle);
+    if (status == kOk && (g_entry_reader || g_trace_entries)) {
+        const Resolved r = resolve(path);
+        const std::string name = lower(r.relative);
+        if (r.area == Area::kGame && name.size() > 4 && name.compare(name.size() - 4, 4, ".bin") == 0 &&
+            name.compare(0, 16, "content/hdd/data") == 0) {
+            g_files[handle].archive_bin = name.substr(0, name.size() - 4);
+        }
+    }
+    return status;
 }
 
 Status close_file(int32_t handle) {
@@ -389,9 +459,24 @@ Status read_file(int32_t handle, void* buffer, uint64_t size, std::optional<uint
             transferred = read_underlying(file, file.position, want, buffer);
         }
     }
-    std::lock_guard lock(g_mutex);
-    const auto it = g_files.find(handle);
-    if (it != g_files.end()) it->second.position = file.position + transferred;
+    std::function<void(uint32_t)> reader;
+    std::vector<uint32_t> read_entries;
+    {
+        std::lock_guard lock(g_mutex);
+        const auto it = g_files.find(handle);
+        if (it != g_files.end()) it->second.position = file.position + transferred;
+        if ((g_entry_reader || g_trace_entries) && !file.archive_bin.empty() && transferred != 0) {
+            reader = g_entry_reader;
+            read_entries = entries_read(file.archive_bin, file.position, file.position + transferred);
+        }
+    }
+    for (uint32_t hash : read_entries) {
+        if (g_trace_entries) {
+            const double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - g_trace_start).count();
+            std::fprintf(stderr, "entry: %8.3f %s %08x\n", t, file.archive_bin.c_str() + 12, hash);
+        }
+        if (reader) reader(hash);
+    }
     return kOk;
 }
 

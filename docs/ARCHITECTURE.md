@@ -341,7 +341,8 @@ makes everything from the Wii U game's own files at start-up
 (`title::prepare_presentation`, about 0.35 s).
 
 **The title's archives** (`title/archive.*`). `content/hdd/dataNNN.ofs`
-indexes `dataNNN.bin`: chunks `ofsi` (each entry's name hash and a word) and
+indexes `dataNNN.bin`: chunks `ofsi` (each entry's name hash, the CRC-32 of
+its name with the register starting at zero, and a word) and
 `ofsd` (one big-endian offset per entry into the `.bin`'s payload at 0x100,
 plus the end; entries are 16-byte aligned and the low four bits give the
 entry's length modulo 16). Every entry is scrambled by XOR with four 32-bit
@@ -350,11 +351,13 @@ seeded from the name hash (x = x * 0xBDE95 + 0x8EF345, four times) and
 stepped once per block (w = w * 1531 + 5011); most Wii U entries are then a
 zlib stream behind a 16-byte `NRCZ` header (size, flags). Textures are
 `NTP3` (BC1/BC2/BC3 blocks in rows, or ARGB8), fonts an `NFH` glyph table
-plus an `NTP3` texture, texts `NTXB` banks. The update's data100 holds newer
-copies of a few entries, which the title reads first (a French text bank
-among them). The VFS can serve an archive with entries replaced
-(`vfs::replace_archive_entries`): a rebuilt index, and the `.bin` assembled
-from pieces of the original and the new entries.
+plus an `NTP3` texture, texts `NTXB` banks. At start-up the title puts
+every entry of every index into one tree by name hash, the archives in a
+fixed order and the update's data100 last, so data100's newer copies of a
+few entries win (a French text bank among them). The VFS can serve an
+archive with entries replaced or added (`vfs::set_archive_entries`, calls
+adding up): a rebuilt index, new entries after the last one, and the `.bin`
+assembled from pieces of the original and the new entries.
 
 **Menu buttons.** The title's menus ask which button confirms and which
 cancels (`sub_03483B78`, `sub_03483C08`); the answer is a word at +8 of the
@@ -422,6 +425,63 @@ the stills differ; chroma moves by a * the stills' difference. The copyright
 lines (700x32 textures) lose the three words before the last seven ("Wii U
 EDITION" before "& (C) 2012 …") and are centred again.
 
+## Added fighters
+
+`runtime/src/title/roster.*` adds a fighter from a character pack (a folder
+in `$TTT2_CHARACTERS`, else `~/.local/share/ttt2/characters`), made on the
+player's machine from their own games by `tools/characters/`. This
+repository holds no part of any fighter.
+
+**Where it fits.** A fighter is a select id (0-58; the 63-entry code table
+at `0x107C57F4` adds 59-62, the practice dummy, an empty dummy and the
+Fight Lab's two mobs) with a three-letter code, character records
+(`0x107B4220`, 139 x 84 bytes: id, costume slot, place in the UI order,
+motion row) and a motion row (`0x105A51C4`, 68 x the keys of its motion
+pack, moveset and movelist). Ids from 63 on are taken as "random" or
+"none" throughout, so the added fighter takes the select id of the first
+Fight Lab mob (61, ZAKO A), two records the title never uses (122 and 123)
+and an unused motion row (58). At start-up, before the title runs, the
+port writes the fighter's code over the mob's, in the code table and in two
+lists of code literals (the character loader's `loadPlayer` command searches
+one of them), fills the two records and the row's keys, and gives the
+select grid (`0x107B7668`, 62 cells of 32 bytes: fighter, the cells the
+cursor moves to, column and row) a 63rd cell at the free place in its top
+row; the grid grows over the following, unused grid of the PlayStation 3's
+smaller roster. Overrides list the records for the fighter
+(`sub_033D512C`), make it selectable (`sub_033D52B4`), give it the donor's
+voice banks (`sub_07A5CAC8`, `sub_07A5CAA4`) and hide the grille that
+covers the new cell (`sub_06F4D7B8`).
+
+**Its files.** The title finds a fighter's body files, item database and
+part packs by keys compiled in for each code (`sub_065A76A8` and three
+more), so the pack's files are served under the mob's keys; its moveset,
+motion pack and movelist are found through its motion row, under keys
+named after its own code. The pack's files reach the title as entries added
+to data100 (`vfs::set_archive_entries`); whatever the pack leaves out is
+copied from the donor, a TTT2 fighter the pack names. A pack: `character.ini`
+(code, donor, sex), `<code>.xml/.nud/.nut/.bon` (item database, model,
+textures, skeleton), `<code>.moveset/.motion`, optionally
+`<code>.mop/.havok.xml/.mvl`, costume parts in `parts/<kind>/<index>` and
+changed copies of the title's own entries in `keys/<key>.bin`. The title's
+UI tables of names and portraits have 59 rows, so the fighter's art is not
+shown yet.
+
+**The importer** (`tools/characters/`, Python with numpy and Pillow) reads
+Tekken 7's pak files (version 3; every entry is flagged encrypted but
+stored plain) and its Unreal Engine 4.14 packages, the movesets the player
+saved with TKMovesets2, and the installed TTT2 game. The model keeps the
+donor's skeleton with the Tekken 7 joint positions (the face joints keep
+the donor's offsets, as face animations set absolute positions), skins the
+Tekken 7 meshes to it and bakes the costume's colours into BC1/BC3
+textures of at most three mip levels. The moveset keeps the donor's generic
+and tag moves and converts the fighter's own: body animations are the same
+in both games but for byte order; requirement and property ids, hitbox
+codes and reactions are mapped through tables derived at import time by
+aligning Heihachi's moveset in both games; mechanics TTT2 lacks (Rage Art,
+the tiger's hits, power crush armour) are left out, and Screw becomes
+Bound. The pack holds Namco's assets: the importer refuses to write it
+inside this repository, and `.gitignore` keeps the games' file types out.
+
 ## Running the port
 
 `build/ttt2 "<path>/TEKKEN TAG 2 Wii U EDITION (EU).wua"` reads the
@@ -469,7 +529,11 @@ Unattended runs press buttons with `TTT2_INPUT_SCRIPT`. From a cold start
 this reaches an arcade match (solo, Heihachi) at about 72 s; append
 presses such as `,72:y,73:x,...` to fight:
 `TTT2_INPUT_SCRIPT="8:plus,21:plus,24:plus,31:a,37:a,41:right,42:right,43:right,45:a,49:right,50:right,53:a,57:a"`.
-Character select refuses a character already picked for the team.
+Character select refuses a character already picked for the team. An item
+`@<name hash>` waits until the title first reads that archive entry and
+times after it count from then, presses before it that have not come yet
+being dropped, so scripts do not drift with loading times (screens'
+entries: `TTT2_TRACE_ENTRIES=1`).
 
 A guest memory fault prints the guest registers and backtrace, says when
 the address lies just below the stack pointer (a stack overflow), and
@@ -493,7 +557,9 @@ ignores. Renderer debugging:
 | `TTT2_CAPTURE=<dir>` | TV/GamePad images as PNG every `TTT2_CAPTURE_INTERVAL` seconds (default 5) |
 | `TTT2_CAPTURE_SEQUENCE=<n>` | with `TTT2_CAPTURE`, also every image shown for the next n frames after each capture, in order (`seq_<capture>_<frame>_<n>.png`, the real image last) |
 | `TTT2_TRACE_AT=<s>`, `TTT2_TRACE_FRAME=<n>` | log every command of one frame; with `TTT2_CAPTURE`, save all its render targets |
-| `TTT2_INPUT_SCRIPT="25:plus,26.5:a"` | press GamePad buttons at given seconds, for unattended runs |
+| `TTT2_INPUT_SCRIPT="25:plus,26.5:a"` | press GamePad buttons at given seconds, for unattended runs (`@<hash>` items wait for an archive entry) |
+| `TTT2_TRACE_ENTRIES=1` | every archive entry the title reads, with times |
+| `TTT2_TRACE_ROSTER=1` | the added fighter's entries |
 | `TTT2_DUMP_SHADERS=<dir>` | shader binaries, draw registers and generated GLSL |
 | `TTT2_DUMP_TEXTURES=<dir>` | every texture loaded from memory, as PNG |
 | `TTT2_TRACE_TARGETS=1`, `TTT2_WATCH=<hex address>` | render target creation; writes and loads touching an address |

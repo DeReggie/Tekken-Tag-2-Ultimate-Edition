@@ -6,6 +6,7 @@
 
 #include "cafe/export.h"
 #include "cafe/input.h"
+#include "cafe/vfs.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -23,45 +24,80 @@ uint32_t g_previous_hold = 0;
 
 // TTT2_INPUT_SCRIPT="15:plus,20.5:a,22:down" presses each button for a
 // fifth of a second at the given second after start-up, for unattended runs.
+// An item "@3dbb1771" waits until the title reads the archive entry with
+// that name hash (the character select screen's layout, say): the times
+// after it count from then, and presses before it that have not come yet
+// are dropped, so a script does not drift with loading times.
 struct ScriptedPress {
     double at;
     uint32_t button;
+    size_t segment; // the anchors before it
 };
 
-std::vector<ScriptedPress> load_script() {
+struct Script {
     std::vector<ScriptedPress> presses;
-    const char* script = std::getenv("TTT2_INPUT_SCRIPT");
-    if (script == nullptr) return presses;
+    std::vector<uint32_t> anchors;
+    std::mutex mutex;
+    std::vector<double> starts; // each segment's start, after start-up; < 0 while waiting
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+};
+
+double seconds_since(std::chrono::steady_clock::time_point start) {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+}
+
+Script& load_script() {
+    static Script script;
+    const char* text_env = std::getenv("TTT2_INPUT_SCRIPT");
+    if (text_env == nullptr) return script;
     static const std::pair<const char*, uint32_t> kNames[] = {
         {"a", vpad::kA}, {"b", vpad::kB}, {"x", vpad::kX}, {"y", vpad::kY}, {"left", vpad::kLeft},
         {"right", vpad::kRight}, {"up", vpad::kUp}, {"down", vpad::kDown}, {"zl", vpad::kZL}, {"zr", vpad::kZR},
         {"l", vpad::kL}, {"r", vpad::kR}, {"plus", vpad::kPlus}, {"minus", vpad::kMinus}, {"home", vpad::kHome},
     };
-    std::string text(script);
+    std::string text(text_env);
     size_t pos = 0;
     while (pos < text.size()) {
         const size_t end = text.find(',', pos) == std::string::npos ? text.size() : text.find(',', pos);
         const std::string item = text.substr(pos, end - pos);
         const size_t colon = item.find(':');
-        if (colon != std::string::npos) {
+        if (!item.empty() && item[0] == '@') {
+            script.anchors.push_back(static_cast<uint32_t>(std::strtoul(item.c_str() + 1, nullptr, 16)));
+        } else if (colon != std::string::npos) {
             const std::string name = item.substr(colon + 1);
             for (const auto& [n, bit] : kNames) {
-                if (name == n) presses.push_back({std::atof(item.substr(0, colon).c_str()), bit});
+                if (name == n) {
+                    script.presses.push_back({std::atof(item.substr(0, colon).c_str()), bit, script.anchors.size()});
+                }
             }
         }
         pos = end + 1;
     }
-    return presses;
+    script.starts.assign(script.anchors.size() + 1, -1.0);
+    script.starts[0] = 0.0;
+    if (!script.anchors.empty()) {
+        vfs::watch_entry_reads([&s = script](uint32_t hash) {
+            std::lock_guard lock(s.mutex);
+            for (size_t k = 0; k < s.anchors.size(); ++k) {
+                if (s.starts[k + 1] >= 0.0) continue;
+                if (s.starts[k] >= 0.0 && s.anchors[k] == hash) s.starts[k + 1] = seconds_since(s.start);
+                break;
+            }
+        });
+    }
+    return script;
 }
 
 uint32_t scripted_buttons() {
-    static const std::vector<ScriptedPress> script = load_script();
-    static const auto start = std::chrono::steady_clock::now();
-    if (script.empty()) return 0;
-    const double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    static Script& script = load_script();
+    if (script.presses.empty()) return 0;
+    const double t = seconds_since(script.start);
+    std::lock_guard lock(script.mutex);
     uint32_t buttons = 0;
-    for (const ScriptedPress& p : script) {
-        if (t >= p.at && t < p.at + 0.2) buttons |= p.button;
+    for (const ScriptedPress& p : script.presses) {
+        const double start = script.starts[p.segment];
+        const bool next_reached = p.segment + 1 < script.starts.size() && script.starts[p.segment + 1] >= 0.0;
+        if (start >= 0.0 && !next_reached && t >= start + p.at && t < start + p.at + 0.2) buttons |= p.button;
     }
     return buttons;
 }

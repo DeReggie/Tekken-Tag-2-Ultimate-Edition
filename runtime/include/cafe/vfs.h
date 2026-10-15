@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -48,9 +49,15 @@ void set_save_root(const std::filesystem::path& root);
 
 // The title's archive `archive` ("content/hdd/data003": its .ofs and .bin
 // files) with the entries named in `stored` (by name hash, as stored: see
-// title/archive.h) replaced. Call before the title runs; false if the
-// archive cannot take them.
-bool replace_archive_entries(const std::string& archive, const std::map<uint32_t, std::vector<uint8_t>>& stored);
+// title/archive.h): ones it holds replaced, others added. Calls add up, a
+// later one winning for the same entry. Call before the title runs; false
+// if the archive cannot take them.
+bool set_archive_entries(const std::string& archive, const std::map<uint32_t, std::vector<uint8_t>>& stored);
+
+// Calls `reader` with the name hash of each archive entry the title reads
+// (by where it reads in a dataNNN.bin), from the reading thread; for test
+// scripts that wait for a screen (TTT2_INPUT_SCRIPT's anchors).
+void watch_entry_reads(std::function<void(uint32_t)> reader);
 
 std::optional<std::vector<uint8_t>> read_whole(std::string_view path);
 

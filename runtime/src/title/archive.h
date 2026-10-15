@@ -55,8 +55,8 @@ void stored_flags(std::vector<uint8_t> stored_start, uint32_t hash, uint8_t (&fl
 // `flags` (copy them from the entry replaced).
 std::vector<uint8_t> pack(const std::vector<uint8_t>& contents, uint32_t hash, const uint8_t (&flags)[8]);
 
-// An archive with some entries replaced: the new .ofs, and the new .bin as
-// pieces of the original .bin and of the replacements.
+// An archive with some entries replaced or added: the new .ofs, and the new
+// .bin as pieces of the original .bin and of the new entries.
 struct Piece {
     uint64_t at = 0;     // in the new .bin
     uint64_t size = 0;
@@ -69,10 +69,13 @@ struct Rebuilt {
     uint64_t bin_size = 0;
 };
 
-// `bin_header` is the original .bin's first kPayload bytes; `replacements`
-// maps name hashes to entries as stored. None if the index does not parse
-// or does not hold one of the hashes.
+// `bin_header` is the original .bin's first kPayload bytes; `entries` maps
+// name hashes to entries as stored: an entry the archive holds is replaced,
+// others are added after its last entry. The title looks every name hash up
+// in one tree built from all the archives' indices (the last archive read,
+// data100, wins), so an entry can be added to any of them. None if the
+// index does not parse.
 std::optional<Rebuilt> rebuild(const std::vector<uint8_t>& ofs, const std::vector<uint8_t>& bin_header,
-                               const std::map<uint32_t, std::vector<uint8_t>>& replacements);
+                               const std::map<uint32_t, std::vector<uint8_t>>& entries);
 
 } // namespace cafe::title::archive

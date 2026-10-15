@@ -161,44 +161,79 @@ std::vector<uint8_t> pack(const std::vector<uint8_t>& contents, uint32_t hash, c
 }
 
 std::optional<Rebuilt> rebuild(const std::vector<uint8_t>& ofs, const std::vector<uint8_t>& bin_header,
-                               const std::map<uint32_t, std::vector<uint8_t>>& replacements) {
+                               const std::map<uint32_t, std::vector<uint8_t>>& entries) {
     const auto l = layout(ofs);
     if (!l || bin_header.size() < kPayload || std::memcmp(&bin_header[kPayload - 4], "imge", 4) != 0) {
         return std::nullopt;
     }
-    for (const auto& [hash, stored] : replacements) {
-        if (std::find(l->hashes.begin(), l->hashes.end(), hash) == l->hashes.end()) return std::nullopt;
-    }
+    std::vector<uint8_t> names, offsets; // the new "ofsi" and "ofsd" payloads
     Rebuilt out;
-    out.ofs = ofs;
     auto header = std::make_shared<std::vector<uint8_t>>(bin_header.begin(), bin_header.begin() + kPayload);
     out.bin.push_back(Piece{0, kPayload, 0, header});
     uint64_t at = 0; // in the new payload
+    auto put = [&](uint32_t hash, uint32_t word, uint32_t tail) {
+        const size_t n = names.size();
+        names.resize(n + 8);
+        put_be32(&names[n], hash);
+        put_be32(&names[n + 4], word);
+        offsets.resize(offsets.size() + 4);
+        put_be32(&offsets[offsets.size() - 4], static_cast<uint32_t>(at) | tail);
+    };
+    auto put_new = [&](uint32_t hash, uint32_t word, const std::vector<uint8_t>& stored) {
+        auto data = std::make_shared<std::vector<uint8_t>>(stored);
+        put(hash, word, static_cast<uint32_t>(data->size() % 16));
+        data->resize(align16(data->size()));
+        const uint64_t padded = data->size();
+        out.bin.push_back(Piece{kPayload + at, padded, 0, std::move(data)});
+        at += padded;
+    };
+    const auto names_at = find_chunk(ofs, "ofsi");
     for (size_t i = 0; i < l->hashes.size(); ++i) {
+        const uint32_t word = be32(&ofs[names_at->at + 8 * i + 4]);
+        const auto it = entries.find(l->hashes[i]);
+        if (it != entries.end()) {
+            put_new(l->hashes[i], word, it->second);
+            continue;
+        }
         const uint64_t start = l->offsets[i] & ~0xFu, end = l->offsets[i + 1] & ~0xFu;
-        uint32_t tail = l->offsets[i] & 0xF;
-        uint64_t padded = end - start;
-        const auto it = replacements.find(l->hashes[i]);
-        if (it != replacements.end()) {
-            auto data = std::make_shared<std::vector<uint8_t>>(it->second);
-            tail = static_cast<uint32_t>(data->size() % 16);
-            data->resize(align16(data->size()));
-            padded = data->size();
-            out.bin.push_back(Piece{kPayload + at, padded, 0, std::move(data)});
-        } else if (padded != 0) {
+        put(l->hashes[i], word, l->offsets[i] & 0xF);
+        if (end != start) {
             Piece& last = out.bin.back();
             if (!last.data && last.source + last.size == kPayload + start) {
-                last.size += padded;
+                last.size += end - start;
             } else {
-                out.bin.push_back(Piece{kPayload + at, padded, kPayload + start, nullptr});
+                out.bin.push_back(Piece{kPayload + at, end - start, kPayload + start, nullptr});
             }
         }
-        put_be32(&out.ofs[l->offsets_at + 4 * i], static_cast<uint32_t>(at) | tail);
-        at += padded;
+        at += end - start;
     }
-    put_be32(&out.ofs[l->offsets_at + 4 * l->hashes.size()], static_cast<uint32_t>(at));
+    // Entries the archive does not hold go after its last one.
+    for (const auto& [hash, stored] : entries) {
+        if (std::find(l->hashes.begin(), l->hashes.end(), hash) == l->hashes.end()) put_new(hash, 0, stored);
+    }
+    offsets.resize(offsets.size() + 4);
+    put_be32(&offsets[offsets.size() - 4], static_cast<uint32_t>(at));
     put_be32(&(*header)[kPayload - 8], static_cast<uint32_t>(at + 8));
     out.bin_size = kPayload + at;
+    // The index: its chunks as they were, the two tables new.
+    size_t pos = 0;
+    while (pos + 8 <= ofs.size()) {
+        const uint32_t size = be32(&ofs[pos]);
+        if (size < 8 || pos + size > ofs.size()) break;
+        const bool is_names = std::memcmp(&ofs[pos + 4], "ofsi", 4) == 0;
+        if (is_names || std::memcmp(&ofs[pos + 4], "ofsd", 4) == 0) {
+            const std::vector<uint8_t>& table = is_names ? names : offsets;
+            const size_t n = out.ofs.size();
+            out.ofs.resize(n + 8);
+            put_be32(&out.ofs[n], static_cast<uint32_t>(8 + table.size()));
+            std::memcpy(&out.ofs[n + 4], is_names ? "ofsi" : "ofsd", 4);
+            out.ofs.insert(out.ofs.end(), table.begin(), table.end());
+        } else {
+            out.ofs.insert(out.ofs.end(), ofs.begin() + static_cast<ptrdiff_t>(pos),
+                           ofs.begin() + static_cast<ptrdiff_t>(pos + size));
+        }
+        pos += size;
+    }
     return out;
 }
 

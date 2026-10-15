@@ -43,7 +43,7 @@ constexpr uint32_t kFontTexture = 0x4FC9A19E; // and its texture
 // ------------------------------------------------------------------ the game's files
 
 // An entry of the title's archives (as the game has it: before any
-// replace_archive_entries), and its NRCZ header flags in `flags`.
+// set_archive_entries), and its NRCZ header flags in `flags`.
 std::optional<std::vector<uint8_t>> game_entry(const char* archive, uint32_t hash, uint8_t (*flags)[8] = nullptr) {
     const auto ofs = vfs::read_whole(std::string("/vol/") + archive + ".ofs");
     const auto index = ofs ? archive::parse_index(*ofs) : std::nullopt;
@@ -521,7 +521,7 @@ void prepare_presentation() {
             ++rewritten;
         }
         for (const auto& [archive_name, entries] : changed) {
-            if (!vfs::replace_archive_entries(archive_name, entries)) {
+            if (!vfs::set_archive_entries(archive_name, entries)) {
                 std::fprintf(stderr, "ttt2: warning: cannot change %s; texts may name the Wii U's buttons\n",
                              archive_name.c_str());
             }

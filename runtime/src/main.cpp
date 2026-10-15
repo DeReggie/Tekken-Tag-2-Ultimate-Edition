@@ -9,6 +9,7 @@
 #include "host/window.h"
 #include "install.h"
 #include "title/presentation.h"
+#include "title/roster.h"
 
 #include <atomic>
 #include <cstdio>
@@ -99,6 +100,7 @@ int main(int argc, char** argv) {
     os::init_heaps(image.data_end);
     init_data_imports();
     title::prepare_presentation();
+    title::prepare_roster();
     std::fprintf(stderr, "ttt2: loaded image, entry 0x%08X, %zu/%zu guest entries compiled\n",
                  image.entry_point, cafe_program_info.compiled_entries,
                  cafe_program_info.total_entries);

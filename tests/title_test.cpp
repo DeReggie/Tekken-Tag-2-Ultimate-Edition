@@ -131,11 +131,12 @@ void test_archive() {
                           0xAAAA, got);
     check(std::memcmp(got, flags, 8) == 0 && e->offset == 0, "archive: an entry's NRCZ flags");
 
-    // The middle entry replaced by a longer one.
-    std::vector<uint8_t> longer(300, 'x');
+    // The middle entry replaced by a longer one, and one added.
+    std::vector<uint8_t> longer(300, 'x'), added = bytes("an entry the archive did not hold");
     const auto rebuilt = archive::rebuild(a.ofs, std::vector<uint8_t>(a.bin.begin(), a.bin.begin() + archive::kPayload),
-                                          {{0xBBBB, archive::pack(longer, 0xBBBB, flags)}});
-    check(rebuilt.has_value(), "rebuild: an archive with a replaced entry");
+                                          {{0xBBBB, archive::pack(longer, 0xBBBB, flags)},
+                                           {0xDDDD, archive::pack(added, 0xDDDD, flags)}});
+    check(rebuilt.has_value(), "rebuild: an archive with a replaced and an added entry");
     if (!rebuilt) return;
     Archive b;
     b.ofs = rebuilt->ofs;
@@ -144,12 +145,15 @@ void test_archive() {
         if (p.data) std::memcpy(&b.bin[p.at], p.data->data(), p.size);
         else std::memcpy(&b.bin[p.at], &a.bin[p.source], p.size);
     }
-    check(contents_of(b, 0xAAAA) == big && contents_of(b, 0xBBBB) == longer && contents_of(b, 0xCCCC) == small,
+    check(contents_of(b, 0xAAAA) == big && contents_of(b, 0xBBBB) == longer && contents_of(b, 0xCCCC) == small &&
+              contents_of(b, 0xDDDD) == added,
           "rebuild: every entry read back");
+    const auto rebuilt_index = archive::parse_index(b.ofs);
+    check(rebuilt_index && rebuilt_index->entries.size() == 4 && rebuilt_index->entries.back().hash == 0xDDDD,
+          "rebuild: the added entry is the last");
+    check(b.ofs.size() == a.ofs.size() + 12 && std::equal(a.ofs.begin(), a.ofs.begin() + 8 + 8 + 8 + 20, b.ofs.begin()),
+          "rebuild: the index's other chunks kept");
     check(be32(&b.bin[archive::kPayload - 8]) == b.bin.size() - archive::kPayload + 8, "rebuild: the payload's size");
-    check(!archive::rebuild(a.ofs, std::vector<uint8_t>(a.bin.begin(), a.bin.begin() + archive::kPayload),
-                            {{0xDDDD, longer}}),
-          "rebuild: refuses a hash the archive does not hold");
 }
 
 // ------------------------------------------------------------------ textures
