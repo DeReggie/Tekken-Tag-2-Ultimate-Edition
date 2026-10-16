@@ -1,6 +1,6 @@
 # Tekken Tag 2 Recompiled
 
-<img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/af61417d-4020-416f-806c-74bcfd67b9eb" />
+<img width="1593" height="888" alt="image" src="https://github.com/user-attachments/assets/3bd58409-1442-4ce7-b9a6-8f036f38f4f8" />
 
 
 An unofficial native Linux port of **Tekken Tag Tournament 2 Wii U Edition**,
