@@ -8,11 +8,12 @@ import subprocess
 import time
 
 from . import InputError, pack
-from .convert import idmaps, itemdb, model, moveset
+from .convert import art, colours, idmaps, itemdb, model, movelist, moveset, voice
 from .tekken7 import tkmvst
 from .tekken7.pak import Paks
 from .ttt2 import motbin
 from .ttt2.archive import Archives, key_of
+from .ttt2.rpx import Rpx
 
 CHARACTERS = ('kazumi',)
 HEIHACHI = 8          # Tekken 7's roster id of Heihachi Mishima, the fighter both games share (for the id maps)
@@ -116,8 +117,29 @@ def run(name, tekken7, movesets, game, out=None, log=print):
         raise InputError('%s has no %s files: is it the Wii U game\'s folder?' % (game, d.DONOR))
 
     step('model: %s' % d.NAME)
-    nud, nut, bon = model.convert(paks, archives, d, log=lambda s: log('         ' + s.strip()))
+    nud, nut, bon, palettes = model.convert(paks, archives, d, log=lambda s: log('         ' + s.strip()))
     xml = itemdb.body_only(archives.read_name(d.DONOR + '.xml'))
+
+    step('pictures: %s\'s Tekken 7 pictures on the 2D screens' % d.NAME)
+    try:
+        pictures = art.build(paks, archives, Rpx.of_game(game), d, log=lambda s: log('         ' + s))
+    except (OSError, ValueError) as error:
+        raise InputError('cannot read the game\'s executable in %s (%s): install the game again with ttt2 --install'
+                         % (game, error))
+
+    step('voice: %s\'s Tekken 7 voice in %s\'s sound banks' % (d.NAME, d.DONOR))
+    try:
+        clips = voice.Clips(paks, d.TEKKEN7_CODE, d.VOICE_PREFIX)
+        banks, lines, wins = voice.build(clips, {w: archives.raw(key_of('%s_%s.nus3bank' % (w, d.DONOR)))
+                                                 for w in ('se_Chr', 'se_Dwi', 'rm_Dst', 'rm_Dwi')}, d.CODE)
+        select = voice.name_call(clips, archives.raw(key_of(voice.SELECT_BANK)), d.DONOR, d.CODE)
+        if select is not None:
+            banks['keys/%08x.bin' % key_of(voice.SELECT_BANK)] = select
+            lines.append('the announcer\'s call of her name on the select screen')
+    except KeyError as error:
+        raise InputError('%s has no %s voice files (%s): is it the Wii U game\'s folder?' % (game, d.DONOR, error))
+    for line in lines:
+        log('         ' + line)
 
     step('moveset: the id maps from Heihachi in both games')
     k = tkmvst.read(own)
@@ -133,12 +155,28 @@ def run(name, tekken7, movesets, game, out=None, log=print):
     c = moveset.Converter(k, h7, motbin.read(archives.entry('data006', d.DONOR_ROW)),
                           archives.entry('data005', d.DONOR_ROW), motbin.read(archives.entry('data006', 13)),
                           archives.entry('data004', 0), maps, usage, d.ROW, d)
+    c.win_tones = wins
     c.run()
     moves, motions = c.write()
     for line in c.summary():
         log('         ' + line)
 
-    target = pack.write(out, d, {'.xml': xml, '.nud': nud, '.nut': nut, '.bon': bon,
-                                 '.moveset': moves, '.motion': motions})
+    mvl = None
+    if k.movelist[:4] == b'MVLT':
+        step('command list')
+        mvl = movelist.convert(k.movelist, log=lambda s: log('         ' + s))
+
+    files = {'.xml': xml, '.nud': nud, '.nut': nut, '.bon': bon, '.moveset': moves, '.motion': motions}
+    files.update(banks)
+    files.update(pictures)
+    if mvl is not None:
+        files['.mvl'] = mvl
+    if palettes:
+        files['keys/%08x.bin' % colours.KEY_GRID] = palettes['grid']
+        for key, which in ((colours.KEY_1P, 0), (colours.KEY_2P, 1)):
+            text = archives.read(key).decode('utf-8')
+            files['keys/%08x.bin' % key] = colours.palette_xml(
+                text, pack.SELECT_ID, {nn: v[which] for nn, v in palettes['entries'].items()}).encode('utf-8')
+    target = pack.write(out, d, files)
     step('wrote %s' % target)
     return target

@@ -4,7 +4,9 @@ Only names, paths and rules live here; every byte of her model, textures and mov
 Tekken 7 and Tekken Tag Tournament 2 files when the importer runs.
 """
 NAME = 'Kazumi Mishima'
+SHORT_NAME = 'KAZUMI'          # her name on the 2D screens (TTT2 shows short names: KAZUYA, HEIHACHI)
 TEKKEN7_ID = 26               # her id in Tekken 7's roster (TKMovesets2 writes it into the .tkmvst header)
+TEKKEN7_CODE = 'kzm'          # her code in Tekken 7's files (AkBankVoiceKZM.bnk, Item/Meshes/kzm/)
 CODE = 'kzm'                  # her three-letter code in the pack (not a code TTT2 already has)
 SEX = 'female'
 
@@ -17,8 +19,9 @@ ROW = 58                      # the motion row the added fighter takes (unused b
 # ------------------------------------------------------------------------------------------------ model
 _ITEM = '/Game/Character/Item'
 TEKKEN7 = {
-    # colours of the default costume (player 1)
+    # colours of the default costume, player 1 and player 2 (convert/colours.py makes TTT2's 2P colours from both)
     'costume': _ITEM + '/Sets/KZM/CS_KZM_DefaultCos1P',
+    'costume_2p': _ITEM + '/Sets/KZM/CS_KZM_DefaultCos2P',
     # the costume's skeletal meshes, by part, in this order
     'parts': [
         ('fac', _ITEM + '/Meshes/kzm/Face/kzm_fac/Meshes/SK_CH_kzm_fac'),
@@ -73,9 +76,27 @@ TEMPLATES = {
     'overlay': ('jun.nud', 'cha:kao_O_OBJ', 7),   # a blended layer over the face
     'cloth': (0xD4F28D09, 'jun_upb_1p_b', 0),     # a costume part of Jun's (her model pack, member 95)
     'hair': (0x5F412CA4, 'jun_hed_1p', 1),        # (member 7): alpha-tested, two-sided
+    'colour': (0xD4F28D09, 'jun_upb_1p_b', 2),    # colourable cloth (2P colour layers)
+    'colour_alpha': (0xD4F28D09, 'jun_upb_1p_b', 1),   # its alpha-tested variant (the layers take its alpha test)
 }
 # where the templates' own textures are (their average colours fill the slots Tekken 7 has nothing for)
 TEMPLATE_TEXTURES = ['jun.nut', 0x24F8AE59, 0x277C7A37, 0xAD9B60F0, 0x900FD8C4]
+
+# ------------------------------------------------------------------------------------------------ pictures
+# her Tekken 7 UI pictures (convert/art.py): a bust and her whole body, each with where her face is in it (the eyes'
+# centre x, y and eyes-to-chin, in its pixels), and her name
+_UI = '/Game/UI_Common/Texture2D/ReplaceImages'
+ART = {
+    'bust': (_UI + '/VS_CH_L/VS_CH_L_KZM_TK7_DEF', (314, 278, 142)),
+    'body': (_UI + '/CS_CH_L/CS_CH_L_KZM', (572, 318, 107)),
+    'name': _UI + '/CS_CH_NAME/CS_CH_NAME_KZM',
+    'costume': _UI + '/CS_CH_SLOT/CS_CH_SLOT_KZM_01',     # the costume chooser's picture (full body)
+}
+
+# ------------------------------------------------------------------------------------------------ voice
+# her Tekken 7 voice events: <TEKKEN7_CODE>_atk_s01 .. (shouts, damage, KO, special), <prefix>_s00 .. (intro lines),
+# <prefix>_w00 .. (win quotes)
+VOICE_PREFIX = 'ka'
 
 # ------------------------------------------------------------------------------------------------ moveset
 # The id maps come from aligning movesets of both games, in this order: (moveset, TTT2 motion row) with 'heihachi'
@@ -87,8 +108,10 @@ MOVESET = {
     # her own moves that are not converted (besides Rage Arts and story moves): customisation and story
     # variants, and her round-start move Ka_Direct (the donor's is kept)
     'drop_moves': r'^kz_co|^kz_90|Ka_Direct|^ka_sp',
-    # the donor's round-start list keeps its targets except its own moves: (donor move name pattern, her move)
-    'direct': [(r'^Ju_sKAM00_$', 'Ka_sKAM00_'),     # Jun's stance -> hers
-               (r'^(ju|mk)_s', 'ka_s00'),           # intros
-               (r'^ju_w', 'ka_w00')],               # win poses
+    # the donor's round-start list keeps its targets except its own moves: (donor move name pattern, 'move': the
+    # cancel goes to her move instead / 'anim': the donor's move stays (its camera, timing, voice) and plays one of
+    # her animations, in turn; a win pose takes the one whose quote it plays)
+    'direct': [(r'^Ju_sKAM00_$', 'move', ['Ka_sKAM00_']),                       # Jun's stance -> hers
+               (r'^(ju|mk)_s', 'anim', ['ka_s%02d' % k for k in range(8)]),     # intros
+               (r'^ju_w', 'anim', ['ka_w%02d' % k for k in range(3)])],         # win poses
 }

@@ -448,9 +448,8 @@ select grid (`0x107B7668`, 62 cells of 32 bytes: fighter, the cells the
 cursor moves to, column and row) a 63rd cell at the free place in its top
 row; the grid grows over the following, unused grid of the PlayStation 3's
 smaller roster. Overrides list the records for the fighter
-(`sub_033D512C`), make it selectable (`sub_033D52B4`), give it the donor's
-voice banks (`sub_07A5CAC8`, `sub_07A5CAA4`) and hide the grille that
-covers the new cell (`sub_06F4D7B8`).
+(`sub_033D512C`), make it selectable (`sub_033D52B4`) and hide the grille
+that covers the new cell (`sub_06F4D7B8`).
 
 **Its files.** The title finds a fighter's body files, item database and
 part packs by keys compiled in for each code (`sub_065A76A8` and three
@@ -461,10 +460,61 @@ to data100 (`vfs::set_archive_entries`); whatever the pack leaves out is
 copied from the donor, a TTT2 fighter the pack names. A pack: `character.ini`
 (code, donor, sex), `<code>.xml/.nud/.nut/.bon` (item database, model,
 textures, skeleton), `<code>.moveset/.motion`, optionally
-`<code>.mop/.havok.xml/.mvl`, costume parts in `parts/<kind>/<index>` and
-changed copies of the title's own entries in `keys/<key>.bin`. The title's
-UI tables of names and portraits have 59 rows, so the fighter's art is not
-shown yet.
+`<code>.mop/.havok.xml/.mvl`, its sound banks, costume parts in
+`parts/<kind>/<index>` and changed copies of the title's own entries in
+`keys/<key>.bin` (a copy of a sound bank stays raw, in the original's
+archive).
+
+**Its voice.** A fighter has four sound banks (raw NUS3BANKs in the sound
+archives): `se_Chr_<code>` (shouts, damage voices, KO screams, the
+announcer's call of its name), `se_Dwi_<code>` (win quotes), `rm_Dst_<code>`
+(intro lines) and `rm_Dwi_<code>` (the long win quote one win pose streams,
+found by key in a table of 63, `0x105C5180`, as the intro lines are in two
+others; a fighter with none there streams from a file with no name, which
+the title reports as an error). A fighter's bank ids come from
+`sub_07A5CAC8` and `sub_07A5CAA4`, their keys from `sub_07A5D01C`; the pack's
+banks take ids no bank has (122, 233). Moves do not name tones: a shout or
+damage voice is a number in the fighter's voice list (`0x107D44EC`, by
+select id, copied at start-up by `sub_0796F300`), which holds sound ids, and
+the sound table (`sub_079E5B1C`, 8506 x {tone, bank id, group, flags}) gives
+each id its tone and bank. The added fighter's banks keep the donor's layout,
+so the port gives it the donor's voice list with its ids pointing at copies
+of the donor's sound table entries that name the added fighter's banks (an
+extended table, new ids above the ones `sub_079E5CD0` remaps). Win quotes are
+played by tone of the fighter's se_Dwi bank (property 0x82f9, value
+0x0E003000 | tone). The select screen's name calls are tones of the shared
+bank se_Slt_StartChar (`sub_079E5D64(id, 1)`); a pack adds the fighter's to
+a changed copy of it.
+
+**Its pictures.** The 2D screens find a fighter's pictures by its UI
+position, its row in tables of 59 (from the select id through `sub_06F0A484`
+or from a record through `sub_06F0A4A4`): labels of per-fighter sprites in
+the Lumen layouts of data007 (`face_<code>`, `chara_face_yoko_<code>`,
+`p1_chara_waku_<code>`, whose animation ends on the fighter's name), keys of
+portrait textures, frames of the big select portraits. The added fighter has
+no row of its own, so the port gives it Paul's (0) and, while the code works
+on it, Paul's row of each table holds the added fighter's entries (label
+names, keys); the functions that ask put Paul's back when they return. The
+select screen asks for both team members first and sets their pictures
+after, so there each member's pictures follow its own question (told apart
+by call sites), and moving between Paul and the added fighter resets the
+member's cached position. In fights the HUD draws names and faces from its
+texture container by numbers from a table by UI position (`0x1035AC88`), the
+position from the record (`sub_033D555C`); the pack adds three textures after
+the container's 259, and Paul's numbers become them while the HUD draws the
+added fighter.
+
+**Its costume.** The select screen's costume chooser lists a fighter's
+costumes from rows by select id (`0x103B4B84`, read by `sub_0580D690`, 59
+rows) with a picture each, from a texture container whose key is in another
+table of 59 (`0x10161590`), then five customisation slots; the added
+fighter's place in that table is past its end, in an unrelated string, and a
+key nobody requested makes the chooser assert. The added fighter has one
+costume: the list function reads its row (the donor's costume 1) in the
+place of Paul's, its pictures (the pack's `art/costumes.nut`, else the
+donor's) have their key lent to that place only while the chooser's
+functions run, and the chooser leaves out the customisation slots (made per
+fighter in a mode the added fighter is not in).
 
 **The importer** (`tools/characters/`, Python with numpy and Pillow) reads
 Tekken 7's pak files (version 3; every entry is flagged encrypted but
@@ -477,10 +527,32 @@ textures of at most three mip levels. The moveset keeps the donor's generic
 and tag moves and converts the fighter's own: body animations are the same
 in both games but for byte order; requirement and property ids, hitbox
 codes and reactions are mapped through tables derived at import time by
-aligning Heihachi's moveset in both games; mechanics TTT2 lacks (Rage Art,
-the tiger's hits, power crush armour) are left out, and Screw becomes
-Bound. The pack holds Namco's assets: the importer refuses to write it
-inside this repository, and `.gitignore` keeps the games' file types out.
+aligning Heihachi's moveset in both games; projectiles (Kazumi's tiger
+strikes) become TTT2 projectiles, which the same five properties spawn in
+both games (limb, three offsets, the projectile); mechanics TTT2 lacks (Rage
+Arts and Drives, power crush armour) are left out, and Screw becomes Bound.
+The donor's intros and win poses stay (their camera animations end the
+intro and the win screen) and play the fighter's animations. The command
+list is converted from the one TKMovesets2 saves (both games keep an MVLT
+file of names, commands in nine languages and demos given as pad inputs).
+The voice is decoded from Tekken 7's Wwise banks (IMA ADPCM), re-encoded as
+DSP ADPCM where the donor's banks use it, and laid out like the donor's
+banks. The pictures: every layout with per-fighter labels gets the
+fighter's beside Paul's (whole label animations copied), its Tekken 7
+pictures scaled so that its face sits where the others' faces sit, cut to
+the area theirs cover and laid in the frame and background they share; its
+name is put together from letters cut out of the other fighters' name
+pictures (the title's own lettering), with the shadow measured on them; the
+costume chooser's picture is its Tekken 7 costume-slot picture cut out of its
+grey panel and stood in the room the title's own pictures share.
+Player 2's colours: TTT2 tints "colourable" cloth per player
+(2 x grey x lerp(A, B, mask)) from two palette entries per material; the
+fighter's cloth that changes between Tekken 7's 1P and 2P costumes gets an
+alpha-tested colourable layer over the changing texels, with colours fitted
+to both costumes and placed in grid cells no other fighter uses (the pack
+carries the colour grid and both palettes). The pack holds Namco's assets:
+the importer refuses to write it inside this repository, and `.gitignore`
+keeps the games' file types out.
 
 ## Running the port
 

@@ -22,16 +22,22 @@ std::mutex g_input_mutex;
 GamepadState g_gamepad{};
 uint32_t g_previous_hold = 0;
 
-// TTT2_INPUT_SCRIPT="15:plus,20.5:a,22:down" presses each button for a
-// fifth of a second at the given second after start-up, for unattended runs.
-// An item "@3dbb1771" waits until the title reads the archive entry with
-// that name hash (the character select screen's layout, say): the times
-// after it count from then, and presses before it that have not come yet
+// TTT2_INPUT_SCRIPT="15:plus,20.5:a,22:down" presses each button at the given
+// second after start-up, for unattended runs: for a fifth of a second and at
+// least kHeldReads reads of the pad, then released for kReleasedReads reads
+// before the same button is pressed again, so a press is seen even when a frame
+// stalls (loading). An item "@3dbb1771" waits until the title reads the archive
+// entry with that name hash (the character select screen's layout, say): the
+// times after it count from then, and presses before it that have not come yet
 // are dropped, so a script does not drift with loading times.
+constexpr int kHeldReads = 4;
+constexpr int kReleasedReads = 4;
+
 struct ScriptedPress {
     double at;
     uint32_t button;
     size_t segment; // the anchors before it
+    int reads = -1; // reads of the pad while held; -1: not pressed yet
 };
 
 struct Script {
@@ -39,6 +45,7 @@ struct Script {
     std::vector<uint32_t> anchors;
     std::mutex mutex;
     std::vector<double> starts; // each segment's start, after start-up; < 0 while waiting
+    std::vector<std::pair<uint32_t, int>> released; // button -> reads since its last scripted release
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 };
 
@@ -93,11 +100,29 @@ uint32_t scripted_buttons() {
     if (script.presses.empty()) return 0;
     const double t = seconds_since(script.start);
     std::lock_guard lock(script.mutex);
+    auto released_reads = [&](uint32_t button) -> int& {
+        for (auto& [b, n] : script.released) {
+            if (b == button) return n;
+        }
+        script.released.push_back({button, kReleasedReads});
+        return script.released.back().second;
+    };
     uint32_t buttons = 0;
-    for (const ScriptedPress& p : script.presses) {
+    for (ScriptedPress& p : script.presses) {
+        if (p.reads >= kHeldReads) continue; // done
         const double start = script.starts[p.segment];
         const bool next_reached = p.segment + 1 < script.starts.size() && script.starts[p.segment + 1] >= 0.0;
-        if (start >= 0.0 && !next_reached && t >= start + p.at && t < start + p.at + 0.2) buttons |= p.button;
+        if (p.reads < 0) {
+            if (start < 0.0 || next_reached || t < start + p.at) continue;
+            if (released_reads(p.button) < kReleasedReads || (buttons & p.button)) continue; // wait for a release
+            p.reads = 0;
+        }
+        buttons |= p.button;
+        if (++p.reads >= kHeldReads && t < start + p.at + 0.2) p.reads = kHeldReads - 1; // hold the fifth second
+        if (p.reads >= kHeldReads) released_reads(p.button) = -1;
+    }
+    for (auto& [b, n] : script.released) {
+        if (!(buttons & b) && n < kReleasedReads) ++n;
     }
     return buttons;
 }

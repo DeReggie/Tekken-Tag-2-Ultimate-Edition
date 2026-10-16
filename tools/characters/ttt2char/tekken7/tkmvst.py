@@ -66,4 +66,5 @@ def read(path):
     offs = sorted(set(mv['anim'] for mv in m.tables['moves']))
     m.anim_offsets = offs
     m.anim_size = dict(zip(offs, [b - a for a, b in zip(offs, offs[1:] + [len(m.animbuf)])]))
+    m.movelist = d[ab[7]:ab[8]]           # the displayable command list (MVLT), if TKMovesets2 saved it
     return m

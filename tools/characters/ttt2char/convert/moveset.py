@@ -36,16 +36,36 @@ CHAR_IS, CHAR_IS_NOT = {217, 219, 223}, {218}     # "player / opponent is charac
 REQ_OVERRIDE = {615: 467}
 PROP_OVERRIDE = {0x8255: 0x8193, 0x8256: 0x8194}
 # Tekken 7 properties left out (Tekken 7-only presentation or mechanics, or values not converted yet)
-PROP_DROP = {0x828f: 'tiger animation', 0x820b: 'projectile spawn', 0x820c: 'projectile limb', 0x820d: 'proj x',
-             0x820e: 'proj y', 0x820f: 'proj z', 0x828e: 'projectile index', 0x81bd: 'power crush',
+PROP_DROP = {0x828f: 'tiger animation', 0x828e: 'projectile index', 0x81bd: 'power crush',
              0x81be: 'rage art fx', 0x801b: 'rage drive vfx', 0x8233: 'rage drive bg', 0x8234: 'rage drive bg',
              0x8272: 'spend rage', 0x828b: 'game speed', 0x828c: 'slow motion', 0x828d: 'slow motion immunity',
              0x829d: 'HUD', 0x829f: 'subtitles', 0x8243: 'subtitles', 0x82bf: 'assist vfx',
              0x8414: 'assist combo value', 0x842e: 'hand animation (Tekken 7 hand codec not converted)',
              0x842f: 'hand animation', 0x8435: 'camera/item animation id', 0x8049: 'item id', 0x8343: 'attach item',
              0x8344: 'detach item'}
-SOUND_PROPS = {0x84c4, 0x84c6}       # value = bank << 24 | n: kept only where the donor uses the same value
-VALUE_KIND = {0x8331: 'reaction', 0x8332: 'reaction', 0x843c: 'throwcam', 0x843d: 'throwcam'}
+SOUND_PROPS = {0x84c4, 0x84c6}       # value = bank << 24 | n: kept only where the donor uses the same value,
+# or a voice of the fighter's own banks (convert/voice.py): shout n (bank 2) and damage voice n (bank 3), numbered
+# alike in both games (their SE_KIAI_n / SE_YARARE_n test moves), up to the last number TTT2 has
+OWN_VOICE = {2: 0xE, 3: 0xA}
+# A win quote: TTT2's win poses play a tone of the fighter's se_Dwi bank with this property (value | tone); Tekken 7
+# plays its win quote by the pose's name. The donor's poses stay, with the animation of the quote at their tone.
+WIN_QUOTE_PROP, WIN_QUOTE_VALUE = 0x82F9, 0x0E003000
+VALUE_KIND = {0x8331: 'reaction', 0x8332: 'reaction', 0x843c: 'throwcam', 0x843d: 'throwcam', 0x820b: 'projectile'}
+# Projectiles (Kazumi's tiger). Tekken 7 spawns one with five properties on the same frame: limb 0x820c, offsets
+# 0x820d/0x820e/0x820f, then 0x820b = the projectile's index. TTT2 has the same set at 0x8169 (limb; resets the
+# offsets), 0x816a/0x816b/0x816c (offset = the value as a signed 16-bit number) and 0x8168 (spawn projectile
+# <value>): handlers in its property interpreter (sub_03AE86A0), used in the same order by its balloon and cloche
+# items. The alignment has no evidence for these ids (no Heihachi move spawns a projectile).
+PROJ_PROPS = {0x820b: 0x8168, 0x820c: 0x8169, 0x820d: 0x816a, 0x820e: 0x816b, 0x820f: 0x816c}
+# A projectile row, Tekken 7 (42 x u32) -> TTT2 (34 x u32): (TTT2 field, Tekken 7 field, count). TTT2's fields as
+# its projectile code reads them: 0 effect, 1 delay, 2 forward speed, 3 upward speed, 4 hits it can deal, 5 frames
+# it lives, 6 shape (0 sphere, 1 cylinder), 7 radius, 8 height, 9 hit level, 14 sound at spawn, 16 sound on hit,
+# 18 sound when it runs out, 19 hit conditions, 20 cancels (both table indices, 0 = none), 21 hits the owner's
+# team, 22 hits the other team, 23..33 a hit effect (on when 23 != 0 and 26 > 0). Tekken 7's are the same with
+# five more fields after the effect and 64-bit links (hit conditions at 24, cancels at 26).
+PROJ_FIELDS = [(1, 6, 3), (4, 9, 15), (21, 28, 13)]
+PROJ_SOUNDS = (14, 16, 18)
+PROJ_EFFECT = 0                 # Tekken 7's effect ids mean nothing in TTT2: none
 # the fighter's own moves that are not converted: Rage Arts / Drives, story, customisation, cinematics
 DROP_MOVES = r'RageArts|_EX\d?$|^b7_|^vra_|_7CS$|^Story|^FACE'
 # Tekken 7 generic moves (also Heihachi's, not in TTT2) converted when a reaction needs them, except these
@@ -110,6 +130,11 @@ class Converter:
         for t in ('extra_move_properties', 'move_begin_props', 'move_end_props'):
             for x in donor.tables[t]:
                 self.donor_sound[x['id']].add(x['value'])
+        self.donor_clips = {v['value'] for v in donor.tables['voiceclips']} - {0xFFFFFFFF}
+        self.known_sounds = set(self.donor_clips)
+        for pid in (0x82f9, 0x82fb):                 # player / opponent sound
+            self.known_sounds |= self.donor_sound[pid]
+        self.voice = True               # the fighter has its own voice banks (convert/voice.py)
         # animations already in TTT2: the common motions and the donor's own pack
         o0 = motion.pack_items(donor_pack)[0][0]
         idx = anim_index([('common', common_motions, 0), ('donor', donor_pack, o0)])
@@ -159,6 +184,8 @@ class Converter:
     def map_prop(self, p):
         if p in PROP_OVERRIDE:
             return PROP_OVERRIDE[p]
+        if p in PROJ_PROPS:
+            return PROJ_PROPS[p]
         if p in PROP_DROP:
             self.stats['property dropped: ' + PROP_DROP[p]] += 1
             return None
@@ -314,9 +341,23 @@ class Converter:
             return self.conv_throwcam(v)
         if kind == 'reaction':
             return self.conv_reaction(v)
-        if t7id in SOUND_PROPS and v not in self.donor_sound[self.prop_map.lookup(t7id)[0]]:
+        if kind == 'projectile':
+            return self.conv_projectile(v)
+        if t7id in SOUND_PROPS and v not in self.donor_sound[self.prop_map.lookup(t7id)[0]] and not self.own_voice(v):
             return None
         return v
+
+    def own_voice(self, v):
+        return self.voice and (v & 0xFFFFFF) <= OWN_VOICE.get(v >> 24, -1)
+
+    def conv_voiceclips(self, i):
+        """A Tekken 7 voice clip list -> the new list's index (its own voices kept), or None."""
+        vals = [v for v in M.voices(self.k, i) if self.own_voice(v) or v in self.donor_clips]
+        if not vals:
+            return None
+        start = len(self.T['voiceclips'])
+        self.T['voiceclips'] += [{'value': v} for v in vals] + [{'value': 0xFFFFFFFF}]
+        return start
 
     def conv_xps(self, i):
         if i is None:
@@ -427,6 +468,66 @@ class Converter:
             if l > bl or (l == bl and best is not None and len(dn_) < len(self.d.move_name(best))):
                 best, bl = j, l
         return best
+
+    def conv_projectile(self, pi):
+        """A Tekken 7 projectile index -> the new moveset's projectile index (the row appended), or None."""
+        t = self.k.tables['projectiles']
+        if not 0 < pi < len(t):
+            return None
+        key = ('proj', pi)
+        if key in self.cache:
+            return self.cache[key]
+        self.cache[key] = None                    # a cancel that respawns this projectile: not converted
+        p = t[pi]
+        v = struct.unpack('<42I', p['raw'])
+        out = [0] * 34
+        out[0] = PROJ_EFFECT
+        for to, fr, n in PROJ_FIELDS:
+            out[to:to + n] = v[fr:fr + n]
+        for f in PROJ_SOUNDS:
+            if out[f] and out[f] not in self.known_sounds and not self.own_voice(out[f]):
+                out[f] = 0
+                self.stats['projectile sound dropped'] += 1
+        n0 = len(self.T['hit_conditions'])
+        hc = self.conv_hitconds(p['hit_condition'])
+        out[19] = hc if hc is not None and len(self.T['hit_conditions']) > n0 else 0
+        out[20] = self.conv_proj_cancels(p['cancel'])
+        idx = self.add('projectiles', {'raw': struct.pack('>34I', *out)})
+        self.cache[key] = idx
+        self.stats['projectiles converted'] += 1
+        return idx
+
+    def conv_proj_cancels(self, i):
+        """A projectile's cancel list -> its new index, 0 if nothing but the end row is left. TTT2 runs it every
+        frame of the projectile's life: a row whose window and requirements hold applies its properties (the
+        requirement list's ids >= 0x8000) to the owner; with option 0x40 the projectile turns into projectile
+        move_id."""
+        if i is None:
+            return 0
+        rows = []
+        for c in M.cancels(self.k, i):
+            end = c['direction'] == M.LIST_END
+            r, ok = self.conv_reqs(c['req'])
+            if not ok and not end:
+                self.stats['projectile cancel dropped: requirement'] += 1
+                continue
+            m = 0
+            if not end and c['option'] & 0x40:
+                m = self.conv_projectile(c['move_id'])
+                if m is None:
+                    self.stats['projectile cancel dropped: target'] += 1
+                    continue
+            rows.append(dict(direction=c['direction'], button=c['button'], req=r,
+                             extradata=self.extradata(c['extradata']), win_start=c['win_start'],
+                             win_end=c['win_end'], start_frame=c['start_frame'], move_id=m,
+                             option=c['option'] & 0x40))
+            if end:
+                break
+        if len(rows) < 2:
+            return 0
+        start = len(self.T['cancels'])
+        self.T['cancels'] += rows
+        return start
 
     def conv_hitconds(self, i):
         if i is None:
@@ -559,7 +660,8 @@ class Converter:
         row['begin_props'] = self.conv_props('move_begin_props', mv['begin_props'])
         row['end_props'] = self.conv_props('move_end_props', mv['end_props'])
         if M.voices(k, mv['voiceclip']):
-            self.stats['voice clips dropped (the donor voice is used)'] += 1
+            row['voiceclip'] = self.conv_voiceclips(mv['voiceclip'])
+            self.stats['voice clips kept' if row['voiceclip'] is not None else 'voice clips dropped'] += 1
 
     def rebuild_hubs(self):
         """Generic moves that lead into the fighter's own moves get its cancel lists plus the donor's cancels into
@@ -633,22 +735,48 @@ class Converter:
         return out
 
     def rebuild_direct(self, donor_specific):
+        """The round-start list (alias slot 0) keeps the donor's targets except its own moves (MOVESET['direct']):
+        its stance becomes the fighter's; its intros and win poses stay (their camera animations end the intro and
+        the win screen; their sound properties play the fighter's own lines, which sit at the same tones of its
+        banks) and play the fighter's animations instead."""
         d = self.d
         dj = d.aliases[0]
+        turn = collections.Counter()
+        by_tone = {tone: name for name, tone in self.win_tones.items()}
 
-        def sub(name):
-            for pat, rep in self.defn.MOVESET['direct']:
-                if re.search(pat, name):
-                    i = self.kn.get(rep)
-                    if i in self.newidx:
-                        return self.newidx[i]
+        def quote_tone(j):
+            for f, idv, v in M.xps(d, d.tables['moves'][j]['extraprops']):
+                if idv == WIN_QUOTE_PROP and v & 0xFFFFF000 == WIN_QUOTE_VALUE:
+                    return v & 0xFFF
+            return None
+
+        def sub(j):
+            name = d.move_name(j)
+            for pat, how, theirs in self.defn.MOVESET['direct']:
+                if not re.search(pat, name):
+                    continue
+                own = [n for n in theirs if self.kn.get(n) in self.newidx]
+                if not own:
+                    break
+                if how == 'move':
+                    return self.newidx[self.kn[own[0]]]
+                pick = by_tone.get(quote_tone(j))
+                if pick not in own:
+                    pick = own[turn[pat] % len(own)]
+                    turn[pat] += 1
+                mv = self.k.tables['moves'][self.kn[pick]]
+                row = self.T['moves'][j]
+                row['anim'] = self.anim(mv['anim'])
+                row['anim_name'] = self.string(self.k.anim_name(self.kn[pick]))
+                self.stats['donor round-start moves with her animation'] += 1
+                return j
             return 0x8001                                # the standing alias
         out = []
         for x in M.cancels(d, d.tables['moves'][dj]['cancel']):
             y = dict(x)
             m = x['move_id']
             if x['direction'] < 0x8000 and m < len(d.tables['moves']) and d.move_name(m) in donor_specific:
-                y['move_id'] = sub(d.move_name(m))
+                y['move_id'] = sub(m)
             out.append(y)
         self.T['moves'][dj]['cancel'] = len(self.T['cancels'])
         self.T['cancels'] += out

@@ -22,7 +22,7 @@ from ..tekken7.texture import Texture2D
 from ..tekken7.uasset import load
 from ..ttt2 import bone, nud, nut
 from ..ttt2.archive import key_of
-from . import skeleton, strips
+from . import colours as colours2p, skeleton, strips
 
 GIDX_BASE = 0x10408000          # texture ids above every id the game's own textures use (0x10404fac at most)
 MAX_TEX = 512                   # longest side of a converted texture
@@ -334,11 +334,15 @@ def load_templates(archives, templates, texture_sources):
     return out
 
 
-ORDER = {'mouth': 0, 'skin': 0, 'cloth': 0, 'eye': 1, 'hair': 2, 'overlay': 3}   # draw order of a mesh's polygons
+ORDER = {'mouth': 0, 'skin': 0, 'cloth': 0, 'colour': 0.5, 'eye': 1, 'hair': 2, 'overlay': 3}   # draw order in a mesh
+LAYER_OFFSET = 1.0              # mm: how far the 2P colour layer sits outside the polygon it covers (less flickers:
+                                # the depth buffer cannot tell them apart at fighting distance)
 
 
 def convert(paks, archives, d, log=print):
-    """d: the character definition. -> (nud bytes, nut bytes, bon bytes)"""
+    """d: the character definition. -> (nud bytes, nut bytes, bon bytes, palettes): palettes = None without 2P
+    colour layers (colours.py), else {'entries': {palette number: ((x, y, s) player 1, (x, y, s) player 2)},
+    'grid': the colour grid with the fighter's cells}."""
     t7 = d.TEKKEN7
     k = load_tekken7_model(paks, t7['parts'], t7['merge_order'])
     log('  Tekken 7 model: %d bones, %d sections' % (len(k['bones']['names']), len(k['prims'])))
@@ -351,6 +355,10 @@ def convert(paks, archives, d, log=print):
     templates = load_templates(archives, d.TEMPLATES, d.TEMPLATE_TEXTURES)
     materials = Materials(paks)
     colours = materials.costume_colours(t7['costume'])
+    colours_2p = materials.costume_colours(t7['costume_2p']) if t7.get('costume_2p') else None
+    palette = colours2p.Palette(archives.read(colours2p.KEY_GRID),
+                                [archives.read(k).decode('utf-8') for k in (colours2p.KEY_1P, colours2p.KEY_2P)]) \
+        if colours_2p else None
     textures = Textures(paks)
     mat_paths = {}
     for tag, path in t7['parts']:
@@ -361,6 +369,7 @@ def convert(paks, archives, d, log=print):
                 mat_paths.setdefault(ref.split('.')[-1], ref)
     bank = TextureBank()
     built = {}
+    layers, palettes = {}, {}       # material -> its 2P colour layer (fit, palette numbers); the palette entries
 
     def build_material(name):
         kind, use_normal, alpha = d.MATERIALS[name]
@@ -371,6 +380,16 @@ def convert(paks, archives, d, log=print):
             if rgb is None:
                 raise ValueError('material %s has no colour texture' % name)
             built[name] = albedo_image(rgb, al), eff['textures'].get('Normal') if use_normal else None
+            if colours_2p is not None and kind == 'cloth' and 'colour' in templates:
+                rgb2, _ = bake_albedo(materials.effective(mat_paths[name], colours_2p), textures)
+                c1 = np.asarray(built[name][0].convert('RGB'), np.float64) / 255.0
+                c2 = np.asarray(albedo_image(rgb2, None).convert('RGB'), np.float64) / 255.0
+                f = colours2p.fit(c1, c2, palette)
+                if f is not None:
+                    nn = colours2p.FIRST_PALETTE + 2 * len(layers)
+                    layers[name] = (f, (nn, nn + 1))
+                    for k, (e1, _, e2, _) in enumerate(f['groups']):
+                        palettes[nn + k] = (e1, e2)
         albedo, normal = built[name]
         mat = copy.deepcopy(mat)
         ids = []
@@ -390,6 +409,49 @@ def convert(paks, archives, d, log=print):
         for t, gid in zip(mat['textures'], ids):
             t['id'] = gid
         return mat, vtype, kind
+
+    def layer_material(name):
+        """The colourable, alpha-tested material of a 2P colour layer."""
+        f, nns = layers[name]
+        albedo, normal = built[name]
+        mat, vtype, slots = templates['colour']
+        mat = copy.deepcopy(mat)
+        alpha_from = templates.get('colour_alpha', templates['colour'])[0]
+        for key in ('src', 'dst', 'alpha_test', 'alpha_func', 'ref'):
+            mat[key] = alpha_from[key]
+        size = pow2_size(*albedo.size)
+
+        def image(a, mode):
+            return np.asarray(Image.fromarray(a, mode).resize(size, Image.LANCZOS))
+        grey = (np.clip(f['shade'], 0, 1) * 255 + 0.5).astype(np.uint8)
+        shade = np.stack([image(grey, 'L')] * 3 + [image((f['alpha'] * 255).astype(np.uint8), 'L')], -1)
+        mask = np.zeros(shade.shape, np.uint8)
+        mask[..., 0] = 255
+        mask[..., 2] = image((f['b'] * 255).astype(np.uint8), 'L')
+        mask[..., 3] = 255
+        ids = []
+        for i, slot in enumerate(slots):
+            if i == 0:
+                ids.append(bank.add(('layer-shade', name), shade, 2))
+            elif i == 1 and textures.exists(normal):
+                ids.append(bank.normal(normal, Image.fromarray(textures.get(normal)[0])))
+            elif i == 3:
+                ids.append(bank.add(('layer-mask', name), mask, 0))
+            else:
+                mean = slot['mean'] if slot['mean'] is not None else np.array([128, 128, 128, 255])
+                ids.append(bank.constant(tuple(mean), slot['fmt']))
+        for t, gid in zip(mat['textures'], ids):
+            t['id'] = gid
+        (_, a1, _, _), (_, b1, _, _) = f['groups']
+        props = []
+        for n, v in mat['props']:
+            if n == 'NU_vReg_04':
+                v = list(a1) + [float(colours2p.ID_BASE + nns[0])]
+            elif n == 'NU_vReg_07':
+                v = list(b1) + [float(colours2p.ID_BASE + nns[1])]
+            props.append((n, [float(x) for x in v]))
+        mat['props'] = props
+        return mat, vtype
 
     meshes, dropped = {}, []
     for prim in k['prims']:
@@ -471,6 +533,13 @@ def convert(paks, archives, d, log=print):
         meshes.setdefault(prim['part'], []).append(dict(vtype=vt, uvtype=0x10, pflag=4, tail=bytes(12),
                                                         indices=np.array(strip, np.uint16), verts=verts,
                                                         materials=[mat], _order=ORDER[kind]))
+        if name in layers:
+            lmat, lvtype = layer_material(name)
+            lverts = verts.copy()
+            lverts['pos'] = pos + nrm * LAYER_OFFSET
+            meshes[prim['part']].append(dict(vtype=vt, uvtype=0x10, pflag=4, tail=bytes(12),
+                                             indices=np.array(strip, np.uint16), verts=lverts, materials=[lmat],
+                                             _order=ORDER['colour']))
     nmeshes = []
     for tag in sorted(meshes, key=lambda p: d.MESHES[p][2]):
         mname, singlebind, _ = d.MESHES[tag]
@@ -484,4 +553,7 @@ def convert(paks, archives, d, log=print):
     model = dict(version=0x0201, sphere=nud.bounding_sphere(allp), bone_first=None, meshes=nmeshes)
     log('  model: %d meshes, %d polygons, %d textures (dropped: %s)' % (
         len(nmeshes), sum(len(m['polys']) for m in nmeshes), len(bank.textures), ', '.join(dropped) or 'none'))
-    return nud.write(model), nut.write(bank.textures), bone.write(skel)
+    if layers:
+        log('  2P colours: layers over %s; palette numbers %s' % (', '.join(sorted(layers)), sorted(palettes)))
+    out = {'entries': palettes, 'grid': palette.grid_bytes()} if layers else None
+    return nud.write(model), nut.write(bank.textures), bone.write(skel), out

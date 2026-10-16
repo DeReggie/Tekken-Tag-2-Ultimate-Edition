@@ -210,11 +210,12 @@ Namco's assets: keep it to yourself and never upload or share it.** The
 importer refuses to write it inside this repository, and `.gitignore` keeps
 the games' file types out of commits.
 
-For now: her select-screen and loading-screen art shows another fighter's,
-both players wear her default colours, she uses Jun's voice and command
-list, and her Tekken 7-only moves (Rage Art, Rage Drive, the tiger's hits)
-are left out. One added fighter at a time; while she is installed she takes
-the place of a Fight Lab opponent (ZAKO A).
+She has her own model with both players' colours, her moves (her tiger's
+hits without the tiger), voice, command list, and her pictures and name on
+the menus' screens and in fights. Left out for now: Rage Arts and Rage
+Drives, power crush armour (those moves are there, without it), and Screw
+becomes Bound. One added fighter at a time; while she is installed she
+takes the place of a Fight Lab opponent (ZAKO A).
 
 ## How it works
 

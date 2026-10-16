@@ -157,6 +157,12 @@ class Archives:
     def read_name(self, name):
         return self.read(key_of(name))
 
+    def raw(self, key):
+        """The stored bytes of the entry with this key (the sound archives store their banks as they are)."""
+        if key not in self.where:
+            raise KeyError('the game has no archive entry %08x' % key)
+        return self.stored(*self.where[key])
+
     def close(self):
         for f in self._files.values():
             f.close()
