@@ -1,5 +1,8 @@
 # Tekken Tag 2 Recompiled
 
+<img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/af61417d-4020-416f-806c-74bcfd67b9eb" />
+
+
 An unofficial native Linux port of **Tekken Tag Tournament 2 Wii U Edition**,
 made by static recompilation: the game's PowerPC code is translated to C++
 ahead of time and runs as native x86-64 code on a reimplementation of the
