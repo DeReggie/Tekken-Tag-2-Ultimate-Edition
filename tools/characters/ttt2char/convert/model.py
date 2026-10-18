@@ -22,7 +22,7 @@ from ..tekken7.texture import Texture2D
 from ..tekken7.uasset import load
 from ..ttt2 import bone, nud, nut
 from ..ttt2.archive import key_of
-from . import colours as colours2p, skeleton, strips
+from . import colours as colours2p, skeleton, strips, tiger
 
 GIDX_BASE = 0x10408000          # texture ids above every id the game's own textures use (0x10404fac at most)
 MAX_TEX = 512                   # longest side of a converted texture
@@ -348,10 +348,19 @@ def convert(paks, archives, d, log=print):
     log('  Tekken 7 model: %d bones, %d sections' % (len(k['bones']['names']), len(k['prims'])))
     donor = bone.read(archives.read_name(d.DONOR + '.bon'))
     skel = skeleton.build(k['bones'], donor)
-    names = [n[4:] if n.startswith('cha:') else n for n in skel['names']]
-    bidx = {n: i for i, n in enumerate(names)}
     weight_maps = {tag: skeleton.weight_map(k['bones'], skel['names'], lambda i, tag=tag: tag)[0]
                    for tag, _ in t7['parts']}
+    parts, prims = list(t7['parts']), list(k['prims'])
+    if getattr(d, 'TIGER', None):                # a summoned model: extra bones of the fighter's (tiger.py)
+        tk = load_tekken7_model(paks, [('tiger', d.TIGER['mesh'])], ['tiger'])
+        skel, first = tiger.append_bones(skel, tk['bones'])
+        weight_maps['tiger'] = first + np.arange(len(tk['bones']['names']))
+        parts.append(('tiger', d.TIGER['mesh']))
+        prims += [dict(p, pos=tiger.hidden(p['pos'])) for p in tk['prims']]
+        log('  tiger: %d extra bones (OPT %d..), %d sections' % (len(tk['bones']['names']), tiger.OPT_FIRST,
+                                                               len(tk['prims'])))
+    names = [n[4:] if n.startswith('cha:') else n for n in skel['names']]
+    bidx = {n: i for i, n in enumerate(names)}
     templates = load_templates(archives, d.TEMPLATES, d.TEMPLATE_TEXTURES)
     materials = Materials(paks)
     colours = materials.costume_colours(t7['costume'])
@@ -361,7 +370,7 @@ def convert(paks, archives, d, log=print):
         if colours_2p else None
     textures = Textures(paks)
     mat_paths = {}
-    for tag, path in t7['parts']:
+    for tag, path in parts:
         m = t7mesh.SkeletalMesh(load(paks, path))
         for x in m.materials:
             if x['material']:
@@ -454,7 +463,7 @@ def convert(paks, archives, d, log=print):
         return mat, vtype
 
     meshes, dropped = {}, []
-    for prim in k['prims']:
+    for prim in prims:
         name = prim['material']
         if name not in d.MATERIALS:
             raise ValueError('the character definition does not say what to do with material %s' % name)

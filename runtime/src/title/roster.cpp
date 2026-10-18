@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -760,6 +761,66 @@ void prepare_costumes(const Pack& pack, uint32_t donor) {
     }
 }
 
+// ------------------------------------------------------------------ extra bones (Kazumi's tiger)
+
+// A fighter's extra bones (OPT bones, numbered in their names: `cha:OPT600_..`)
+// have records in the model's bone container (model +80): 144 bytes, the
+// bone's local transform first (4x4 row-major, rows the local axes, row 3 the
+// translation). The title animates some fighters' extra bones (Devil Jin's
+// wings) from part 3 of their motion pack: a move property (0x82de) starts one
+// of its animations on the fighter's animator at player +7944 ({+8 the part-3
+// MOTA, +12 0x4000 + its index, +16 the frame}); the animator's clock
+// (sub_05BDC714) and the code posing the bones (called from sub_069D8B30) are
+// written per fighter, for those fighters only. For the added fighter this
+// does both: its part-3 animations (raw, 0xC8) have three channels for every
+// extra bone from number 600 on (translation, rotation in radians as
+// R = Rz Ry Rx, scale), and their last frame puts the bones back where they
+// wait (the pack's tiger: far below the floor).
+constexpr uint32_t kPlayerSelectId = 84, kPlayerAnimator = 7944;
+constexpr uint32_t kAnimatorSet = 8, kAnimatorValue = 12, kAnimatorFrame = 16;
+constexpr uint32_t kPart3 = 0x4000;         // an animator's value: an animation of part 3 (index below)
+constexpr uint32_t kModelInterface = 12948; // the model's interface: its method +68 gives the player
+constexpr uint32_t kModelBones = 80;
+constexpr uint32_t kFirstExtraBone = 600;
+std::map<uint32_t, uint32_t> g_extra_shown; // player -> the part-3 animation its extra bones show
+
+float loadf(uint32_t address) {
+    const uint32_t v = load(address);
+    float f;
+    std::memcpy(&f, &v, 4);
+    return f;
+}
+void storef(uint32_t address, float f) {
+    uint32_t v;
+    std::memcpy(&v, &f, 4);
+    store(address, v);
+}
+
+// The animator's part-3 animation, if it plays a raw one.
+uint32_t part3_animation(uint32_t animator) {
+    const uint32_t value = load(animator + kAnimatorValue), set = load(animator + kAnimatorSet);
+    if (!(value & kPart3) || set == 0) return 0;
+    const uint32_t index = value & (kPart3 - 1);
+    if (index >= load(set + 0xC)) return 0;
+    const uint32_t animation = set + load(set + 0x14 + 4 * index);
+    return (load(animation) >> 16) == 0xC8 ? animation : 0;
+}
+
+// A bone record's local transform from a translation, rotation and scale.
+void store_local(uint32_t record, const float t[3], const float r[3], const float s[3]) {
+    const float cx = std::cos(r[0]), sx = std::sin(r[0]), cy = std::cos(r[1]), sy = std::sin(r[1]);
+    const float cz = std::cos(r[2]), sz = std::sin(r[2]);
+    const float m[3][3] = {{cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx},
+                           {sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx},
+                           {-sy, cy * sx, cy * cx}};
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) storef(record + 4 * (4 * row + col), m[col][row] * s[row]);
+        storef(record + 4 * (4 * row + 3), 0.0f);
+        storef(record + 4 * (12 + row), t[row]);
+    }
+    storef(record + 60, 1.0f);
+}
+
 } // namespace
 
 void prepare_roster() {
@@ -1206,4 +1267,73 @@ PPC_FUNC(sub_033E3460) {
     uint32_t kept = 0;
     while (kept < count && load(cursor + kChooserEntries + kChooserEntrySize * kept) != kChooserSlot) ++kept;
     store8(cursor + kChooserCount, static_cast<uint8_t>(kept));
+}
+
+// ------------------------------------------------------------------ extra bones (see kPlayerAnimator)
+
+PPC_FUNC(sub_06A5C5FC); // a bone record (container r3, number r4), 0 if the model has no such bone
+
+// The animator's clock, for the fighters with posed extra bones: also moves
+// the added fighter's part-3 animation on, a frame a call, and ends it after
+// its last frame.
+PPC_FUNC(sub_05BDC714_orig);
+PPC_FUNC(sub_05BDC714) {
+    const uint32_t animator = ctx.r[3];
+    sub_05BDC714_orig(ctx, base);
+    if (!g_active || load(load(animator) + kPlayerSelectId) != kId) return;
+    const uint32_t animation = part3_animation(animator);
+    if (animation == 0) return;
+    const float frame = loadf(animator + kAnimatorFrame) + 1.0f;
+    if (frame < static_cast<float>(load(animation + 4))) {
+        storef(animator + kAnimatorFrame, frame);
+    } else {
+        store(animator + kAnimatorValue, 0);
+        storef(animator + kAnimatorFrame, 0.0f);
+    }
+}
+
+// A fighter's model, every frame (the per-fighter posing of extra bones among
+// the rest): then the added fighter's extra bones take the frame of its
+// part-3 animation, and the last frame of one that has just ended.
+PPC_FUNC(sub_069D8B30_orig);
+PPC_FUNC(sub_069D8B30) {
+    const uint32_t model = ctx.r[3];
+    sub_069D8B30_orig(ctx, base);
+    if (!g_active) return;
+    const uint32_t r3 = ctx.r[3], lr = ctx.lr; // the caller checks LR after the calls below
+    ctx.r[3] = model;
+    cafe_ppc_lookup(load(load(model + kModelInterface) + 68))(ctx, base);
+    const uint32_t player = ctx.r[3];
+    if (load(player + kPlayerSelectId) == kId) {
+        const uint32_t animator = load(player + kPlayerAnimator);
+        uint32_t animation = part3_animation(animator);
+        float frame = loadf(animator + kAnimatorFrame);
+        if (animation != 0) {
+            g_extra_shown[player] = animation;
+        } else if (const auto shown = g_extra_shown.find(player); shown != g_extra_shown.end()) {
+            animation = shown->second;
+            frame = 1e9f;
+            g_extra_shown.erase(shown);
+        }
+        if (animation != 0) {
+            const uint32_t channels = load(animation) & 0xFFFF, frames = load(animation + 4);
+            const uint32_t f = std::min(frames - 1, static_cast<uint32_t>(std::max(0.0f, frame)));
+            const uint32_t values = animation + 8 + 4 * channels + 12 * channels * f;
+            for (uint32_t c = 0; c + 3 <= channels; c += 3) {
+                ctx.r[3] = load(model + kModelBones);
+                ctx.r[4] = kFirstExtraBone + c / 3;
+                sub_06A5C5FC(ctx, base);
+                if (ctx.r[3] == 0) continue;
+                float t[3], r[3], sc[3];
+                for (int i = 0; i < 3; ++i) {
+                    t[i] = loadf(values + 12 * c + 4 * i);
+                    r[i] = loadf(values + 12 * (c + 1) + 4 * i);
+                    sc[i] = loadf(values + 12 * (c + 2) + 4 * i);
+                }
+                store_local(ctx.r[3], t, r, sc);
+            }
+        }
+    }
+    ctx.r[3] = r3;
+    ctx.lr = lr;
 }

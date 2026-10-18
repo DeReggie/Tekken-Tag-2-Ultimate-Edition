@@ -65,6 +65,13 @@ def extend_mota(m, anims):
     return bytes(hdr) + struct.pack('>%dI' % n2, *new_offs) + bytes(body)
 
 
+def replace_mota(m, anims):
+    """A big-endian MOTA with m's header and only `anims` (big-endian)."""
+    if m[:4] != b'MOTA' or m[4] != 0:
+        raise ValueError('not a big-endian MOTA')
+    return extend_mota(m[:0xC] + bytes(4) + m[0x10:0x14], anims)
+
+
 def _swap(b, o, w):
     b[o:o + w] = b[o:o + w][::-1]
 

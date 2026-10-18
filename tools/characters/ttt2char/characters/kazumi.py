@@ -34,11 +34,31 @@ TEKKEN7 = {
 }
 
 # part -> (TTT2 mesh name, the bone the mesh is bound to as a whole, draw order)
+# Her tiger: Tekken 7 draws it as an actor of its own; here it becomes extra bones of hers, shown by her tiger moves
+# (convert/tiger.py). Its animations by the index her moves give them (move property 0x828f); index 12 (Ka_test_n,
+# a test move) has none.
+_TIGER = '/Game/Character/CharacterAlly/KazumiTiger'
+TIGER = {
+    'mesh': _TIGER + '/Mesh/SK_CH_kzm_tiger',
+    'animations': {
+        0: _TIGER + '/Anim/SA_tiger_kazumiStart',             # intro (ka_s01)
+        1: _TIGER + '/Anim/SA_tiger_kazumiVictory',           # win pose (ka_w01)
+        2: _TIGER + '/Anim/SA_tiger_kazumiSpecialStart',      # ka_spstart01
+        6: _TIGER + '/Anim/TA_Missle00_tackle',               # 2+3 (Ka_Tora00) and others
+        7: _TIGER + '/Anim/TA_Missle01_rolling',              # 1+4 (Ka_Tora01), Ka_spamarm2
+        9: _TIGER + '/Anim/TA_Effect00_tigeruc',              # Ka_66rp_EX2
+        17: _TIGER + '/Anim/TA_Missile02_tigerattack',        # Ka_t_srpFH, Ka_10comb11
+        18: _TIGER + '/Anim/TA_Effect01_chouhatsu1P',         # taunt (2+3+4)
+        19: _TIGER + '/Anim/TA_Effect02_chouhatsu_2P',        # taunt as player 2
+    },
+}
+
 MESHES = {
     'bdl': ('kzm_bdl_1p', 'KOSHI_jnt', 0),
     'bdu': ('kzm_bdu_1p', 'MUNE2_jnt', 1),
     'fac': ('kzm_fac', 'ATAMA_Joint', 2),
     'har': ('kzm_har_1p', 'ATAMA_jnt_assist', 3),
+    'tiger': ('kzm_tiger', 'OPT600_HUMAN__group', 4),
 }
 
 # Tekken 7 material instance -> (template, use its normal map, keep the colour texture's alpha); None: left out
@@ -66,6 +86,11 @@ MATERIALS = {
     'MI_CH_kzm_bdl_1p_pants': ('cloth', True, False),
     'MI_CH_kzm_skin_leg': ('skin', True, False),
     'MI_CH_kzm_bdl_1p_01': ('cloth', True, False),
+    'MI_CH_kzm_tiger01': ('skin', True, False),
+    'MI_CH_kzm_tiger02': ('skin', True, False),
+    'MI_CH_kzm_tiger_Eyes': ('eye', False, False),
+    'MI_CH_kzm_tiger_hair': ('hair', False, True),
+    'MI_CH_kzm_tiger_fur': None,                  # a shell-fur pass over the tiger's body
 }
 
 # Material templates in the donor's files: (archive entry name or key, mesh, polygon)

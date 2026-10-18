@@ -14,9 +14,9 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 from ttt2char import lz4                              # noqa: E402
-from ttt2char.convert import art, colours, movelist, strips  # noqa: E402
+from ttt2char.convert import art, colours, movelist, strips, tiger  # noqa: E402
 from ttt2char.tekken7 import tkmvst, wwise            # noqa: E402
-from ttt2char.ttt2 import archive, bone, bxml, dsp, nud, nus3bank, nut  # noqa: E402
+from ttt2char.ttt2 import archive, bone, bxml, dsp, motion, nud, nus3bank, nut  # noqa: E402
 
 
 class Archive(unittest.TestCase):
@@ -284,6 +284,62 @@ class Lettering(unittest.TestCase):
         self.assertEqual([runs[i + 1][0] - runs[i][-1] - 1 for i in range(2)], [3, 3])
         self.assertTrue(0.4 < pic[10, cols[0] - 1, 3] < 0.6)            # the shadow next to a letter
         self.assertIsNone(letters.picture('Q'))
+
+
+class Tiger(unittest.TestCase):
+    @staticmethod
+    def matrix(t, r):
+        m = np.eye(4)
+        m[:3, :3] = bone.matrix_from_euler_xyz(np.asarray(r, np.float64))
+        m[:3, 3] = t
+        return m
+
+    def test_bones_and_channels(self):
+        skel = dict(scale=1.0, parent=[-1], t=np.array([[0, 1000, 0]], np.float32), r=np.zeros((1, 3), np.float32),
+                    s=np.ones((1, 3), np.float32), opt=[0], params=[1.0] * 8, names=['cha:HARA_ROT1'],
+                    names_raw=None)
+        root = self.matrix((0, 900, -400), (np.pi / 2, 0, 0))
+        body = root @ self.matrix((300, 0, 0), (0, 0.3, 0))
+        s, first = tiger.append_bones(skel, dict(names=['Root', 'Body'], parents=[-1, 0], world=[root, body]))
+        self.assertEqual((first, s['names'][1:], s['parent'], s['opt']),
+                         (1, ['cha:OPT600_Root', 'cha:OPT601_Body'], [-1, 0, 1], [0, 600, 601]))
+        hide = self.matrix((0, tiger.HIDE_Y, 0), (0, 0, 0))
+        w = bone.world_matrices(bone.read(bone.write(s)))
+        self.assertTrue(np.allclose(w[1], hide @ root, atol=1e-2) and np.allclose(w[2], hide @ body, atol=1e-2))
+        moved = self.matrix((0, 0, 200), (0, 0, 0))
+        worlds = np.array([[root, body], [moved @ root, moved @ body @ self.matrix((0, 0, 0), (0.2, 0, 0))]])
+        ch = tiger.channels(worlds, s, first, [0, 1])
+        self.assertEqual([d for d, _ in ch], [11, 7, 3, 11, 7, 3])
+        hara = bone.world_matrices(s)[0]
+        for f in range(2):
+            r = hara @ self.matrix(ch[0][1][f], ch[1][1][f])
+            b = r @ self.matrix(ch[3][1][f], ch[4][1][f])
+            self.assertTrue(np.allclose(r, worlds[f][0], atol=1e-3) and np.allclose(b, worlds[f][1], atol=1e-3))
+        self.assertTrue(np.allclose(ch[0][1][2], s['t'][1]) and np.allclose(ch[4][1][2], s['r'][2]))  # parked
+        a = tiger.raw_animation(ch)
+        self.assertEqual(struct.unpack_from('>HHI6I', a, 0), (0xC8, 6, 3, 11, 7, 3, 11, 7, 3))
+        self.assertEqual(len(a), 8 + 6 * 4 + 3 * 6 * 12)
+
+    def test_spring_file(self):
+        def mop(numbers, fill):
+            out = struct.pack('>f', 5.0) + bytes(28) + struct.pack('>I', len(numbers)) + bytes(12)
+            for n in numbers:
+                out += struct.pack('>I', n) + bytes([fill + n % 7]) * (tiger.MOP_ENTRY - 4)
+            return out + bytes(16)
+        donor, template = mop([0], 1), mop([600, 601], 9)
+        out = tiger.spring_file(donor, template, 3)
+        n, = struct.unpack_from('>I', out, 0x20)
+        entries = [out[0x30 + 0x60 * k:0x30 + 0x60 * (k + 1)] for k in range(n)]
+        self.assertEqual([struct.unpack_from('>I', e)[0] for e in entries], [0, 600, 601, 602])
+        self.assertEqual(entries[0], donor[0x30:0x90])
+        self.assertTrue(all(e[4:] == template[0x34:0x90] for e in entries[1:]))
+        self.assertEqual((out[:0x20], len(out)), (donor[:0x20], 0x30 + 0x60 * 4 + 16))
+
+    def test_replace_mota(self):
+        old = motion.extend_mota(b'MOTA\x00\x01\x00\x00' + struct.pack('>II', 0x14, 0) + bytes(4), [b'a' * 8, b'b' * 4])
+        new = motion.replace_mota(old, [b'c' * 6])
+        e, offs = motion.mota_offsets(new)
+        self.assertEqual((e, len(offs), new[offs[0]:offs[0] + 6]), ('>', 1, b'c' * 6))
 
 
 if __name__ == '__main__':

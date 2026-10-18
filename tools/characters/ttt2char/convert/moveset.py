@@ -50,6 +50,13 @@ OWN_VOICE = {2: 0xE, 3: 0xA}
 # A win quote: TTT2's win poses play a tone of the fighter's se_Dwi bank with this property (value | tone); Tekken 7
 # plays its win quote by the pose's name. The donor's poses stay, with the animation of the quote at their tone.
 WIN_QUOTE_PROP, WIN_QUOTE_VALUE = 0x82F9, 0x0E003000
+# Tekken 7's tiger (or any other summoned model) plays an animation of its own: 0x828f = the animation's index. TTT2
+# plays an animation of a fighter's extra (OPT) bones from part 3 of its motion pack with 0x82de = 0x4000 + its
+# index there (0x82df does the same in win poses only, 0x82e0 under another condition: Devil Jin's wings); the added
+# fighter's tiger is such a set of bones (convert/tiger.py), so 0x828f becomes 0x82de where the converter knows the
+# tiger animation's index (opt_anims), else it is left out.
+TIGER_PROP = 0x828f
+OPT_ANIM_PROP, OPT_ANIM_BASE = 0x82de, 0x4000
 VALUE_KIND = {0x8331: 'reaction', 0x8332: 'reaction', 0x843c: 'throwcam', 0x843d: 'throwcam', 0x820b: 'projectile'}
 # Projectiles (Kazumi's tiger). Tekken 7 spawns one with five properties on the same frame: limb 0x820c, offsets
 # 0x820d/0x820e/0x820f, then 0x820b = the projectile's index. TTT2 has the same set at 0x8169 (limb; resets the
@@ -135,6 +142,8 @@ class Converter:
         for pid in (0x82f9, 0x82fb):                 # player / opponent sound
             self.known_sounds |= self.donor_sound[pid]
         self.voice = True               # the fighter has its own voice banks (convert/voice.py)
+        self.opt_anims = {}             # Tekken 7 tiger animation index -> its index in motion pack part 3
+        self.part3 = None               # the motion pack's part 3 (animations of extra bones), else the donor's
         # animations already in TTT2: the common motions and the donor's own pack
         o0 = motion.pack_items(donor_pack)[0][0]
         idx = anim_index([('common', common_motions, 0), ('donor', donor_pack, o0)])
@@ -182,6 +191,8 @@ class Converter:
         return None
 
     def map_prop(self, p):
+        if p == TIGER_PROP and self.opt_anims:
+            return OPT_ANIM_PROP
         if p in PROP_OVERRIDE:
             return PROP_OVERRIDE[p]
         if p in PROJ_PROPS:
@@ -336,6 +347,8 @@ class Converter:
         return self.extra_index[v]
 
     def conv_value(self, t7id, v):
+        if t7id == TIGER_PROP:
+            return OPT_ANIM_BASE + self.opt_anims[v] if v in self.opt_anims else None
         kind = VALUE_KIND.get(t7id)
         if kind == 'throwcam':
             return self.conv_throwcam(v)
@@ -796,6 +809,8 @@ class Converter:
         pk = self.donor_pack
         items = [pk[o:o + s] for o, s in motion.pack_items(pk)]
         items[0] = motion.extend_mota(items[0], self.new_anims)
+        if self.part3 is not None:
+            items[3] = motion.replace_mota(items[3], self.part3)
         return mb, motion.build_pack(items)
 
     def summary(self):

@@ -516,6 +516,27 @@ donor's) have their key lent to that place only while the chooser's
 functions run, and the chooser leaves out the customisation slots (made per
 fighter in a mode the added fighter is not in).
 
+**Its extra bones (Kazumi's tiger).** A skeleton's OPT list names extra
+bones (`cha:OPT<number>_<name>`); the fighter's spring file (`<code>.mop`,
+one 0x60-byte entry per bone number) swings them, and a bone in the list
+without an entry hangs under gravity. Some fighters' extra bones are
+animated: a move property (0x82de; 0x82df only in win poses, 0x82e0 under
+another condition) starts an animation of part 3 of the motion pack on the
+fighter's animator at player +7944 (value 0x4000 + index, frame at +16),
+and per-fighter code posts the channels into the bones' records (the model's
+bone container at +80, `sub_06A5C5FC` by bone number: a 144-byte record,
+the local transform first). Both the animator's clock (`sub_05BDC714`) and
+the posing (Devil Jin's wings: `sub_069D3184`, from the per-fighter
+dispatcher `sub_069D8B30`) are written for a few character ids only, and
+body animations' extra channels are taken by the same per-fighter code (at
+most 64; more make it write to address 0). The pack's tiger is extra bones
+600 on with a spring entry that keeps each still (Devil Jin's kind, flag 8),
+hidden 100 m below the floor in the bind pose; for the added fighter the
+port moves the clock of its part-3 animations and, after the dispatcher,
+writes each bone's local transform from the animation's raw channels
+(translation, rotation, scale per bone), the last frame putting the tiger
+back below the floor.
+
 **The importer** (`tools/characters/`, Python with numpy and Pillow) reads
 Tekken 7's pak files (version 3; every entry is flagged encrypted but
 stored plain) and its Unreal Engine 4.14 packages, the movesets the player
@@ -529,7 +550,11 @@ in both games but for byte order; requirement and property ids, hitbox
 codes and reactions are mapped through tables derived at import time by
 aligning Heihachi's moveset in both games; projectiles (Kazumi's tiger
 strikes) become TTT2 projectiles, which the same five properties spawn in
-both games (limb, three offsets, the projectile); mechanics TTT2 lacks (Rage
+both games (limb, three offsets, the projectile); a summoned model (her
+tiger, an actor of its own in Tekken 7) joins the skeleton as extra bones
+with its meshes, its animations (decoded from Unreal's variable-key
+compression) become part-3 animations and the moves that summon it play
+them; mechanics TTT2 lacks (Rage
 Arts and Drives, power crush armour) are left out, and Screw becomes Bound.
 The donor's intros and win poses stay (their camera animations end the
 intro and the win screen) and play the fighter's animations. The command

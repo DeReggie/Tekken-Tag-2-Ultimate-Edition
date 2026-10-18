@@ -8,10 +8,10 @@ import subprocess
 import time
 
 from . import InputError, pack
-from .convert import art, colours, idmaps, itemdb, model, movelist, moveset, voice
+from .convert import art, colours, idmaps, itemdb, model, movelist, moveset, tiger, voice
 from .tekken7 import tkmvst
 from .tekken7.pak import Paks
-from .ttt2 import motbin
+from .ttt2 import bone, motbin
 from .ttt2.archive import Archives, key_of
 from .ttt2.rpx import Rpx
 
@@ -119,6 +119,14 @@ def run(name, tekken7, movesets, game, out=None, log=print):
     step('model: %s' % d.NAME)
     nud, nut, bon, palettes = model.convert(paks, archives, d, log=lambda s: log('         ' + s.strip()))
     xml = itemdb.body_only(archives.read_name(d.DONOR + '.xml'))
+    part3, opt_anims, mop = None, {}, None
+    if getattr(d, 'TIGER', None):
+        step('tiger: its animations and its bones\' spring entries')
+        skel = bone.read(bon)
+        part3, opt_anims = tiger.animations(paks, d, skel, log=lambda s: log('         ' + s.strip()))
+        mop = tiger.spring_file(archives.read_name(d.DONOR + '.mop'),
+                                archives.read_name(tiger.SPRING_TEMPLATE[0] + '.mop'),
+                                sum(1 for n in skel['opt'] if n >= tiger.OPT_FIRST))
 
     step('pictures: %s\'s Tekken 7 pictures on the 2D screens' % d.NAME)
     try:
@@ -156,6 +164,7 @@ def run(name, tekken7, movesets, game, out=None, log=print):
                           archives.entry('data005', d.DONOR_ROW), motbin.read(archives.entry('data006', 13)),
                           archives.entry('data004', 0), maps, usage, d.ROW, d)
     c.win_tones = wins
+    c.opt_anims, c.part3 = opt_anims, part3
     c.run()
     moves, motions = c.write()
     for line in c.summary():
@@ -171,6 +180,8 @@ def run(name, tekken7, movesets, game, out=None, log=print):
     files.update(pictures)
     if mvl is not None:
         files['.mvl'] = mvl
+    if mop is not None:
+        files['.mop'] = mop
     if palettes:
         files['keys/%08x.bin' % colours.KEY_GRID] = palettes['grid']
         for key, which in ((colours.KEY_1P, 0), (colours.KEY_2P, 1)):

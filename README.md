@@ -210,9 +210,9 @@ Namco's assets: keep it to yourself and never upload or share it.** The
 importer refuses to write it inside this repository, and `.gitignore` keeps
 the games' file types out of commits.
 
-She has her own model with both players' colours, her moves (her tiger's
-hits without the tiger), voice, command list, and her pictures and name on
-the menus' screens and in fights. Left out for now: Rage Arts and Rage
+She has her own model with both players' colours, her moves (with her tiger
+in the moves that summon it), voice, command list, and her pictures and name
+on the menus' screens and in fights. Left out for now: Rage Arts and Rage
 Drives, power crush armour (those moves are there, without it), and Screw
 becomes Bound. One added fighter at a time; while she is installed she
 takes the place of a Fight Lab opponent (ZAKO A).
