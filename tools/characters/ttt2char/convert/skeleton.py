@@ -47,6 +47,20 @@ for s in 'RL':
                  ('HIZA_%s_jnt' % s, 'ASHI_%s_jnt' % s), ('ASHI_%s_jnt' % s, 'TSUMASAKI_%s_jnt' % s)]
 
 
+# the Tekken 7 joints this file names, by their lower-case names: some skeletons spell them otherwise (Gigas's
+# 'Base', 'HEAD'); canonical() gives the spelling used here
+T7_JOINTS = set(ANCHOR.values()) | set(FACE) | {
+    'Head', 'Head__offset', 'ATH_ornaments', 'Neck', 'Neck__offset', 'Neck_back__offset', 'Bero1_Joint_pos',
+    'Bero3_Joint', 'Spine2', 'Spine2__offset', 'Spine2up__offset', 'Spine1', 'Spine1__offset', 'Hip', 'Hip__offset',
+    'Hip_front__offset', 'BASE'}
+_CANONICAL = {n.lower(): n for n in T7_JOINTS}
+
+
+def canonical(name):
+    """A Tekken 7 joint's name as this file spells it (unknown names as they are)."""
+    return _CANONICAL.get(name.lower(), name)
+
+
 def _strip(n):
     return n[4:] if n.startswith('cha:') else n
 
@@ -119,8 +133,9 @@ def weight_map(t7bones, ttt2names, part_of_bone=None):
         j, k = i, None
         while j >= 0:
             k = t7_weight_target(t7bones['names'][j], part_of_bone(i) if part_of_bone else None)
-            if k is not None:
+            if k is not None and k in idx:      # (a bone the donor lacks, e.g. a male donor's busts: its parent's)
                 break
+            k = None
             j = t7bones['parents'][j]
         out[i] = idx[k] if k is not None else idx['KOSHI_jnt']
         via[i] = (t7bones['names'][j] if j >= 0 else None, k)

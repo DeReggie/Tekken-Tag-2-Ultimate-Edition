@@ -64,8 +64,11 @@ struct Target {
     uint32_t pitch = 0;     // elements
     uint32_t height = 0;    // aligned rows
     uint32_t tile_mode = 0;
+    uint32_t base_reg = 0;  // its address register (address >> 8, the bank/pipe swizzle included)
     bool depth = false;
     uint32_t scale = 1;     // image size over the title's size
+    bool write_back = false; // copied to guest memory after the GPU writes it (see Renderer::retired)
+    bool write_back_queued = false;
     Image image;
     uint64_t written = 0;   // event stamp of the last GPU write
     uint64_t overwritten = 0; // event stamp of the last CPU write to its memory
@@ -138,6 +141,7 @@ public:
     void begin_replay(uint32_t n) override;
     void end_replay() override;
     void frame_shown() override;
+    void retired(uint64_t value) override;
 
 private:
     // ----------------------------------------------------- commands (renderer.cpp)
@@ -168,6 +172,25 @@ private:
     void copy_target_region(const Target& src, const Image& dst, uint32_t dst_scale, uint32_t dst_layer,
                             uint32_t width, uint32_t height);
     bool upscaled_size(uint32_t width, uint32_t height) const;
+    // Write-back: on the console the GPU renders into guest memory, and the
+    // title reads some targets with the CPU (the exposure of some stages:
+    // the scene's average colour, rendered to one element of a 64x64
+    // target and read two frames later). Small targets at the title's size
+    // are copied to staging memory at the end of each submission that
+    // wrote them and tiled into guest memory once it finished (retired).
+    static constexpr uint64_t kWriteBackBytes = 64u << 10;
+    void queue_write_back(Target* t);
+    void copy_write_backs();
+    struct WriteBack {
+        uint64_t value;     // submission that copies it to staging
+        uint32_t staging;   // index in write_back_staging_
+        uint32_t address, base_reg, tile_mode, bpp, pitch, height;
+    };
+    std::vector<Target*> write_back_targets_; // written since the last submission
+    std::mutex write_back_mutex_;             // the members below: the retirement thread uses them too
+    std::deque<WriteBack> write_backs_;
+    std::vector<Buffer> write_back_staging_;
+    std::vector<uint32_t> write_back_free_;
 
     // ----------------------------------------------- textures (textures.cpp)
     Texture* texture(const uint32_t words[7]);

@@ -23,7 +23,7 @@ import numpy as np
 from ..tekken7 import anim, mesh as t7mesh
 from ..tekken7.uasset import load
 from ..ttt2 import bone
-from . import model as M
+from . import model as M, skeleton
 
 OPT_FIRST = 600                     # the first extra bone's number (cha:OPT600_..)
 HIDE_Y = -100000.0                  # mm: where the tiger waits, below the floor
@@ -120,9 +120,9 @@ def animations(paks, d, skel, log=print):
     order = []                                  # the Tekken 7 bone of each tiger bone (names may be cut short)
     for full in skel['names'][first:]:
         name = full.split('_', 1)[1]
-        match = [t for t, n in enumerate(sk['names']) if n == name]
+        match = [t for t, n in enumerate(sk['names']) if skeleton.canonical(n) == name]   # (as model.py spells it)
         if not match and len(full) == NAME_LENGTH:
-            match = [t for t, n in enumerate(sk['names']) if n.startswith(name)]
+            match = [t for t, n in enumerate(sk['names']) if skeleton.canonical(n).startswith(name)]
         if len(match) != 1:
             raise ValueError('tiger bone %s is not one bone of the Tekken 7 skeleton' % full)
         order.append(match[0])

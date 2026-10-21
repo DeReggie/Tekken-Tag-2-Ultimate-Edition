@@ -71,7 +71,8 @@ class Bank:
         return o is not None and o[0] == 4
 
     def event_media(self, name):
-        """The ids of the embedded media an event plays (its Play actions' sounds), in order."""
+        """The ids of the embedded media an event plays (its Play actions' sounds, through containers), in
+        order. Other actions (Stop: the battle bank's name calls also stop a shared announcer line) are left out."""
         kind, body = self.objects.get(fnv(name), (None, None))
         if kind != 4:
             raise KeyError(name)
@@ -81,12 +82,39 @@ class Bank:
             akind, abody = self.objects.get(aid, (None, b''))
             if akind != 3:
                 continue
-            _, target = struct.unpack_from('<HI', abody, 0)
-            skind, sbody = self.objects.get(target, (None, b''))
-            if skind == 2:
-                _, stream, media, _ = struct.unpack_from('<IBII', sbody, 0)
-                if media in self.media:
+            atype, target = struct.unpack_from('<HI', abody, 0)
+            if atype & 0xFF00 not in (0x0400, 0x0500):    # Play, Play and continue
+                continue
+            for media in self._media_of(target):
+                if media not in out:
                     out.append(media)
+        return out
+
+    def _media_of(self, oid, depth=0):
+        """The embedded media of a sound, or of a container's children: a switch container (type 6) by its
+        "Overseas" state where it has one (Tekken 7's language switch: Akuma's name is "Gouki" in Japanese), a
+        random or sequence container (type 5) all of them."""
+        kind, body = self.objects.get(oid, (None, b''))
+        if kind == 2:
+            _, stream, media, _ = struct.unpack_from('<IBII', body, 0)
+            return [media] if media in self.media else []
+        if kind not in (5, 6) or depth > 4:
+            return []
+        children = []
+        if kind == 6:
+            at = body.find(struct.pack('<I', fnv('Overseas')))
+            if at >= 0 and at + 8 <= len(body):
+                count, = struct.unpack_from('<I', body, at + 4)
+                if count < 64 and at + 8 + 4 * count <= len(body):
+                    children = list(struct.unpack_from('<%dI' % count, body, at + 8))
+        if not children:                              # the children: the ids of objects in the body, in order
+            for off in range(len(body) - 3):
+                v, = struct.unpack_from('<I', body, off)
+                if v != oid and v not in children and self.objects.get(v, (None,))[0] in (2, 5, 6):
+                    children.append(v)
+        out = []
+        for c in children:
+            out += self._media_of(c, depth + 1)
         return out
 
 

@@ -2,20 +2,22 @@
 import collections
 import glob
 import importlib
+import json
 import os
 import struct
 import subprocess
 import time
 
-from . import InputError, pack
-from .convert import art, colours, idmaps, itemdb, model, movelist, moveset, tiger, voice
+from . import InputError, pack, shared
+from .convert import art, chains, effects as fx, idmaps, itemdb, model, movelist, moveset, tiger, voice, weapons
 from .tekken7 import tkmvst
 from .tekken7.pak import Paks
 from .ttt2 import bone, motbin
 from .ttt2.archive import Archives, key_of
 from .ttt2.rpx import Rpx
 
-CHARACTERS = ('kazumi',)
+CHARACTERS = ('kazumi', 'chloe', 'eliza', 'claudio', 'akuma', 'gigas', 'josie', 'katarina', 'master_raven', 'shaheen',
+              'fahkumram', 'leroy', 'lidia', 'kunimitsu2', 'negan')
 HEIHACHI = 8          # Tekken 7's roster id of Heihachi Mishima, the fighter both games share (for the id maps)
 REPOSITORY = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
 
@@ -52,17 +54,23 @@ def ttt2_folder(folder):
     return folder
 
 
-def find_movesets(folder, d):
-    """{Tekken 7 roster id: path} of the fighter's and Heihachi's .tkmvst files in `folder`."""
-    if not folder or not os.path.isdir(folder):
-        raise InputError('--movesets must be the folder with the .tkmvst files. ' + TKMOVESETS_HELP % d.NAME)
+def saved_movesets(folder):
+    """{Tekken 7 roster id: path} of the .tkmvst files in `folder` (none if it does not exist)."""
     found = {}
-    for path in sorted(glob.glob(os.path.join(folder, '*.tkmvst'))):
+    for path in sorted(glob.glob(os.path.join(folder, '*.tkmvst'))) if folder and os.path.isdir(folder) else []:
         with open(path, 'rb') as f:
             head = f.read(0xF0)
         if len(head) < 0xF0 or head[:4] != b'TKM2' or not head[0x90:0xB0].startswith(b'Tekken 7'):
             continue
         found.setdefault(struct.unpack_from('<I', head, 0x80)[0], path)
+    return found
+
+
+def find_movesets(folder, d):
+    """The fighter's and Heihachi's .tkmvst files in `folder`."""
+    if not folder or not os.path.isdir(folder):
+        raise InputError('--movesets must be the folder with the .tkmvst files. ' + TKMOVESETS_HELP % d.NAME)
+    found = saved_movesets(folder)
     missing = [who for who, i in ((d.NAME, d.TEKKEN7_ID), ('Heihachi', HEIHACHI)) if i not in found]
     if missing:
         raise InputError('%s has no Tekken 7 moveset of %s. ' % (folder, ' and '.join(missing))
@@ -91,8 +99,9 @@ def git_ignores(folder):
         return False
 
 
-def run(name, tekken7, movesets, game, out=None, log=print):
-    """Imports fighter `name`; returns the pack's folder."""
+def run(name, tekken7, movesets, game, out=None, log=print, make_shared=True):
+    """Imports fighter `name`; returns the pack's folder. make_shared: also remake what the packs share (shared/; an
+    import of several fighters makes it once, after the last)."""
     d = definition(name)
     paks_dir = tekken7_paks(tekken7)
     own, heihachi = find_movesets(movesets, d)
@@ -116,9 +125,23 @@ def run(name, tekken7, movesets, game, out=None, log=print):
     if not archives.has(key_of(d.DONOR + '.xml')):
         raise InputError('%s has no %s files: is it the Wii U game\'s folder?' % (game, d.DONOR))
 
-    step('model: %s' % d.NAME)
-    nud, nut, bon, palettes = model.convert(paks, archives, d, log=lambda s: log('         ' + s.strip()))
-    xml = itemdb.body_only(archives.read_name(d.DONOR + '.xml'))
+    slot = pack.choose_slot(out, d.CODE)
+    if slot is None:
+        raise InputError('the game has room for %d added fighters and %s holds them already: delete one\'s folder '
+                         'first' % (pack.MAX_FIGHTERS, out))
+    place = pack.place(slot)
+    try:
+        rpx = Rpx.of_game(game)
+    except (OSError, ValueError) as error:
+        raise InputError('cannot read the game\'s executable in %s (%s): install the game again with ttt2 --install'
+                         % (game, error))
+
+    step('model: %s (place %d)' % (d.NAME, slot))
+    nud, nut, bon, palettes = model.convert(paks, archives, d, slot, log=lambda s: log('         ' + s.strip()))
+    donor_xml = archives.read_name(d.DONOR + '.xml')
+    effect_files, effects, _ = fx.copy_files(archives, d.DONOR, itemdb.effect_names(donor_xml),
+                                             getattr(d, 'EFFECTS', {}), log=lambda s: log('         ' + s))
+    xml = itemdb.body_only(donor_xml, effects)
     part3, opt_anims, mop = None, {}, None
     if getattr(d, 'TIGER', None):
         step('tiger: its animations and its bones\' spring entries')
@@ -126,26 +149,35 @@ def run(name, tekken7, movesets, game, out=None, log=print):
         part3, opt_anims = tiger.animations(paks, d, skel, log=lambda s: log('         ' + s.strip()))
         mop = tiger.spring_file(archives.read_name(d.DONOR + '.mop'),
                                 archives.read_name(tiger.SPRING_TEMPLATE[0] + '.mop'),
-                                sum(1 for n in skel['opt'] if n >= tiger.OPT_FIRST))
+                                sum(1 for n in skel['opt'] if tiger.OPT_FIRST <= n < weapons.OPT_FIRST))
+    swinging = [n for n in bone.read(bon)['opt'] if chains.OPT_FIRST <= n < tiger.OPT_FIRST]
+    if swinging:
+        template = archives.read_name(chains.SPRING_TEMPLATE[0] + '.mop')
+        donor_mop = archives.read_name(d.DONOR + '.mop') if archives.has(key_of(d.DONOR + '.mop')) else None
+        mop = chains.spring_file(mop or donor_mop or chains.empty_spring_file(template), template, swinging)
+    still = [n for n in bone.read(bon)['opt'] if n >= weapons.OPT_FIRST]
+    if still:                                     # weapons: still extra bones (Devil Jin's wing entry, flag 8)
+        template = archives.read_name(tiger.SPRING_TEMPLATE[0] + '.mop')
+        donor_mop = archives.read_name(d.DONOR + '.mop') if archives.has(key_of(d.DONOR + '.mop')) else None
+        mop = chains.spring_file(mop or donor_mop or chains.empty_spring_file(template), template, still,
+                                 template=tiger.SPRING_TEMPLATE[1], links=False)
 
-    step('pictures: %s\'s Tekken 7 pictures on the 2D screens' % d.NAME)
-    try:
-        pictures = art.build(paks, archives, Rpx.of_game(game), d, log=lambda s: log('         ' + s))
-    except (OSError, ValueError) as error:
-        raise InputError('cannot read the game\'s executable in %s (%s): install the game again with ttt2 --install'
-                         % (game, error))
+    step('pictures: %s\'s Tekken 7 pictures for the loading and VS screens and the costume chooser' % d.NAME)
+    pictures = art.pack_files(paks, archives, rpx, d, slot, log=lambda s: log('         ' + s))
 
     step('voice: %s\'s Tekken 7 voice in %s\'s sound banks' % (d.NAME, d.DONOR))
     try:
         clips = voice.Clips(paks, d.TEKKEN7_CODE, d.VOICE_PREFIX)
-        banks, lines, wins = voice.build(clips, {w: archives.raw(key_of('%s_%s.nus3bank' % (w, d.DONOR)))
-                                                 for w in ('se_Chr', 'se_Dwi', 'rm_Dst', 'rm_Dwi')}, d.CODE)
-        select = voice.name_call(clips, archives.raw(key_of(voice.SELECT_BANK)), d.DONOR, d.CODE)
-        if select is not None:
-            banks['keys/%08x.bin' % key_of(voice.SELECT_BANK)] = select
-            lines.append('the announcer\'s call of her name on the select screen')
+        vlist = voice.voice_list(rpx, d.DONOR)
+        banks, lines, wins, voice_extra = voice.build(
+            clips, {w: archives.raw(key_of('%s_%s.nus3bank' % (w, d.DONOR))) for w in ('se_Chr', 'se_Dwi', 'rm_Dst',
+                                                                                     'rm_Dwi')}, d.CODE, vlist, slot)
     except KeyError as error:
         raise InputError('%s has no %s voice files (%s): is it the Wii U game\'s folder?' % (game, d.DONOR, error))
+    merged, chr_tones = voice.merge(banks.pop('se_Chr_%s.nus3bank' % d.CODE), banks.pop('se_Dwi_%s.nus3bank' % d.CODE))
+    banks['se_Chr_%s.nus3bank' % d.CODE] = merged
+    lines.append('se_Chr_%s: with se_Dwi_%s\'s tones after its %d (one bank in a match), %d KB'
+                 % (d.CODE, d.CODE, chr_tones, len(merged) // 1024))
     for line in lines:
         log('         ' + line)
 
@@ -162,9 +194,12 @@ def run(name, tekken7, movesets, game, out=None, log=print):
     step('moveset: converting')
     c = moveset.Converter(k, h7, motbin.read(archives.entry('data006', d.DONOR_ROW)),
                           archives.entry('data005', d.DONOR_ROW), motbin.read(archives.entry('data006', 13)),
-                          archives.entry('data004', 0), maps, usage, d.ROW, d)
+                          archives.entry('data004', 0), maps, usage, place['row'], d)
     c.win_tones = wins
+    c.shouts = sum(1 for mask, _ in vlist if mask & voice.KIAI) + len(voice_extra)
     c.opt_anims, c.part3 = opt_anims, part3
+    c.hit_locations = dict(getattr(d, 'HIT_LOCATIONS', {}))     # Tekken 7 hit locations TTT2 numbers otherwise
+    c.hit_locations.update(weapons.points_of(bone.read(bon)['names']))         # ... and its weapons' points
     c.run()
     moves, motions = c.write()
     for line in c.summary():
@@ -178,16 +213,25 @@ def run(name, tekken7, movesets, game, out=None, log=print):
     files = {'.xml': xml, '.nud': nud, '.nut': nut, '.bon': bon, '.moveset': moves, '.motion': motions}
     files.update(banks)
     files.update(pictures)
+    files.update(effect_files)
     if mvl is not None:
         files['.mvl'] = mvl
     if mop is not None:
         files['.mop'] = mop
     if palettes:
-        files['keys/%08x.bin' % colours.KEY_GRID] = palettes['grid']
-        for key, which in ((colours.KEY_1P, 0), (colours.KEY_2P, 1)):
-            text = archives.read(key).decode('utf-8')
-            files['keys/%08x.bin' % key] = colours.palette_xml(
-                text, pack.SELECT_ID, {nn: v[which] for nn, v in palettes['entries'].items()}).encode('utf-8')
-    target = pack.write(out, d, files)
+        files['colours.json'] = json.dumps({str(nn): v for nn, v in sorted(palettes.items())}).encode('utf-8')
+    target = pack.write(out, d, files, slot, chr_tones=chr_tones, voice_extra=voice_extra,
+                        weapons=weapons.of_skeleton(bone.read(bon)))
     step('wrote %s' % target)
+
+    if not make_shared:
+        return target
+    step('what the added fighters share: their pictures in the title\'s screens, colours and name calls')
+    known = {}
+    for name in CHARACTERS:
+        other = definition(name)
+        known[other.CODE] = other
+    together = shared.build(paks, archives, rpx, out, known, log=lambda s: log('         ' + s))
+    step('wrote %s for %s' % (os.path.join(out, pack.SHARED), ', '.join('%s (place %d)' % (f[1].NAME, f[0])
+                                                                       for f in together)))
     return target

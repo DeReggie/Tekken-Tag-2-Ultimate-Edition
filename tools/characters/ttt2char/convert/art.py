@@ -1,4 +1,4 @@
-"""The added fighter's pictures and name on TTT2's 2D screens, made from its Tekken 7 UI pictures.
+"""The added fighters' pictures and names on TTT2's 2D screens, made from their Tekken 7 UI pictures.
 
 TTT2 shows a fighter's pictures in three ways, all by its UI position (its row in tables of 59):
 * labels of sprites in the 2D layouts (LMB, data007): a per-fighter sprite has one label per fighter
@@ -17,8 +17,11 @@ them share), the background (their darkest, most transparent pixels) and the are
 Tekken 7 picture is scaled and placed so that its face sits where faces sit in that kind of picture, cut to that
 area, laid over the background, under the frame.
 
-Layouts and their texture containers are written whole into the pack for the layouts (`keys/<key>.bin`); the new
-texture pages go into `keys/<container key>.add`, which the port appends to the title's container.
+What every added fighter shares (layouts, the big portraits' container, the HUD's pictures) is made for all of them
+together, in the order of their places (shared_files, for shared/): layouts and the container whole
+(`keys/<key>.bin`); the new texture pages go into `keys/<container key>.add`, which the port appends to the title's
+container. What is a fighter's own (the loading and VS screens' portraits, the costume chooser's picture) goes into
+its pack (pack_files).
 
 Nothing of either game is in this file: it reads the player's files.
 """
@@ -30,13 +33,17 @@ from PIL import Image
 
 from ..tekken7.texture import Texture2D
 from ..tekken7.uasset import load
+from ..pack import place
 from ..ttt2 import lmb, nut
 from ..ttt2.archive import key_of
 
 PAUL = 'pau'                      # UI position 0: the runtime shows the added fighter in Paul's place
 LAYOUTS = 'data007'               # the 2D layouts (LMB), each followed by its texture container (NTP3)
-# The select grids' new cell (roster.cpp kCell): above the fighter `below`, in the row of the fighter `beside`.
-GRID_BELOW, GRID_BESIDE = 'edd', 'vio'
+# The select grids' new cells (roster.cpp kCells, pack.place): at a fighter's panel (`anchor`) moved some columns
+# over (the columns' pitch: between the panels of PITCH_FROM), in the top row (the height of GRID_BESIDE's panel) or
+# the anchor's own row.
+GRID_BESIDE = 'vio'
+PITCH_FROM = ('rog', 'rav')       # grid row 1, columns 0 and 1
 # Labels whose pictures the game puts in itself (the big portraits' frames): copied, not drawn; they end on
 # the fighter's name, which is drawn.
 GAME_DRAWN = re.compile(r'^p[12]_chara_waku_$')
@@ -398,8 +405,9 @@ def code_label(label, code):
 class Layout:
     """One LMB layout and its texture container, with the fighter's labels and pictures added."""
 
-    def __init__(self, lm, textures, sources, code, codes):
+    def __init__(self, lm, textures, sources, code, codes, cell):
         self.lm, self.textures, self.sources, self.code, self.codes = lm, textures, sources, code, codes
+        self.cell = cell              # the new grid cell: pack.place's dict (anchor, columns, grid_row)
         self.atlases = {t['gidx']: t for t in textures['textures']}
         self.decoded = {}
         self.new = []                  # (shape id, Paul's shape, picture): pictures waiting for a page
@@ -521,9 +529,10 @@ class Layout:
     # -- the select grid's new cell
     def add_cell(self):
         lm = self.lm
-        below = lm.find_named('face_panel_' + GRID_BELOW)
+        below = lm.find_named('face_panel_' + self.cell['anchor'])
         beside = lm.find_named('face_panel_' + GRID_BESIDE)
-        if not below or not beside or lm.find_named('face_panel_' + self.code):
+        pitch = [lm.find_named('face_panel_' + c) for c in PITCH_FROM]
+        if not below or not beside or not all(pitch) or lm.find_named('face_panel_' + self.code):
             return
         grid, _, place = below[0]
         panel = lm.char(place.char)
@@ -548,19 +557,26 @@ class Layout:
                   and c.name and lm.symbols[c.name].startswith('face_panel_')]
         depth = max(panels) + 1
         lm.insert_depth(grid, depth)
+        xs = [lm.matrices[p[0][2].posid][4] if p[0][2].posflags == lmb.POS_MATRIX else None for p in pitch]
         top = lm.matrices[beside[0][2].posid][5] if beside[0][2].posflags == lmb.POS_MATRIX else None
-        if top is None:
+        if top is None or None in xs:
             return
+        dx = (xs[1] - xs[0]) * self.cell['columns']
+        in_top = self.cell['grid_row'] == 0
 
-        def to_top(m):
-            m[5] = top
+        def to_cell(m):
+            m[4] += dx
+            if in_top:
+                m[5] = top
             return m
 
-        def to_top_position(p):
-            p[1] = top
+        def to_cell_position(p):
+            p[0] += dx
+            if in_top:
+                p[1] = top
             return p
         lm.clone_depth(grid, place.depth, depth, char=sid, name='face_panel_' + self.code,
-                       matrix_fn=to_top, position_fn=to_top_position)
+                       matrix_fn=to_cell, position_fn=to_cell_position)
         self.changed = True
 
     def panel_pictures(self):
@@ -623,25 +639,6 @@ class Layout:
             sv = (v - v0) / (v1 - v0) if v1 > v0 else 0.0
             verts.append([x, y, nu0 + su * (nu1 - nu0), nv0 + sv * (nv1 - nv0)])
         return lmb.Graphic(None, verts, list(g.indices), g.fill)
-
-
-def edit_layout(lmb_bytes, ntp3_bytes, sources, code, codes):
-    """-> (LMB bytes, NTP3 of the new pages) or None when the layout has no fighter pictures."""
-    lm = lmb.Lmb.read(lmb_bytes)
-    if not any(code_label(s, code) for s in lm.symbols) and 'face_panel_' + GRID_BELOW not in lm.symbols:
-        return None
-    layout = Layout(lm, nut.read(ntp3_bytes), sources, code, codes)
-    layout.add_labels()
-    layout.add_cell()
-    if not layout.changed:
-        return None
-    pages = layout.pages()
-    for tex in pages:
-        for shape in lm.shapes():
-            for g in shape.graphics:
-                if g.atlas is None:
-                    g.atlas = tex['gidx']
-    return lm.write(), (nut.write(pages) if pages else None)
 
 
 # ------------------------------------------------------------------------------------------------ portraits
@@ -742,7 +739,7 @@ def cut_out(img):
     return out[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
 
 
-def costume_previews(paks, archives, rpx, d):
+def costume_previews(paks, archives, rpx, d, slot):
     """The chooser's container for the fighter: one picture, its costume (NTP3 bytes), or None."""
     path = d.ART.get('costume') if hasattr(d, 'ART') else None
     if not path:
@@ -779,7 +776,7 @@ def costume_previews(paks, archives, rpx, d):
     put(reflection, left, top + height)
     put(small, left, top)
     texture = like_texture(like, out)
-    texture['gidx'] = max(t['gidx'] for t in textures) + 1    # a texture id no other costume picture has
+    texture['gidx'] = max(t['gidx'] for t in textures) + 1 + slot    # an id no other costume picture has
     texture.pop('ext', None)
     return nut.write([texture])
 
@@ -787,17 +784,23 @@ def costume_previews(paks, archives, rpx, d):
 # ------------------------------------------------------------------------------------------------ build
 
 def hud_textures(sources, archives):
-    """The fighter's HUD name and faces, as textures to add to the HUD's container (NTP3 bytes)."""
+    """The added fighters' HUD names and faces, as textures to add to the HUD's container (NTP3 bytes): three per
+    place up to the last one with a fighter (sources: {slot: Sources}; an empty place gets Paul's)."""
     textures = nut.read(archives.read(HUD))['textures']
-    name_tex = textures[HUD_PAUL[0]]
-    name = sources.title_name(name_tex['w'], name_tex['h'])
-    if name.shape[1] % 4:
-        name = np.concatenate([name, np.zeros((name.shape[0], 4 - name.shape[1] % 4, 4), np.float32)], 1)
-    pictures = [name]
-    for player, first in enumerate(HUD_PAUL[1:]):
-        others = np.stack([_float(nut.decode(textures[first + ui])) for ui in range(UI_ROWS)])
-        h, w = others.shape[1:3]
-        pictures.append(compose(others, sources.framed(FACE_HUD, w, h, mirror=player == 1)))
+    pictures = []
+    for slot in range(max(sources) + 1):
+        if slot not in sources:
+            pictures += [_float(nut.decode(textures[n])) for n in HUD_PAUL]
+            continue
+        name_tex = textures[HUD_PAUL[0]]
+        name = sources[slot].title_name(name_tex['w'], name_tex['h'])
+        if name.shape[1] % 4:
+            name = np.concatenate([name, np.zeros((name.shape[0], 4 - name.shape[1] % 4, 4), np.float32)], 1)
+        pictures.append(name)
+        for player, first in enumerate(HUD_PAUL[1:]):
+            others = np.stack([_float(nut.decode(textures[first + ui])) for ui in range(UI_ROWS)])
+            h, w = others.shape[1:3]
+            pictures.append(compose(others, sources[slot].framed(FACE_HUD, w, h, mirror=player == 1)))
     return nut.write([nut.make_texture(_uint8(p), len(textures) + 1 + i, fmt=2, mips=1)
                       for i, p in enumerate(pictures)])
 
@@ -821,11 +824,27 @@ def codes_in(lm):
     return found
 
 
-def build(paks, archives, rpx, d, log=None):
-    """The pack's files for the fighter's pictures: {file name: bytes}. rpx: the title's executable (ttt2.rpx)."""
+def pack_files(paks, archives, rpx, d, slot, log=None):
+    """The fighter's own pictures for its pack: the loading and VS screens' portraits and the costume chooser's
+    picture. -> {file name: bytes}."""
     sources = Sources(paks, d)
+    files = portrait_files(sources, archives, rpx)
+    costumes = costume_previews(paks, archives, rpx, d, slot)
+    if costumes is not None:
+        files[COSTUME_FILE] = costumes
+    if log:
+        log('%d loading and VS screen portraits%s' % (
+            len(files) - (costumes is not None), '; the costume chooser\'s picture' if costumes is not None else ''))
+    return files
+
+
+def shared_files(paks, archives, rpx, fighters, log=None):
+    """What the added fighters share, for fighters [(slot, definition)]: the 2D layouts with every fighter's labels
+    and grid cell, the big portraits' container with two frames per place, the HUD's pictures by place.
+    -> {file name: bytes}. rpx: the title's executable (ttt2.rpx)."""
+    fighters = sorted(fighters, key=lambda f: f[0])
     files = {}
-    # the fighters' codes: from every layout's labels `face_<code>` and `face_panel_<code>`
+    # the game's fighters' codes: from every layout's labels `face_<code>` and `face_panel_<code>`
     entries = layout_entries(archives)
     blobs = {}
     codes = set()
@@ -835,23 +854,29 @@ def build(paks, archives, rpx, d, log=None):
             continue
         blobs[i] = data
         codes |= codes_in(lmb.Lmb.read(data))
-    codes.discard(d.CODE)
+    codes -= {d.CODE for _, d in fighters}
     codes = [PAUL] + sorted(codes - {PAUL})
-    # the fighter's name in the title's lettering, learnt from the select screen's names
-    sources.short_name = getattr(d, 'SHORT_NAME', d.NAME.split()[0].upper())
-    sources.letters = None
+    sources = {}
+    for slot, d in fighters:
+        sources[slot] = Sources(paks, d)
+        sources[slot].short_name = getattr(d, 'SHORT_NAME', d.NAME.split()[0].upper())
+    # the fighters' names in the title's lettering, learnt from the select screen's names
+    letters = None
     for i, key, tkey in entries:
         if i in blobs and b'p1_chara_waku_' + PAUL.encode() in blobs[i]:
             nxt = archives.entry(LAYOUTS, i + 1)
             if nxt[:4] == b'NTP3':
-                sources.letters = Letters.of_layout(Layout(lmb.Lmb.read(blobs[i]), nut.read(nxt), sources, d.CODE,
-                                                           codes))
-            if sources.letters is not None:
+                any_sources = sources[fighters[0][0]]
+                letters = Letters.of_layout(Layout(lmb.Lmb.read(blobs[i]), nut.read(nxt), any_sources, PAUL, codes,
+                                                   place(0)))
+            if letters is not None:
                 break
-    if log:
-        made = sources.letters.picture(sources.short_name) if sources.letters else None
-        log('the name in the title\'s letters: %s' % ('%d x %d' % made.shape[1::-1] if made is not None
-                                                       else 'no (her Tekken 7 name picture instead)'))
+    for slot, d in fighters:
+        sources[slot].letters = letters
+        if log:
+            made = letters.picture(sources[slot].short_name) if letters else None
+            log('%s in the title\'s letters: %s' % (d.NAME, '%d x %d' % made.shape[1::-1] if made is not None
+                                                   else 'no (the Tekken 7 name picture instead)'))
     count = 0
     for i, key, tkey in entries:
         if i not in blobs:
@@ -859,28 +884,46 @@ def build(paks, archives, rpx, d, log=None):
         nxt = archives.entry(LAYOUTS, i + 1)
         if nxt[:4] != b'NTP3':
             continue
-        done = edit_layout(blobs[i], nxt, sources, d.CODE, codes)
-        if done is None:
+        lm = lmb.Lmb.read(blobs[i])
+        textures = nut.read(nxt)
+        pages, changed = [], False
+        for slot, d in fighters:
+            cell = place(slot)
+            if cell['anchor'] is None:
+                continue                          # no cell left in the grid
+            if not any(code_label(s, d.CODE) for s in lm.symbols) and 'face_panel_' + cell['anchor'] not in lm.symbols:
+                continue
+            layout = Layout(lm, textures, sources[slot], d.CODE, codes, cell)
+            layout.add_labels()
+            layout.add_cell()
+            if not layout.changed:
+                continue
+            changed = True
+            new = layout.pages()
+            for tex in new:
+                for shape in lm.shapes():
+                    for g in shape.graphics:
+                        if g.atlas is None:
+                            g.atlas = tex['gidx']
+            pages += new
+        if not changed:
             continue
-        files['keys/%08x.bin' % key] = done[0]
-        if done[1] is not None:
-            files['keys/%08x.add' % tkey] = done[1]
+        files['keys/%08x.bin' % key] = lm.write()
+        if pages:
+            files['keys/%08x.add' % tkey] = nut.write(pages)
         count += 1
-    if log:
-        log('pictures in %d layouts' % count)
-    # the big portraits: the container's two new frames, and the loading screens' textures
+    # the big portraits: two frames per place (Paul's for a place with no fighter)
     cont = archives.read(PORTRAITS)
     frames = container_frames(cont)
     pics = np.stack([_texture_picture(cont[o:o + s]) for o, s in frames])
-    new = [_one_texture(portrait(sources, pics[p::2], p == 1)) for p in (0, 1)]
+    new = []
+    for slot in range(max(sources) + 1):
+        if slot in sources:
+            new += [_one_texture(portrait(sources[slot], pics[p::2], p == 1)) for p in (0, 1)]
+        else:
+            new += [cont[o:o + s] for o, s in frames[:2]]
     files['keys/%08x.bin' % PORTRAITS] = with_frames(cont, new)
-    portraits = portrait_files(sources, archives, rpx)
-    files.update(portraits)
     files['keys/%08x.add' % HUD] = hud_textures(sources, archives)
-    costumes = costume_previews(paks, archives, rpx, d)
-    if costumes is not None:
-        files[COSTUME_FILE] = costumes
     if log:
-        log('the big select portraits; %d loading and VS screen portraits; the name and faces in fights%s'
-            % (len(portraits), '; the costume chooser\'s picture' if costumes is not None else ''))
+        log('pictures in %d layouts; the big select portraits; the names and faces in fights' % count)
     return files

@@ -7,6 +7,7 @@
 #include <SDL3/SDL_vulkan.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -95,6 +96,34 @@ Controller kind_of(SDL_JoystickID id) {
     }
 }
 
+// The keyboard, as the window's key events tell it. Steam controllers also
+// type (Steam's desktop layout, or the controller's own keyboard mode: A is
+// Enter, which is the Wii U's Plus here, opening the pause menu while the
+// same press is the gamepad's button): keys from a keyboard whose name says
+// it is a controller's are left out.
+std::array<bool, SDL_SCANCODE_COUNT> g_keys{};
+
+bool controller_keyboard(SDL_KeyboardID id) {
+    const char* name = id ? SDL_GetKeyboardNameForID(id) : nullptr;
+    if (name == nullptr) return false;
+    const std::string n = name;
+    return n.find("Steam Controller") != std::string::npos || n.find("Steam Deck") != std::string::npos ||
+           n.find("Valve Software") != std::string::npos;
+}
+
+void note_key(const SDL_Event& event) {
+    switch (event.type) {
+    case SDL_EVENT_KEY_DOWN:
+    case SDL_EVENT_KEY_UP:
+        if (event.key.scancode < SDL_SCANCODE_COUNT && !controller_keyboard(event.key.which)) {
+            g_keys[event.key.scancode] = event.type == SDL_EVENT_KEY_DOWN;
+        }
+        break;
+    case SDL_EVENT_WINDOW_FOCUS_LOST: g_keys.fill(false); break;
+    default: break;
+    }
+}
+
 void set_controller(Controller kind) {
     if (g_controller_fixed || g_controller.exchange(kind) == kind) return;
     if (g_controller_callback) g_controller_callback(kind);
@@ -118,6 +147,7 @@ void note_controller(const SDL_Event& event) {
         }
         break;
     case SDL_EVENT_KEY_DOWN:
+        if (controller_keyboard(event.key.which)) break;
         g_controller_used = true;
         set_controller(Controller::kOther);
         break;
@@ -132,7 +162,7 @@ float axis(SDL_Gamepad* pad, SDL_GamepadAxis a) {
 
 void update_input() {
     os::GamepadState state{};
-    const bool* keys = SDL_GetKeyboardState(nullptr);
+    const auto& keys = g_keys;
     for (const Key& k : kKeys) {
         if (keys[k.scancode]) state.buttons |= k.button;
     }
@@ -233,6 +263,7 @@ bool run_event_loop(const std::function<bool()>& finished) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             note_controller(event);
+            note_key(event);
             switch (event.type) {
             case SDL_EVENT_QUIT:
             case SDL_EVENT_WINDOW_CLOSE_REQUESTED: return false;
@@ -241,7 +272,7 @@ bool run_event_loop(const std::function<bool()>& finished) {
             case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
             case SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED: update_window_refresh(); break;
             case SDL_EVENT_KEY_DOWN:
-                if (event.key.scancode == SDL_SCANCODE_F11) {
+                if (event.key.scancode == SDL_SCANCODE_F11 && !controller_keyboard(event.key.which)) {
                     const bool full = (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) != 0;
                     SDL_SetWindowFullscreen(g_window, !full);
                 }

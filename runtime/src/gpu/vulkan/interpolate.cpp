@@ -331,6 +331,7 @@ void Renderer::forget_snapshots(uint32_t address, uint32_t size) {
 
 void Renderer::note_target_written(const Target* t) {
     if (frames_per_frame_ > 1 && !replaying_) const_cast<Target*>(t)->written_frame = frame_number_;
+    queue_write_back(const_cast<Target*>(t));
 }
 
 void Renderer::note_target_read(const Target* c) {

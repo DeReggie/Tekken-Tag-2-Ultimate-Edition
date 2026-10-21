@@ -17,8 +17,11 @@ import hashlib
 import re
 import struct
 
+import numpy as np
+
 from ..movesets import REACTION_MOVE_FIELDS, TABLE_ORDER, TTT2
-from ..ttt2 import motbin, motion
+from ..ttt2 import animation, motbin, motion
+from . import arcs
 from . import idmaps as M
 
 T7_END, TT_END = M.END_REQ['t7'], M.END_REQ['ttt2']
@@ -34,7 +37,19 @@ CHAR_IS, CHAR_IS_NOT = {217, 219, 223}, {218}     # "player / opponent is charac
 # has no evidence for these ids; the pairs are format facts as the community's moveset tools record them (README:
 # Acknowledgements)
 REQ_OVERRIDE = {615: 467}
+# Direction tests: TTT2's requirement function (sub_0404FF30) has four sets of four, front first, back last, at 81..96
+# (*(r24), *(r24 + 4), the quadrant of an angle (sub_05C5D9B4), the hit's direction *(r20)) and 97 (TTT2 only);
+# Tekken 7 has the same four sets at 84..99 (100 = TTT2's 98). The alignment anchors only 87 -> 84 and 100 -> 98, so
+# 88..99 fell between them and every list using one became false: Negan's Face Grinder (f+2,2 on a hit from the
+# front: 96) never grabbed, and 32 hit-confirm follow-ups and hit-grabs of 11 fighters were lost alike.
+REQ_OVERRIDE.update({c: c - 3 for c in range(88, 100)})
+# A property inside a requirement list is an action TTT2's evaluator takes as true (sub_0404FF30 at 0x0404FFA0: an id
+# with 0x8000 set returns 1), never a condition: one that has no TTT2 counterpart is left out of the list, not the
+# list made false (effects, sounds, camera zooms, stop motion; 1145 cancels of the 15 fighters) - except these, which
+# keep a state the list's other conditions may depend on
+REQ_PROP_KEEP = {0x8107}
 PROP_OVERRIDE = {0x8255: 0x8193, 0x8256: 0x8194}
+EFFECT_PROP = 0x801f                 # spawn an effect: value = body part << 8 | effect id
 # Tekken 7 properties left out (Tekken 7-only presentation or mechanics, or values not converted yet)
 PROP_DROP = {0x828f: 'tiger animation', 0x828e: 'projectile index', 0x81bd: 'power crush',
              0x81be: 'rage art fx', 0x801b: 'rage drive vfx', 0x8233: 'rage drive bg', 0x8234: 'rage drive bg',
@@ -45,7 +60,8 @@ PROP_DROP = {0x828f: 'tiger animation', 0x828e: 'projectile index', 0x81bd: 'pow
              0x8344: 'detach item'}
 SOUND_PROPS = {0x84c4, 0x84c6}       # value = bank << 24 | n: kept only where the donor uses the same value,
 # or a voice of the fighter's own banks (convert/voice.py): shout n (bank 2) and damage voice n (bank 3), numbered
-# alike in both games (their SE_KIAI_n / SE_YARARE_n test moves), up to the last number TTT2 has
+# alike in both games (their SE_KIAI_n / SE_YARARE_n test moves): shouts up to the fighter's count (the donor's
+# and the ones voice.py appends; `shouts`), damage voices up to the last number TTT2 has
 OWN_VOICE = {2: 0xE, 3: 0xA}
 # A win quote: TTT2's win poses play a tone of the fighter's se_Dwi bank with this property (value | tone); Tekken 7
 # plays its win quote by the pose's name. The donor's poses stay, with the animation of the quote at their tone.
@@ -64,6 +80,12 @@ VALUE_KIND = {0x8331: 'reaction', 0x8332: 'reaction', 0x843c: 'throwcam', 0x843d
 # <value>): handlers in its property interpreter (sub_03AE86A0), used in the same order by its balloon and cloche
 # items. The alignment has no evidence for these ids (no Heihachi move spawns a projectile).
 PROJ_PROPS = {0x820b: 0x8168, 0x820c: 0x8169, 0x820d: 0x816a, 0x820e: 0x816b, 0x820f: 0x816c}
+# Throw damage: the thrown fighter plays the thrower's victim move (`.._n`), which deals the damage. Tekken 7 sets an
+# amount (0x821b, value = points; frame 0x8001 = from the start) and deals a percentage of it at a frame (0x821c, and
+# 0x821d alike); TTT2 deals points at the frame (0x8058, 0x8059): the same victim moves of Heihachi in both games
+# (e.g. He_OTOKO3n: 0x821b 30, 0x821d 100% at 2, 0x821c 100% at 44 -> 0x8059 30 at 2, 0x8058 30 at 44).
+DAMAGE_AMOUNT = 0x821b
+DAMAGE_DEAL = {0x821c: 0x8058, 0x821d: 0x8059}
 # A projectile row, Tekken 7 (42 x u32) -> TTT2 (34 x u32): (TTT2 field, Tekken 7 field, count). TTT2's fields as
 # its projectile code reads them: 0 effect, 1 delay, 2 forward speed, 3 upward speed, 4 hits it can deal, 5 frames
 # it lives, 6 shape (0 sphere, 1 cylinder), 7 radius, 8 height, 9 hit level, 14 sound at spawn, 16 sound on hit,
@@ -71,6 +93,13 @@ PROJ_PROPS = {0x820b: 0x8168, 0x820c: 0x8169, 0x820d: 0x816a, 0x820e: 0x816b, 0x
 # team, 22 hits the other team, 23..33 a hit effect (on when 23 != 0 and 26 > 0). Tekken 7's are the same with
 # five more fields after the effect and 64-bit links (hit conditions at 24, cancels at 26).
 PROJ_FIELDS = [(1, 6, 3), (4, 9, 15), (21, 28, 13)]
+# A weapon Tekken 7 throws by animation (Kunimitsu II's kunai: the hand's extra pairs carry it up to 7 m out, its hit
+# locations ride on it) misses in TTT2 at range: the lever multiplies any difference between the hand TTT2 poses and
+# the one the animation was made for (TTT2's hit test has no range limit: sub_03ADBD10 -> sub_039C006C is geometry
+# only). Such a move (the definition's THROWN) throws a TTT2 projectile instead: a cylinder flying straight ahead,
+# spawned at the frame from the hips (limb 0) with the offsets (forward, up), with the move's own hit condition and hit
+# level (the low half), hitting the other team once; the move keeps its animation and loses its hit boxes.
+THROWN_SOUND = 0x07000010           # the hit sound TTT2's projectile rows use (Kazumi's tiger strikes)
 PROJ_SOUNDS = (14, 16, 18)
 PROJ_EFFECT = 0                 # Tekken 7's effect ids mean nothing in TTT2: none
 # the fighter's own moves that are not converted: Rage Arts / Drives, story, customisation, cinematics
@@ -117,6 +146,7 @@ class Converter:
         self.k_id = k.character_id
         self.defn = d
         self.req_map, self.prop_map, self.react_remap, self.hitbox = maps
+        self.hit_locations = {}         # Tekken 7 hit location -> TTT2's, before the id maps' (weapons.py)
         self.usage = usage
         self.stats = collections.Counter()
         self.unmapped = collections.Counter()
@@ -129,6 +159,25 @@ class Converter:
         self.dn = {donor.move_name(i): i for i in range(len(donor.tables['moves']))}
         self.kn = {k.move_name(i): i for i in range(len(k.tables['moves']))}
         self.cls = classify(k, h7, donor)
+        self.effect_parts = getattr(d, 'EFFECT_PARTS', {})        # effect id -> the body part it spawns on
+        self.thrown = getattr(d, 'THROWN', {})                    # move name -> its projectile (thrown_rows)
+        # Tekken 7 plays some moves' animations as deltas on another's ("_sabun": Akuma's forward and back jumps
+        # over his neutral jump); TTT2 has no such layers and plays them as poses (on the floor). Such a move
+        # stays the fighter's own (his 2D-style jumps are not Tekken's) and plays the whole animation it is a
+        # delta of (the name without _f/_b_sabun), or, when it starts a 2D arc, the delta made absolute
+        # (bake_arcs); without one, it becomes the donor's move of its name without the fighter's prefix.
+        anims = {k.anim_name(i): k.tables['moves'][i]['anim'] for i in range(len(k.tables['moves']))}
+        self.delta_move, self.delta_anim = {}, {}
+        for i in range(len(k.tables['moves'])):
+            a = k.anim_name(i)
+            if '_sabun' not in a.lower() or self.cls[i] != 'K':
+                continue
+            generic = re.sub(r'^[A-Z][a-z0-9]_', '', k.move_name(i))
+            whole = re.sub(r'_[fb]_sabun', '', a, flags=re.I)
+            if whole in anims:
+                self.delta_anim[k.tables['moves'][i]['anim']] = anims[whole]
+            elif generic in self.dn:
+                self.delta_move[i] = self.dn[generic]
         t7names = set(self.kn) | set(h7.move_name(i) for i in range(len(h7.tables['moves'])))
         h2names = set(h2.move_name(i) for i in range(len(h2.tables['moves'])))
         self.ttt2_only_generic = {n for n in self.dn if n in h2names and n not in t7names}
@@ -142,6 +191,7 @@ class Converter:
         for pid in (0x82f9, 0x82fb):                 # player / opponent sound
             self.known_sounds |= self.donor_sound[pid]
         self.voice = True               # the fighter has its own voice banks (convert/voice.py)
+        self.shouts = OWN_VOICE[2] + 1  # its shouts' count (the importer sets it from voice.build)
         self.opt_anims = {}             # Tekken 7 tiger animation index -> its index in motion pack part 3
         self.part3 = None               # the motion pack's part 3 (animations of extra bones), else the donor's
         # animations already in TTT2: the common motions and the donor's own pack
@@ -161,6 +211,7 @@ class Converter:
         for j, e in enumerate(T['cancel_extras']):
             self.extra_index.setdefault(e['value'], j)
         self.drop_moves = re.compile(DROP_MOVES + '|' + d.MOVESET['drop_moves'])
+        self.ground_arcs = {}           # Tekken 7 move -> (frame, value) of its 0x8226 to bake (convert/arcs.py)
 
     # --- helpers ----------------------------------------------------------------------------------------
     def string(self, s):
@@ -216,6 +267,9 @@ class Converter:
             return None
         if mid in self.newidx:
             return self.newidx[mid]
+        if mid in self.delta_move:
+            self.stats['moves with a delta animation -> the donor\'s generic move'] += 1
+            return self.delta_move[mid]
         n = self.k.move_name(mid)
         if n in self.dn:
             return self.dn[n]
@@ -253,6 +307,13 @@ class Converter:
                     res = (None, False)
                     break
             c2 = self.map_req(c)
+            if c >= 0x8000 and c not in (T7_END, 0x81dc) and c not in REQ_PROP_KEEP:
+                p2 = self.conv_value(c, p) if c2 is not None else None
+                if p2 is None:                    # an action TTT2 cannot take: left out, the list kept
+                    self.stats['property left out of a requirement list'] += 1
+                    continue
+                rows.append({'condition': c2, 'param': p2})
+                continue
             if c2 is None:
                 res = (None, False)
                 break
@@ -361,6 +422,8 @@ class Converter:
         return v
 
     def own_voice(self, v):
+        if v >> 24 == 2:
+            return self.voice and (v & 0xFFFFFF) < self.shouts
         return self.voice and (v & 0xFFFFFF) <= OWN_VOICE.get(v >> 24, -1)
 
     def conv_voiceclips(self, i):
@@ -372,13 +435,34 @@ class Converter:
         self.T['voiceclips'] += [{'value': v} for v in vals] + [{'value': 0xFFFFFFFF}]
         return start
 
-    def conv_xps(self, i):
-        if i is None:
+    def hit_location(self, x):
+        """A Tekken 7 hit location code (a byte of a move's hitbox) -> TTT2's: a weapon's point (its bone's number)
+        or the definition's HIT_LOCATIONS, else the id maps'."""
+        return self.hit_locations.get(x, self.hitbox.get(x, x))
+
+    def conv_xps(self, i, move=None, extra=()):
+        if i is None and not extra:
             return None
         rows = []
-        for f, idv, v in M.xps(self.k, i):
+        t7 = M.xps(self.k, i) if i is not None else []
+        air = any(idv == arcs.AIR_MOVE for _, idv, _ in t7)     # a 2D air move (convert/arcs.py)
+        amounts = sorted((0 if f >= 0x8000 else f, v) for f, idv, v in t7 if idv == DAMAGE_AMOUNT)
+        for f, idv, v in t7:
             if idv == 0 and f == 0:
                 break
+            if idv in (arcs.ARC, arcs.AIR_MOVE):            # 2D arcs (convert/arcs.py)
+                rows += [r for r in self.arc_rows(move, air, f, idv, v) if r not in rows]
+                continue
+            if idv == DAMAGE_AMOUNT:
+                continue
+            if idv in DAMAGE_DEAL:                          # throw damage: points of the amount set before
+                at = 0 if f >= 0x8000 else f
+                amount = next((a for g, a in reversed(amounts) if g <= at), amounts[0][1] if amounts else 0)
+                points = int(round(amount * v / 100.0))
+                if points:
+                    rows.append(dict(frame=f, id=DAMAGE_DEAL[idv], value=points))
+                    self.stats['throw damage dealt'] += 1
+                continue
             p = self.map_prop(idv) if idv >= 0x8000 else self.map_req(idv)
             if p is None:
                 continue
@@ -386,13 +470,81 @@ class Converter:
             if v2 is None:
                 self.stats['property dropped: value (sound bank / index)'] += 1
                 continue
+            if p == EFFECT_PROP and (v2 & 0xFF) in self.effect_parts:   # (an effect that flies from a set part)
+                v2 = self.effect_parts[v2 & 0xFF] << 8 | (v2 & 0xFF)
             rows.append(dict(frame=f, id=p, value=v2))
+        rows += extra
         if not rows:
             return None
         rows.append(dict(frame=0, id=0, value=0))
         start = len(self.T['extra_move_properties'])
         self.T['extra_move_properties'] += rows
         return start
+
+    def arc_rows(self, move, air, f, idv, v):
+        """The TTT2 rows of a Tekken 7 2D-arc property (convert/arcs.py) of move `move`."""
+        if idv == arcs.AIR_MOVE:
+            self.stats['2D arcs: air moves'] += 1
+            return [dict(frame=arcs.AIR_MARK_FRAME, id=arcs.AIR_MARK, value=0)]
+        v &= 0xFFFFFFFF
+        if move is not None and arcs.is_ground_arc(air, f):
+            if move in self.ground_arcs:
+                self.stats['2D arcs: second ground arc of a move dropped'] += 1
+                return []
+            self.ground_arcs[move] = (f, v)
+            return [dict(frame=arcs.BAKED_FRAME, id=arcs.BAKED, value=(v & 0xFFFFFF00) | (f & 0xFF))]
+        self.stats['2D arcs: started in the air'] += 1
+        return [dict(frame=f, id=arcs.ARC, value=v)]
+
+    def bake_arcs(self):
+        """The moves that start a 2D arc on the ground play their animation with the arc in the hips height,
+        extended to the landing (convert/arcs.py)."""
+        k = self.k
+        whole = {k.anim_name(i): k.tables['moves'][i]['anim'] for i in range(len(k.tables['moves']))
+                 if '_sabun' not in k.anim_name(i).lower()}
+        baked = {}
+        for i, (f0, value) in sorted(self.ground_arcs.items()):
+            if i not in self.newidx:
+                continue
+            row, mv = self.T['moves'][self.newidx[i]], k.tables['moves'][i]
+            a, g, _ = arcs.params(value)
+            hold = mv['ground_fall'] or mv['airborne_end']
+            off, name = mv['anim'], k.anim_name(i)
+            key = (off, f0, a, g, hold)
+            if key not in baked:
+                dec = arcs.decode_t7(k, off)
+                frames = dec['frames']
+                if '_sabun' in name.lower() and arcs.whole_name(name) in whole:
+                    dec, _, _ = arcs.absolute_sabun(dec, arcs.decode_t7(k, whole[arcs.whole_name(name)]))
+                    self.stats['2D arcs: delta animations made absolute'] += 1
+                desc, values, ext = arcs.bake(dec, f0, a, g, hold)
+                baked[key] = (0x4000 | (self.pack0_count + len(self.new_anims)), ext, frames)
+                self.new_anims.append(arcs.encode(desc, values))
+                self.stats['2D arcs: animations baked'] += 1
+            row['anim'], ext, frames = baked[key]
+            self.stats['2D arcs: ground moves'] += 1
+            if not ext:
+                continue
+            for f in ('airborne_end', 'ground_fall'):
+                if row[f] and row[f] >= hold:
+                    row[f] += ext
+            if row['cancel'] is None:
+                continue
+            # the landing: the cancels from the animation's end on, in a copy of the list (lists are shared)
+            cl, j = [], row['cancel']
+            while j < len(self.T['cancels']):
+                cl.append(dict(self.T['cancels'][j]))
+                if cl[-1]['direction'] == M.LIST_END:
+                    break
+                j += 1
+            for c in cl:
+                if c['direction'] not in (M.LIST_END, M.GROUP_END) and c['win_start'] >= frames \
+                        and c['win_end'] < 32767:
+                    c['win_start'] += ext
+                    c['win_end'] += ext
+                    c['start_frame'] += ext
+            row['cancel'] = len(self.T['cancels'])
+            self.T['cancels'] += cl
 
     def conv_props(self, table, i):
         if i is None:
@@ -510,6 +662,28 @@ class Converter:
         self.stats['projectiles converted'] += 1
         return idx
 
+    def thrown_rows(self, i, row):
+        """A move of the definition's THROWN: its projectile (a row appended) and the properties spawning it; the
+        move's hit boxes go. -> the properties, or []."""
+        spec = self.thrown.get(self.k.move_name(i))
+        if spec is None or row['hit_condition'] is None:
+            return []
+        out = [0] * 34
+        out[2], out[4], out[5] = spec['speed'], 1, spec['frames']           # forward speed, one hit, life
+        out[6], out[7], out[8] = 1, spec['radius'], spec['height']          # a cylinder
+        out[9] = row['hitlevel'] & 0xFFFF
+        out[16], out[19], out[22] = THROWN_SOUND, row['hit_condition'], 1   # hit sound, hit condition, the other team
+        out[23], out[24] = 2 * spec['radius'], spec['height']
+        idx = self.add('projectiles', {'raw': struct.pack('>34I', *out)})
+        row['hitbox'], row['first_active'], row['last_active'] = bytes(4), 0, 0
+        self.stats['weapons thrown as projectiles'] += 1
+        f = spec['frame']
+        return [dict(frame=f, id=PROJ_PROPS[0x820c], value=0),
+                dict(frame=f, id=PROJ_PROPS[0x820d], value=spec['forward'] & 0xFFFF),
+                dict(frame=f, id=PROJ_PROPS[0x820e], value=spec['up'] & 0xFFFF),
+                dict(frame=f, id=PROJ_PROPS[0x820f], value=spec.get('side', 0) & 0xFFFF),
+                dict(frame=f, id=PROJ_PROPS[0x820b], value=idx)]
+
     def conv_proj_cancels(self, i):
         """A projectile's cancel list -> its new index, 0 if nothing but the end row is left. TTT2 runs it every
         frame of the projectile's life: a row whose window and requirements hold applies its properties (the
@@ -568,6 +742,7 @@ class Converter:
         return start
 
     def anim(self, off):
+        off = self.delta_anim.get(off, off)
         if off not in self.anim_id:
             hits = self.anim_src.get(off, [])
             com = [h for h in hits if h[0] == 'common']
@@ -595,7 +770,7 @@ class Converter:
                     airborne_start=mv['airborne_start'], airborne_end=mv['airborne_end'],
                     ground_fall=mv['ground_fall'], voiceclip=None, extraprops=None, begin_props=None,
                     end_props=None, bitfield=rev32(mv['bitfield']) & ~(1 << 30),   # Tekken 7 bit 1: no TTT2 meaning
-                    hitbox=bytes(self.hitbox.get(x, x) for x in mv['hitbox']), first_active=mv['first_active'],
+                    hitbox=bytes(self.hit_location(x) for x in mv['hitbox']), first_active=mv['first_active'],
                     last_active=mv['last_active'], m_a8=mv['m_a8'], distance=mv['distance'])
 
     def cancel_list(self, i):
@@ -617,7 +792,8 @@ class Converter:
                                  if h['reactions'] is not None and any(c == 467 for c, p in M.reqs(d, h['req'])))
         self.bound_reaction = bc.most_common(1)[0][0]
         nd = len(d.tables['moves'])
-        keep = [i for i, c in enumerate(self.cls) if c == 'K' and not self.drop_moves.search(k.move_name(i))]
+        keep = [i for i, c in enumerate(self.cls) if c == 'K' and not self.drop_moves.search(k.move_name(i))
+                and i not in self.delta_move]
         self.stats['own moves'] = sum(1 for c in self.cls if c == 'K')
         self.stats['own moves converted'] = len(keep)
         self.newidx = {i: nd + n for n, i in enumerate(keep)}
@@ -642,6 +818,7 @@ class Converter:
         while self.queue:
             self.link_move(self.queue.pop(0), counterpart)
         self.alloc_ok -= 1
+        self.bake_arcs()
         self.rebuild_hubs()
         # every move belongs to the new motion row
         for n, row in enumerate(self.T['moves']):
@@ -669,7 +846,7 @@ class Converter:
             t = 0x8001
         row['transition'] = t
         row['hit_condition'] = self.conv_hitconds(mv['hit_condition'])
-        row['extraprops'] = self.conv_xps(mv['extraprops'])
+        row['extraprops'] = self.conv_xps(mv['extraprops'], i, self.thrown_rows(i, row))
         row['begin_props'] = self.conv_props('move_begin_props', mv['begin_props'])
         row['end_props'] = self.conv_props('move_end_props', mv['end_props'])
         if M.voices(k, mv['voiceclip']):
@@ -777,11 +954,7 @@ class Converter:
                 if pick not in own:
                     pick = own[turn[pat] % len(own)]
                     turn[pat] += 1
-                mv = self.k.tables['moves'][self.kn[pick]]
-                row = self.T['moves'][j]
-                row['anim'] = self.anim(mv['anim'])
-                row['anim_name'] = self.string(self.k.anim_name(self.kn[pick]))
-                self.stats['donor round-start moves with her animation'] += 1
+                self.pose_sequence(j, self.kn[pick])
                 return j
             return 0x8001                                # the standing alias
         out = []
@@ -793,6 +966,65 @@ class Converter:
             out.append(y)
         self.T['moves'][dj]['cancel'] = len(self.T['cancels'])
         self.T['cancels'] += out
+
+    def pose_sequence(self, j, t7):
+        """The donor's intro or win pose `j` and the moves it goes on to (TTT2 plays a pose in parts: a round win
+        is `1ko`, a wait (`co_dummy`), then `2ko`; a match win the winner's part, then one with the partner): the
+        first part with an animation plays the fighter's (Tekken 7 move `t7`), later parts with the donor's own
+        animations (its `2ko`, poses made for a certain partner) hold that pose's last frame as long as they
+        lasted, so the scene's timing stays the donor's; waits and the common pair poses stay."""
+        d = self.d
+        prefix = d.move_name(j).split('_')[0].lower()            # the donor's (ju, la) or a shared one (mk)
+        family = re.compile(r'^%s_' % re.escape(prefix), re.I)
+        order, seen = [j], {j}
+        for m in order:
+            for x in M.cancels(d, d.tables['moves'][m]['cancel']):
+                t = x['move_id']
+                if t < len(d.tables['moves']) and t not in seen and family.match(d.move_name(t)):
+                    seen.add(t)
+                    order.append(t)
+        off = self.k.tables['moves'][t7]['anim']
+        posed = False
+        for m in order:
+            name = d.anim_name(m)
+            row = self.T['moves'][m]
+            if name.startswith('co_dummy'):
+                continue
+            if not posed:
+                row['anim'] = self.anim(off)
+                row['anim_name'] = self.string(self.k.anim_name(t7))
+                posed = True
+                self.stats['donor round-start moves with her animation'] += 1
+            elif not name.startswith('co_') or re.search(r'_%s\(' % re.escape(prefix), name):
+                frames = self.donor_anim_frames(d.tables['moves'][m]['anim'])
+                if frames:
+                    row['anim'] = self.hold(off, frames)
+                    self.stats['donor pose parts holding her pose'] += 1
+
+    def donor_anim_frames(self, aid):
+        """The frame count of a donor pack animation (0x4000 | index), else None."""
+        if not aid & 0x4000 or aid & 0x8000:
+            return None
+        o0 = motion.pack_items(self.donor_pack)[0][0]
+        e, offs = motion.mota_offsets(self.donor_pack, o0)
+        idx = aid & 0x3FFF
+        if idx >= len(offs):
+            return None
+        return animation.header(self.donor_pack, e, o0 + offs[idx])['frames']
+
+    def hold(self, off, frames):
+        """A new animation: the last frame of Tekken 7 animation `off` held for `frames` frames, in place (no ground
+        displacement, no turn: the move before ends with them)."""
+        key = ('hold', off, frames)
+        if key not in self.anim_id:
+            a = animation.decode(self.k.animbuf, '<', off)
+            last = animation.to_raw(a['descriptors'], a['values'][-1:], a['type'])[0]
+            values = np.repeat(last[None], frames, 0)
+            values[:, 0] = 0.0                       # ground displacement
+            values[:, 2] = 0.0                       # turn
+            self.anim_id[key] = 0x4000 | (self.pack0_count + len(self.new_anims))
+            self.new_anims.append(animation.encode_raw(a['descriptors'], values))
+        return self.anim_id[key]
 
     # --- output -----------------------------------------------------------------------------------------
     def write(self):

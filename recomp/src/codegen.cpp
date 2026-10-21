@@ -1,8 +1,11 @@
 #include "codegen.h"
 
+#include "mid_hooks.h"
 #include "ppc.h"
 
+#include <algorithm>
 #include <format>
+#include <iterator>
 #include <stdexcept>
 
 namespace cafe::recomp {
@@ -45,6 +48,10 @@ public:
             if (options_.comments) {
                 out_ += std::format("\t// {:08X} {:08X}  {}\n", a, w,
                                     ppc::disassemble(w, a));
+            }
+            if (options_.mid_hooks && std::find(std::begin(kMidHooks), std::end(kMidHooks), a) != std::end(kMidHooks)) {
+                referenced_.insert(mid_hook_name(a));
+                line(std::format("{}(ctx, base);", mid_hook_name(a)));
             }
             instruction(a, w);
         }
@@ -941,6 +948,8 @@ private:
 };
 
 } // namespace
+
+std::string mid_hook_name(uint32_t address) { return std::format("cafe_mid_hook_{:08X}", address); }
 
 std::string emit_entry(const Program& program, const Entry& entry,
                        const EmitOptions& options,

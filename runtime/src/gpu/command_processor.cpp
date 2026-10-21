@@ -210,6 +210,7 @@ void retirement_main() {
             g_retire_queue.pop_front();
         }
         g_backend->wait_for(r.done);
+        g_backend->retired(r.done);
         switch (r.kind) {
         case Retirement::kTimestamp: retire(r.data); break;
         case Retirement::kWrite32: wr32(r.address, static_cast<uint32_t>(r.data)); break;

@@ -118,9 +118,17 @@ def decode_g8(data, w, h):
     return np.stack([a, a, a, np.full_like(a, 255)], axis=-1)
 
 
+def decode_bc7(data, w, h):
+    """BC7 through Pillow's block decoder (its 'bcn' decoder, format 7), on whole blocks."""
+    from PIL import Image
+    bw, bh = (w + 3) // 4 * 4, (h + 3) // 4 * 4
+    im = Image.frombytes('RGBA', (bw, bh), bytes(data[:(bw // 4) * (bh // 4) * 16]), 'bcn', 7)
+    return np.asarray(im)[:h, :w].copy()
+
+
 # Unreal Engine pixel format names -> decoder
 DECODERS = {'PF_DXT1': decode_bc1, 'PF_DXT3': decode_bc2, 'PF_DXT5': decode_bc3, 'PF_BC4': decode_bc4,
-            'PF_BC5': decode_bc5, 'PF_B8G8R8A8': decode_bgra8, 'PF_G8': decode_g8}
+            'PF_BC5': decode_bc5, 'PF_BC7': decode_bc7, 'PF_B8G8R8A8': decode_bgra8, 'PF_G8': decode_g8}
 
 
 def decode(pixel_format, data, w, h):

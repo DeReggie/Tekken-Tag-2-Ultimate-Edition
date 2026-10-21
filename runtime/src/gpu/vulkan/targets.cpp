@@ -69,6 +69,7 @@ Target* Renderer::color_target(uint32_t base_reg, uint32_t size_reg, uint32_t in
     const uint32_t height = (((size_reg >> 10) & 0xFFFFF) + 1) * 64 / pitch;
     for (auto& t : targets_) {
         if (!t->depth && t->address == address && t->format == format && t->pitch == pitch && t->height == height) {
+            t->base_reg = base_reg;
             return t.get();
         }
     }
@@ -85,8 +86,14 @@ Target* Renderer::color_target(uint32_t base_reg, uint32_t size_reg, uint32_t in
     t->pitch = pitch;
     t->height = height;
     t->tile_mode = tile_mode;
+    t->base_reg = base_reg;
     t->scale = upscaled_size(pitch, height) ? scale_ : 1;
     t->end = static_cast<uint32_t>(std::min<uint64_t>(uint64_t{address} + uint64_t{pitch} * height * std::max(1u, f.bytes), 0xFFFFFFFFu));
+    // Written back if small, at the title's size and stored as in guest
+    // memory (no component swizzle).
+    const auto same = [](VkComponentSwizzle c) { return c == VK_COMPONENT_SWIZZLE_IDENTITY; };
+    t->write_back = t->scale == 1 && uint64_t{pitch} * height * f.bytes <= kWriteBackBytes && same(f.swizzle.r) &&
+                    same(f.swizzle.g) && same(f.swizzle.b) && same(f.swizzle.a);
     t->image = create_image(f.format, VK_IMAGE_ASPECT_COLOR_BIT, pitch * t->scale, height * t->scale, 1, 1,
                             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
                                 VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
@@ -356,6 +363,85 @@ void Renderer::convert_depth(const gx2::DepthBuffer& src, const gx2::Surface& ds
     copy_target_region(*from, to->image, to->scale, 0, src.surface.width, src.surface.height);
     to->written = stamp();
     note_target_written(to);
+}
+
+
+// ------------------------------------------------------------ write-back
+
+void Renderer::queue_write_back(Target* t) {
+    if (!t->write_back || replaying_ || t->write_back_queued) return;
+    t->write_back_queued = true;
+    write_back_targets_.push_back(t);
+}
+
+// At the end of a submission: the targets it wrote, copied to staging memory.
+void Renderer::copy_write_backs() {
+    if (write_back_targets_.empty()) return;
+    end_rendering();
+    barrier();
+    const uint64_t value = submitted_ + 1; // this submission's
+    std::lock_guard lock(write_back_mutex_);
+    for (Target* t : write_back_targets_) {
+        t->write_back_queued = false;
+        const uint32_t bytes = color_format(t->format).bytes;
+        if (!guest_memory_committed(t->address, t->pitch * t->height * bytes)) continue;
+        if (write_back_free_.empty()) {
+            write_back_free_.push_back(static_cast<uint32_t>(write_back_staging_.size()));
+            write_back_staging_.push_back(ctx_.create_buffer(
+                kWriteBackBytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT));
+        }
+        const uint32_t staging = write_back_free_.back();
+        write_back_free_.pop_back();
+        VkBufferImageCopy region{};
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageExtent = {t->pitch, t->height, 1};
+        vkCmdCopyImageToBuffer(cmd(), t->image.image, VK_IMAGE_LAYOUT_GENERAL, write_back_staging_[staging].buffer, 1,
+                               &region);
+        write_backs_.push_back({value, staging, t->address, t->base_reg, t->tile_mode, bytes * 8, t->pitch, t->height});
+        if (tracing()) {
+            std::fprintf(stderr, "trace: write back 0x%08X fmt 0x%03X %ux%u tile %u\n", t->address, t->format, t->pitch,
+                         t->height, t->tile_mode);
+        }
+    }
+    write_back_targets_.clear();
+    VkMemoryBarrier2 mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mb.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    mb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+    mb.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+    VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    di.memoryBarrierCount = 1;
+    di.pMemoryBarriers = &mb;
+    vkCmdPipelineBarrier2(cmd(), &di);
+}
+
+// (Retirement thread.) The copies of the submissions up to `value`, tiled
+// into guest memory.
+void Renderer::retired(uint64_t value) {
+    for (;;) {
+        WriteBack w;
+        const uint8_t* data;
+        {
+            std::lock_guard lock(write_back_mutex_);
+            if (write_backs_.empty() || write_backs_.front().value > value) return;
+            w = write_backs_.front();
+            write_backs_.pop_front();
+            data = write_back_staging_[w.staging].mapped;
+        }
+        TiledLevel level{};
+        level.data = guest_pointer(w.address);
+        level.base256b = w.base_reg;
+        level.tile_mode = w.tile_mode;
+        level.bpp = w.bpp;
+        level.pitch = w.pitch;
+        level.height = w.height;
+        level.slices = 1;
+        level.samples = 1;
+        tile(level, w.pitch, w.height, 0, 1, data);
+        std::lock_guard lock(write_back_mutex_);
+        write_back_free_.push_back(w.staging);
+    }
 }
 
 } // namespace cafe::gpu::vk

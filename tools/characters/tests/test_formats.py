@@ -6,15 +6,17 @@ import lzma
 import os
 import struct
 import sys
+import tempfile
 import unittest
 import zlib
+from unittest import mock
 
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
-from ttt2char import lz4                              # noqa: E402
-from ttt2char.convert import art, colours, movelist, strips, tiger  # noqa: E402
+from ttt2char import lz4, pack                        # noqa: E402
+from ttt2char.convert import art, chains, colours, movelist, skin, strips, tiger  # noqa: E402
 from ttt2char.tekken7 import tkmvst, wwise            # noqa: E402
 from ttt2char.ttt2 import archive, bone, bxml, dsp, motion, nud, nus3bank, nut  # noqa: E402
 
@@ -201,6 +203,14 @@ class Voice(unittest.TestCase):
         k = b.append(b.renamed(0, 'a_09'), audio=b'DDDD')
         b2 = nus3bank.Bank(b.write())
         self.assertEqual((b2.audio[1], b2.format(1), b2.name(k), b2.audio[k]), (b'CCCCCCCC', (32000, 1, 4), 'a_09', b'DDDD'))
+        # one bank of a fighter's shouts, then its win quotes: the link tone plays the moved tones
+        from ttt2char.convert import voice
+        merged, first = voice.merge(data, data)
+        m = nus3bank.Bank(merged)
+        self.assertEqual(first, 3)
+        self.assertEqual([m.name(i) for i in range(6)], ['a_01', 'b_02', 'l_00'] * 2)
+        self.assertEqual([k for _, k in m.links(5)], [3, 4])
+        self.assertEqual((m.audio[3], m.audio[4]), (b'AAAA' * 4, b'BB' * 8))
 
 
 class CommandList(unittest.TestCase):
@@ -340,6 +350,189 @@ class Tiger(unittest.TestCase):
         new = motion.replace_mota(old, [b'c' * 6])
         e, offs = motion.mota_offsets(new)
         self.assertEqual((e, len(offs), new[offs[0]:offs[0] + 6]), ('>', 1, b'c' * 6))
+
+
+class Places(unittest.TestCase):
+    def test_choose_slot(self):
+        with tempfile.TemporaryDirectory() as folder:
+            def install(code, slot=None):
+                os.makedirs(os.path.join(folder, code))
+                with open(os.path.join(folder, code, 'character.ini'), 'w') as f:
+                    f.write('code = %s\n' % code + ('slot = %d\n' % slot if slot is not None else ''))
+            self.assertEqual(pack.choose_slot(folder, 'aaa'), 0)
+            install('bbb', 1)
+            self.assertEqual((pack.choose_slot(folder, 'aaa'), pack.choose_slot(folder, 'bbb')), (0, 1))
+            install('ccc')                                  # an old pack naming no place: the first free one
+            self.assertEqual(pack.places_of(pack.installed(folder)), {'bbb': 1, 'ccc': 0})
+            self.assertEqual((pack.choose_slot(folder, 'aaa'), pack.choose_slot(folder, 'ccc')), (2, 0))
+        self.assertEqual(pack.place(0), dict(id=64, row=58, column=19, grid_row=0, anchor='edd', columns=0))
+        self.assertEqual((pack.place(5)['row'], pack.place(7)['column'], pack.place(7)['id']), (69, 23, 71))
+        self.assertEqual(pack.place(len(pack.CELLS))['anchor'], None)
+        cells = [(c[0], c[1]) for c in pack.CELLS]
+        self.assertEqual(len(set(cells)), len(cells))
+
+
+class Chains(unittest.TestCase):
+    def test_turn(self):
+        for a, b in (((1, 0, 0), (0, -1, 0)), ((0, 1, 0), (0.6, 0, -0.8)), ((1, 0, 0), (-1, 0, 0))):
+            a, b = np.array(a, float), np.array(b, float)
+            r = chains.turn(a, b)
+            self.assertTrue(np.allclose(r @ a, b) and np.allclose(r @ r.T, np.eye(3)))
+            self.assertAlmostEqual(np.linalg.det(r), 1.0)
+
+    def model(self):
+        """A head bone and a three-bone chain sticking out along +x (the head scaled 1.2, as Tekken 7's are)."""
+        world = np.tile(np.eye(4), (4, 1, 1))
+        world[0][:3, :3] *= 1.2
+        world[1:, :3, 3] = [(100, 0, 0), (300, 0, 0), (500, 0, 0)]
+        world[1:, :3, :3] *= 1.2
+        pos = np.array([[200.0, 10, 0], [400, -10, 0], [50, 0, 0]])
+        joints = np.array([[1, 2] + [0] * 6, [2, 3] + [0] * 6, [0] * 8])
+        weights = np.array([[0.5, 0.5] + [0] * 6, [1.0] + [0] * 7, [1.0] + [0] * 7])
+        streams = dict(pos=pos, nrm=np.tile([0.0, 1, 0], (3, 1)), tan=np.tile([1.0, 0, 0, 1], (3, 1)),
+                       joints=joints, weights=weights)
+        return dict(bones=dict(names=['Head', 'Hair_OPT001', 'Hair_OPT002', 'Hair_OPT003end'],
+                               parents=[-1, 0, 1, 2], world=world),
+                    prims=[dict(streams), dict(streams)],
+                    parts=dict(har=dict(names=['Head', 'X', 'Hair_OPT001', 'Hair_OPT002', 'Hair_OPT003end'],
+                                        parents=[-1, 0, 0, 2, 3], remap=np.array([0, 0, 1, 2, 3]))))
+
+    def test_drape(self):
+        k = self.model()
+        bones = chains.find(k, 'har', 'Hair_OPT001')
+        self.assertEqual(bones, [1, 2, 3])
+        moved = chains.drape(k, [(bones, [(0, -1, 0)])])           # one direction for every link: straight down
+        w = k['bones']['world']
+        self.assertEqual(moved, 2)
+        self.assertTrue(np.allclose(w[1:, :3, 3], [(100, 0, 0), (100, -200, 0), (100, -400, 0)]))
+        p = k['prims'][0]['pos']
+        self.assertTrue(np.allclose(p[1], (90, -300, 0)))           # 100 along the second link, 10 off it
+        self.assertTrue(np.allclose(p[2], (50, 0, 0)))              # the head's vertex stays
+        self.assertTrue(np.allclose(p[0], (110, -100, 0)))          # on two bones that turn alike
+        self.assertTrue(np.allclose(k['prims'][1]['pos'], p))       # shared streams moved once
+
+    def test_bones_and_springs(self):
+        k = self.model()
+        bones = chains.find(k, 'har', 'Hair_OPT001')
+        chains.drape(k, [(bones, [(0, -1, 0)])])
+        skel = dict(scale=1.0, parent=[-1], t=np.array([[0, 0, 0]], np.float32), r=np.zeros((1, 3), np.float32),
+                    s=np.ones((1, 3), np.float32), opt=[0], params=[1.0] * 8, names=['cha:ATAMA_jnt_assist'],
+                    names_raw=None)
+        s, made = chains.append_bones(skel, k, [bones], [0])
+        self.assertEqual((made, s['parent'], s['opt']), ([[1, 2, 3]], [-1, 0, 1, 2], [0, 300, 301, 302]))
+        self.assertEqual(s['names'][1], 'cha:OPT300_Hair_OPT001')
+        w = bone.world_matrices(bone.read(bone.write(s)))
+        for i, b in enumerate(bones):
+            frame = k['bones']['world'][b].copy()
+            frame[:3, :3] /= np.linalg.norm(frame[:3, :3], axis=0)
+            self.assertTrue(np.allclose(w[1 + i], frame, atol=1e-3))
+        self.assertTrue(np.allclose(s['t'][2], (200, 0, 0), atol=1e-3))   # a link along its parent's x axis
+
+        def mop(numbers, colliders, fill):
+            out = struct.pack('>f', 5.0) + bytes(28) + struct.pack('>I', len(numbers)) + bytes(12)
+            for n in numbers:
+                out += struct.pack('>I', n) + bytes([fill]) * (chains.MOP_ENTRY - 4)
+            out += struct.pack('>I', len(colliders)) + bytes(12)
+            return out + b''.join(struct.pack('>II', 1, c) + bytes(chains.MOP_COLLIDER - 8) for c in colliders)
+        out = chains.spring_file(mop([0], [], 1), mop([150, 160], [73], 2), [300, 301])
+        n, = struct.unpack_from('>I', out, chains.MOP_COUNT)
+        entries = [out[0x30 + 0x60 * i:0x30 + 0x60 * (i + 1)] for i in range(n)]
+        self.assertEqual([struct.unpack_from('>I', e)[0] for e in entries], [0, 300, 301])
+        self.assertTrue(entries[0][4:] == bytes([1]) * 0x5C and entries[2][4:] == bytes([2]) * 0x5C)
+        at = 0x30 + 0x60 * n
+        self.assertEqual(struct.unpack_from('>I4xII', out, at)[0], 1)
+        self.assertEqual(struct.unpack_from('>II', out, at + 16), (1, 73))
+        self.assertEqual(len(out), at + 16 + chains.MOP_COLLIDER)
+
+
+class Skin(unittest.TestCase):
+    def test_gain(self):
+        theirs = {'ann': np.array([0.6, 0.4, 0.3]), 'ask': np.array([0.5, 0.4, 0.3]), 'jul': np.array([0.6, 0.3, 0.3])}
+
+        class Paks:
+            @staticmethod
+            def find(path):
+                return any('/%s/' % c in path for c in theirs)
+
+        class Materials:
+            @staticmethod
+            def effective(path, colours):
+                return path
+
+        def bake(path):
+            return np.full((2, 2, 3), 0.2), None
+        with mock.patch.object(skin, 'ttt2_face', lambda archives, code: theirs[code]):
+            g, target = skin.gain(Paks(), None, 'female', Materials(), bake)
+            self.assertTrue(np.allclose(g, (3.0, 2.0, 1.5)))           # the median of the ratios
+            self.assertTrue(np.allclose(target, (0.6, 0.4, 0.3)))
+            # a skin texture far more orange than theirs: its hue brought within HUE_SPAN, its red kept
+            orange = skin.hue(np.full((2, 2, 3), (0.6, 0.2, 0.05)), target)
+            m = orange.reshape(-1, 3).mean(0)
+            self.assertAlmostEqual(m[0], 0.6)
+            self.assertAlmostEqual(m[1] / m[0], 0.4 / 0.6 / skin.HUE_SPAN, places=5)
+            self.assertAlmostEqual(m[2] / m[0], 0.3 / 0.6 / skin.HUE_SPAN, places=5)
+            near = np.full((2, 2, 3), (0.6, 0.38, 0.29))
+            self.assertTrue(np.allclose(skin.hue(near, target), near))  # within the span: as it is
+            theirs.pop('jul')
+            self.assertTrue(np.allclose(skin.gain(Paks(), None, 'female', Materials(), bake)[0], 1.0))   # too few
+
+
+
+class Materials(unittest.TestCase):
+    def test_classify(self):
+        from ttt2char.convert.model import classify
+        self.assertEqual(classify('MI_CH_x_skin_face', 'M_CH_skin_wet_SSP', None), ('skin', True, False))
+        self.assertEqual(classify('MI_CH_x_Eyes', 'M_CH_Eye_IN', None), ('eye', False, False))
+        self.assertEqual(classify('MI_CH_mrx_eye', 'M_CH_mrx_eye', None), ('eye', False, False))
+        self.assertIsNone(classify('MI_CH_x_Eye_ADD', 'M_CH_Eye_ADD', None))
+        self.assertIsNone(classify('MI_CH_tear', 'M_CH_tear', None))
+        self.assertEqual(classify('MI_CH_x_teeth', 'M_CH_simple_skin', None), ('mouth', False, False))
+        self.assertEqual(classify('MI_CH_mouth', 'M_CH_simple_skin', None), ('mouth', True, False))
+        self.assertEqual(classify('MI_CH_x_eyelash', 'M_CH_trans', None), ('overlay', False, True))
+        self.assertEqual(classify('MI_CH_x_har_1p', 'M_CH_AnisoHair_Pass1', None), ('hair', False, True))
+        lace = np.ones((8, 8), np.float32)
+        lace[:2] = 0
+        self.assertEqual(classify('MI_CH_x_bdu', 'M_CH_Base_mask', lace), ('cloth', True, True))
+        self.assertEqual(classify('MI_CH_x_bdu', 'M_CH_Base', np.ones((8, 8))), ('cloth', True, False))
+
+    def test_texture_budget(self):
+        from ttt2char.convert.model import TextureBank
+        bank = TextureBank()
+        img = np.zeros((128, 128, 4), np.uint8)
+        a = bank.add(('img', 'a', 0, False), img, 0)
+        n = bank.add(('nrm', 'n'), img, 2)
+        bank.add(('img', 'b', 2, True), img, 2)
+        size = sum(len(m) for t in bank.textures for m in t['mips'])
+        self.assertEqual(bank.fit(size), 0)
+        self.assertEqual(bank.fit(size - 1), 1)                 # the normal map first (BC3, as big as b)
+        t = bank.textures[n - bank.first]
+        self.assertEqual((t['w'], t['h'], len(t['mips']), t['gidx']), (64, 64, 3, n))
+        self.assertEqual(bank.textures[a - bank.first]['w'], 128)
+        self.assertEqual(bank.fit(0), 2)                        # down to 64 at most
+        self.assertTrue(all(t['w'] == 64 for t in bank.textures))
+        new = bank.keep([n, bank.first + 2])                    # a's left out: the others numbered again
+        self.assertEqual(new, {n: bank.first, bank.first + 2: bank.first + 1})
+        self.assertEqual([t['gidx'] for t in bank.textures], [bank.first, bank.first + 1])
+        self.assertEqual(bank.normals, {0})
+        self.assertEqual(len(bank.sources), 2)
+
+
+class Cells(unittest.TestCase):
+    def test_cells(self):
+        # every cell its own (column, row), the top-row ends first, the columns beyond the grid after
+        cells = [(c[0], c[1]) for c in pack.CELLS]
+        self.assertEqual(len(set(cells)), len(cells))
+        self.assertTrue(all(r == 0 and 0 <= c <= 22 for c, r in cells[:7]))
+        self.assertTrue(all(c < 0 or c > 22 for c, _ in cells[7:]))
+        self.assertEqual(pack.place(9), dict(id=73, row=73, column=23, grid_row=1, anchor='kum', columns=1))
+
+
+class Effects(unittest.TestCase):
+    def test_textures_of(self):
+        from ttt2char.convert import effects
+        alo = b'OELA' + bytes(12) + b'AL_EFFECT\0tfm_x00.nut\0tfm_cmn_part03.nut\0\0'
+        self.assertEqual(effects.textures_of(alo), ['tfm_x00.nut', 'tfm_cmn_part03.nut'])
+        self.assertEqual(effects.textures_of(b'OELA'), [])
 
 
 if __name__ == '__main__':

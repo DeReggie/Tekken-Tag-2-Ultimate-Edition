@@ -183,39 +183,68 @@ Debugging variables are listed in
 
 ## Adding fighters
 
-Kazumi Mishima from Tekken 7 can join the roster, at the free place at the
-right end of the select screen's top row. Nothing of her is in this
-repository: an importer makes her from **your own copies of both games** and
-writes a character pack on your computer. You need:
+The fighters of Tekken 7 that Tekken Tag Tournament 2 does not have can join
+the roster beside its own (no fighter is replaced): Kazumi Mishima, Lucky
+Chloe, Eliza, Claudio Serafino, Akuma, Gigas, Josie Rizal, Katarina Alves,
+Master Raven, Shaheen, Fahkumram, Leroy Smith, Lidia Sobieska, Kunimitsu II
+and Negan. Each gets a cell of its own on the select screen: the free ends of
+the top row first, then new columns beyond the rows' ends (19 cells; the
+order follows the order of import). Geese Howard and Noctis cannot be made:
+Tekken 7 keeps their files encrypted.
 
-- Tekken 7 for PC (Steam), installed;
-- her and Heihachi's movesets, saved from the running game with
-  [TKMovesets2](https://github.com/Kiloutre/TKMovesets): Practice mode with
-  Kazumi as player 1 and Heihachi as player 2, then "Extract (all)". On
-  Linux, run TKMovesets2 in Tekken 7's Proton prefix (for example
-  `protontricks-launch --appid 389730 TKMovesets2.exe`);
+Nothing of them is in this repository: an importer makes them from **your own
+copies of both games** and writes character packs on your computer. You need:
+
+- Tekken 7 for PC (Steam), installed and started from Steam at least once
+  (the importer finds it, its Proton and its prefix through Steam), and Steam
+  running;
 - the game installed with `ttt2 --install` (the importer reads its folder);
-- Python 3 with numpy and Pillow.
+- gamescope, `pactl` (PipeWire or PulseAudio), MinGW
+  (`x86_64-w64-mingw32-gcc`, to build a small helper the first time) and
+  Python 3 with numpy and Pillow.
 
 ```bash
-python3 tools/characters/import_character.py kazumi \
-    --tekken7 "$HOME/.local/share/Steam/steamapps/common/TEKKEN 7" \
-    --movesets /path/to/TKMovesets2/extracted_chars \
-    --game /path/to/your/install
+python3 tools/characters/import_character.py --all --game /path/to/your/install
 ```
 
-The pack goes to `~/.local/share/ttt2/characters/kzm` (`$TTT2_CHARACTERS`
-picks another folder); delete that folder to remove her. **The pack holds
-Namco's assets: keep it to yourself and never upload or share it.** The
-importer refuses to write it inside this repository, and `.gitignore` keeps
-the games' file types out of commits.
+A fighter's moveset exists only inside the running Tekken 7, so the importer
+first saves the movesets it does not have yet: Tekken 7 starts in the
+background, with no window and no sound (gamescope's headless mode and a
+silent audio output of its own), the game's own loader loads the fighters
+while it sits on its start-up screens, and it is closed again. Nothing is
+pressed and no menu is used, so your key bindings and settings do not matter.
+Only fighters your Steam account owns are imported (Steam must be running; it
+tells which DLC you own): a fighter whose DLC you have not bought is skipped,
+whichever movesets are already saved. `tools/characters/dump_tekken7.py` does that step alone (the
+movesets go to `~/.local/share/ttt2/tekken7/movesets/`); movesets saved with
+[TKMovesets2](https://github.com/Kiloutre/TKMovesets) work too
+(`--movesets FOLDER`).
 
-She has her own model with both players' colours, her moves (with her tiger
-in the moves that summon it), voice, command list, and her pictures and name
-on the menus' screens and in fights. Left out for now: Rage Arts and Rage
-Drives, power crush armour (those moves are there, without it), and Screw
-becomes Bound. One added fighter at a time; while she is installed she
-takes the place of a Fight Lab opponent (ZAKO A).
+The fighters' names for the importer: `kazumi`, `chloe`, `eliza`, `claudio`,
+`akuma`, `gigas`, `josie`, `katarina`, `master_raven`, `shaheen`,
+`fahkumram`, `leroy`, `lidia`, `kunimitsu2`, `negan` (one or several; each
+takes about a minute, and what they share is made once at the end). The packs
+go to `~/.local/share/ttt2/characters/` (a folder per fighter, and `shared/`,
+the title's pictures, colours and name calls the added fighters share;
+`$TTT2_CHARACTERS` picks another folder). Delete a fighter's folder and import
+any other fighter again to remove them. **The packs hold Namco's assets: keep
+them to yourself and never upload or share them.** The importer refuses to
+write them inside this repository, and `.gitignore` keeps the games' file
+types out of commits.
+
+Each has their own model with both players' colours (skin tones matched to
+Tekken Tag Tournament 2's own fighters), moves, voice, command list, and their
+pictures and name on the menus' screens and in fights; Kazumi's tiger appears
+in the moves that summon it, long hair and tails hang and swing, Eliza's
+fireballs and charges show the closest of Tekken Tag Tournament 2's own
+effects, Negan swings his bat and hits with it, Leroy's cane and Master Raven's
+sheathed katana are where they carry them, and the moves that hit with a
+weapon (Kunimitsu II's blades too) reach as far as the weapon. Left out for
+now: Rage Arts and Rage Drives, power crush armour (those moves are there,
+without it), Screw becomes Bound, the other fighters' effects, the weapons
+they take in hand only for some moves (Kunimitsu II's blades, Master Raven's
+drawn sword, Leroy's folding staff, Negan's knife), Katarina's and Leroy's
+sunglasses, and Gigas's back tubes.
 
 ## How it works
 
@@ -234,7 +263,7 @@ takes the place of a Fight Lab opponent (ZAKO A).
   menu buttons, the icon sets, texts and the title screen, made at start-up
   from the game's archives (their format is described in
   [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#presentation-on-a-computer)),
-  and an added fighter from a character pack.
+  and the added fighters from their character packs.
 - `tools/characters/`: the importer that makes a character pack from the
   player's own Tekken 7 and Tekken Tag Tournament 2
   ([`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#added-fighters)).
@@ -319,7 +348,8 @@ built into the `ttt2` program). The port also links SDL3 (zlib), shaderc
   [TekkenMovesetExtractor](https://github.com/Kiloutre/TekkenMovesetExtractor),
   whose research documented the Tekken 7 and TTT2 moveset layouts, their
   animations and what their requirement and property ids mean, which the
-  character importer builds on (it reads the movesets TKMovesets2 saves);
+  character importer builds on (its movesets are in TKMovesets2's .tkmvst
+  layout, which it can also read);
   [UE Viewer](https://github.com/gildor2/UEViewer) and
   [CUE4Parse](https://github.com/FabianFG/CUE4Parse), for Tekken 7's Unreal
   Engine 4.14 packages. The importer's code is its own.

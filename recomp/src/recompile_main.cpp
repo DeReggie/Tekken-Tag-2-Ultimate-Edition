@@ -2,6 +2,7 @@
 // function. See docs/ARCHITECTURE.md.
 
 #include "codegen.h"
+#include "mid_hooks.h"
 #include "program.h"
 #include "rpx.h"
 
@@ -193,6 +194,12 @@ int run(const Options& options) {
             "extern \"C\" __attribute__((weak)) void {}(::cafe::PPCContext& ctx, uint8_t*) {{\n"
             "\tcafe_unimplemented_import(ctx, \"{}\", \"{}\");\n}}\n",
             symbol, import.module, import.name);
+    }
+    // Mid-function hooks (mid_hooks.h): weak no-ops the runtime may replace.
+    for (const uint32_t address : recomp::kMidHooks) {
+        imports += std::format(
+            "extern \"C\" __attribute__((weak)) void {}(::cafe::PPCContext&, uint8_t*) {{}}\n",
+            recomp::mid_hook_name(address));
     }
     imports += "\nextern \"C\" const cafe::GuestImport cafe_guest_imports[] = {\n";
     for (const auto& import : program.image.imports) {

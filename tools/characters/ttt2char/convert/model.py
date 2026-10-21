@@ -11,6 +11,7 @@ skeleton (.bon). Everything goes into the body files, no costume parts.
    template's own average colour for the other slots.
 Textures are at most 512 texels on a side, with at most 3 mip levels (longer chains make the game bind garbage).
 """
+import collections
 import copy
 
 import numpy as np
@@ -22,11 +23,15 @@ from ..tekken7.texture import Texture2D
 from ..tekken7.uasset import load
 from ..ttt2 import bone, nud, nut
 from ..ttt2.archive import key_of
-from . import colours as colours2p, skeleton, strips, tiger
+from . import chains as hanging, colours as colours2p, skeleton, skin, strips, tiger, weapons
 
 GIDX_BASE = 0x10408000          # texture ids above every id the game's own textures use (0x10404fac at most)
+SLOT_GIDX = 0x1000              # each place's added fighter its own range of texture ids (they meet in fights)
 MAX_TEX = 512                   # longest side of a converted texture
 MIPS = 3                        # mip levels per texture (the game's own fighter textures have 3 or 1)
+# a fighter's texture bytes at most: the game's own fighters have 3.4-4.7 MB (a fight's memory is sized for them;
+# 12 MB showed a black model on busy stages); the largest textures are halved (normal maps first) until they fit
+TEXTURE_BUDGET = 4 << 20
 M_TO_MM = 1000.0
 
 
@@ -97,10 +102,12 @@ def load_tekken7_model(paks, parts, merge_order):
     """The costume's meshes as one skinned mesh in TTT2 space.
     parts: [(tag, skeletal mesh path)] in mesh order; merge_order: the tags in skeleton-merge order.
     Returns {'bones': {'names', 'parents', 'world' (n, 4, 4) bind matrices, mm}, 'prims': [{'part', 'material',
-    'pos' (mm), 'nrm', 'tan', 'uv', 'joints' (n, 8), 'weights' (n, 8), 'tris'}]} (prims share the vertex arrays)."""
+    'pos' (mm), 'nrm', 'tan', 'uv', 'joints' (n, 8), 'weights' (n, 8), 'tris'}] (prims share the vertex arrays),
+    'parts': {tag: {'names', 'parents', 'remap' (part bone -> merged bone)}}}."""
     loaded = []
     for tag, path in parts:
         m = t7mesh.SkeletalMesh(load(paks, path))
+        m.skeleton['names'] = [skeleton.canonical(n) for n in m.skeleton['names']]
         loaded.append((tag, m, m.geometry(0)))
     by_tag = {tag: (m, geo) for tag, m, geo in loaded}
     merged, remaps = merge_skeletons(
@@ -144,11 +151,15 @@ def load_tekken7_model(paks, parts, merge_order):
     ibm = np.linalg.inv(_ue_to_ttt2_matrix(g)).astype(np.float32)
     world = np.linalg.inv(ibm.astype(np.float64))
     world[:, :3, 3] *= M_TO_MM
-    return {'bones': dict(names=merged['names'], parents=merged['parents'], world=world), 'prims': prims}
+    skeletons = {tag: dict(names=m.skeleton['names'], parents=m.skeleton['parents'], remap=remaps[tag])
+                 for tag, m, _ in loaded}
+    return {'bones': dict(names=merged['names'], parents=merged['parents'], world=world), 'prims': prims,
+            'parts': skeletons}
 
 
 # ------------------------------------------------------------------------------------------------ albedo baking
-MASK_MATERIALS = ('M_CH_Aniso', 'M_CH_aniso', 'M_CH_Base', 'M_CH_Base_mask', 'M_CH_Aniso_machieru')
+MASK_MATERIALS = ('M_CH_Aniso', 'M_CH_aniso', 'M_CH_Base', 'M_CH_Base_mask', 'M_CH_Aniso_machieru',
+                  'M_CH_Base_machieru')
 
 
 def srgb_to_linear(x):
@@ -204,7 +215,7 @@ def bake_albedo(eff, textures):
         C = lerp(lerp(lerp(Color02, Color01, M.r), Color03, M.g), Color04, M.b)    (M = mask texture)
         k = max(1, 1 + 20 (max(M.r, M.g, M.b) - 0.9))
         albedo = D (1 - M.a) + k D C M.a          (the pattern layer is empty in default costumes)
-      M_CH_Aniso_machieru also multiplies by Multiply * lerp(DetalDiffuse(uv * Detail_Normal_Scale), 1,
+      The *_machieru ones also multiply by Multiply * lerp(DetalDiffuse(uv * Detail_Normal_Scale), 1,
       detail_diffuse_pow).
     Hair (pass 1): lo = sat(BaseLowerContrast); s = (min(Up, 0) + min(Lo, 0) + 1) / (1 - (sat(Up) + sat(Lo)));
         albedo = sat((T - lo) s - min(Lo, 0)) * Color01.
@@ -212,7 +223,9 @@ def bake_albedo(eff, textures):
     Anything else: its colour texture as it is."""
     base = eff['base']
     t, v, s = eff['textures'], eff['vectors'], eff['scalars']
-    if base in MASK_MATERIALS:
+    masked = base in MASK_MATERIALS or (not base.startswith('M_CH_AnisoHair') and t.get('DiffuseMap')
+                                        and t.get('MaskMap') and 'Color01' in v and 'Color02' in v)
+    if masked:                               # (M_CH_Aniso_mask, M_CH_Base_machieru_mask and the like too)
         D, Da = textures.linear(t['DiffuseMap'])
         M, Ma = textures.linear(t['MaskMap'])
         M, Ma = _resize_to(M, D.shape[:2]), _resize_to(Ma, D.shape[:2])
@@ -221,7 +234,7 @@ def bake_albedo(eff, textures):
         C = C + M[..., 2:3] * (_col(v['Color04']) - C)
         k = np.maximum(1.0, 1.0 + 20.0 * (M.max(-1, keepdims=True) - 0.9))
         out = D * (1 - Ma[..., None]) + k * D * C * Ma[..., None]
-        if base == 'M_CH_Aniso_machieru' and t.get('DetalDiffuse'):
+        if 'machieru' in base and t.get('DetalDiffuse'):
             det, _ = textures.linear(t['DetalDiffuse'])
             scale = s.get('Detail_Normal_Scale', 1.0)
             h, w = D.shape[:2]
@@ -245,6 +258,9 @@ def bake_albedo(eff, textures):
     for slot in ('DiffuseMap', 'Diffuse', 'Color', 'ColorTexture'):
         if textures.exists(t.get(slot)):
             return textures.linear(t[slot])
+    for name in sorted(v):                       # no texture but a glow: its colour (Akuma's eyes)
+        if 'emissive' in name.lower():
+            return np.clip(np.full((32, 32, 3), _col(v[name]), np.float32), 0, 1), None
     return None, None
 
 
@@ -265,16 +281,52 @@ def pow2_size(w, h, cap=MAX_TEX):
 
 
 class TextureBank:
-    """The new textures, numbered from GIDX_BASE in the order they are made; identical requests share one."""
+    """The new textures, numbered from `first` in the order they are made; identical requests share one."""
 
-    def __init__(self):
-        self.textures, self.by_key = [], {}
+    def __init__(self, first=GIDX_BASE):
+        self.first, self.textures, self.by_key = first, [], {}
+        self.sources, self.normals = [], set()          # each texture's image; the normal maps' indices
 
     def add(self, key, rgba, fmt):
         if key not in self.by_key:
-            self.by_key[key] = GIDX_BASE + len(self.textures)
+            self.by_key[key] = self.first + len(self.textures)
+            if key[0] == 'nrm':
+                self.normals.add(len(self.textures))
+            self.sources.append(np.asarray(rgba, np.uint8))
             self.textures.append(nut.make_texture(rgba, self.by_key[key], fmt, mips=MIPS))
         return self.by_key[key]
+
+    def keep(self, ids):
+        """Keeps only the textures `ids` (numbered again from `first`, in their order) -> {old id: new id}."""
+        order = sorted(set(ids))
+        new = {old: self.first + i for i, old in enumerate(order)}
+        at = [old - self.first for old in order]
+        self.textures = [dict(self.textures[i], gidx=new[old]) for i, old in zip(at, order)]
+        self.sources = [self.sources[i] for i in at]
+        self.normals = {j for j, i in enumerate(at) if i in self.normals}
+        self.by_key = {key: new[v] for key, v in self.by_key.items() if v in new}
+        return new
+
+    def fit(self, budget):
+        """Halves the largest textures (a normal map before an image of its size) until all fit in `budget` bytes
+        -> how many were halved."""
+        def size(i):
+            return sum(len(m) for m in self.textures[i]['mips'])
+        total, halved = sum(size(i) for i in range(len(self.textures))), 0
+        while total > budget:
+            big = [i for i, t in enumerate(self.textures) if min(t['w'], t['h']) > 64]
+            if not big:
+                break
+            i = max(big, key=lambda i: (size(i) * (2 if i in self.normals else 1), i))
+            t, before = self.textures[i], size(i)
+            h, w = self.sources[i].shape[:2]
+            self.sources[i] = (self.sources[i].reshape(h // 2, 2, w // 2, 2, 4).astype(np.float32).mean((1, 3))
+                               + 0.5).astype(np.uint8)
+            self.textures[i] = dict(nut.make_texture(self.sources[i], t['gidx'], t['fmt'], mips=len(t['mips'])),
+                                    **{k: v for k, v in t.items() if k not in ('fmt', 'w', 'h', 'mips', 'gidx')})
+            total += size(i) - before
+            halved += 1
+        return halved
 
     def constant(self, rgba, fmt, size=32):
         img = np.zeros((size, size, 4), np.uint8)
@@ -335,21 +387,68 @@ def load_templates(archives, templates, texture_sources):
 
 
 ORDER = {'mouth': 0, 'skin': 0, 'cloth': 0, 'colour': 0.5, 'eye': 1, 'hair': 2, 'overlay': 3}   # draw order in a mesh
+WRAP_REPEAT = 1                 # a NUD texture's wrap mode that repeats (the templates' 3 clamps)
+HOLES = 0.02                    # cloth whose colour texture is transparent over more than this share has holes (lace)
+
+
+def classify(name, base, alpha):
+    """What a Tekken 7 material becomes when the definition's MATERIALS does not say: (template kind, normal map?,
+    alpha-tested?) or None (left out), from its parent material `base` and its name; alpha: its colour texture's
+    alpha (None: opaque)."""
+    n = name.lower()
+    if base in ('M_CH_Eye_ADD', 'M_CH_tear') or 'tear' in n.split('_') or n.endswith('_add'):
+        return None                                   # reflections and wet layers over the eyes
+    if base == 'M_CH_Eye_IN' or n.endswith(('_eyes', '_eye')) or '_eyes_' in n:
+        return ('eye', False, False)
+    if 'teeth' in n:
+        return ('mouth', False, False)
+    if 'mouth' in n or 'tongue' in n:
+        return ('mouth', True, False)
+    if base == 'M_CH_skin_wet_SSP' or '_skin_' in n:
+        return ('skin', True, False)
+    if base in ('M_CH_trans', 'M_CH_simple_trans', 'M_CH_lip'):
+        return ('overlay', False, True)                # eyebrows, lashes, shadow, lips: blended over the face
+    if base.startswith('M_CH_AnisoHair'):
+        return ('hair', False, True)
+    holes = alpha is not None and float((alpha < 0.5).mean()) > HOLES
+    return ('cloth', True, holes)
+VERTEX_BUDGET = 42000           # vertices of a fighter's model the game skins: each frame it streams the skinned
+                                # vertices of the fighters on screen (and some stages' animals) into a stream-out
+                                # buffer, 80 bytes each, and in a match's first frame those of all four (the port
+                                # doubles the buffers to 14 MiB: roster.cpp; its own fighters have 20-34k): over it,
+                                # 2P colour layers are left out, the largest first
 LAYER_OFFSET = 1.0              # mm: how far the 2P colour layer sits outside the polygon it covers (less flickers:
                                 # the depth buffer cannot tell them apart at fighting distance)
 
 
-def convert(paks, archives, d, log=print):
-    """d: the character definition. -> (nud bytes, nut bytes, bon bytes, palettes): palettes = None without 2P
-    colour layers (colours.py), else {'entries': {palette number: ((x, y, s) player 1, (x, y, s) player 2)},
-    'grid': the colour grid with the fighter's cells}."""
+def convert(paks, archives, d, slot=0, log=print):
+    """d: the character definition, slot: its number (pack.place). -> (nud bytes, nut bytes, bon bytes, colours):
+    colours = None without 2P colour layers (colours.py), else {palette number: (player 1's rgb, player 2's rgb)}
+    (shared.py puts them in the colour grid)."""
     t7 = d.TEKKEN7
     k = load_tekken7_model(paks, t7['parts'], t7['merge_order'])
     log('  Tekken 7 model: %d bones, %d sections' % (len(k['bones']['names']), len(k['prims'])))
+    chains = [(part, hanging.find(k, part, root), directions) for part, root, directions in getattr(d, 'CHAINS', [])]
+    if chains:                                   # hair and tails Tekken 7 simulates: posed hanging (chains.py)
+        moved = hanging.drape(k, [(bones, directions) for _, bones, directions in chains])
     donor = bone.read(archives.read_name(d.DONOR + '.bon'))
     skel = skeleton.build(k['bones'], donor)
     weight_maps = {tag: skeleton.weight_map(k['bones'], skel['names'], lambda i, tag=tag: tag)[0]
                    for tag, _ in t7['parts']}
+    if chains:                                   # ... and swinging extra bones
+        parents = [int(weight_maps[part][k['bones']['parents'][bones[0]]]) for part, bones, _ in chains]
+        skel, made = hanging.append_bones(skel, k, [bones for _, bones, _ in chains], parents)
+        for (_, bones, _), new in zip(chains, made):
+            for wm in weight_maps.values():
+                wm[bones] = new
+        log('  hanging chains: %s (%d bones, OPT %d..; %d vertices moved)' % (
+            ', '.join(root for _, root, _ in d.CHAINS), sum(map(len, made)), hanging.OPT_FIRST, moved))
+    hidden = None
+    if getattr(d, 'HIDE', None):                 # chains left out: the triangles skinned to them
+        bones = [b for part, root in d.HIDE for b in hanging.find(k, part, root)]
+        s0 = k['prims'][0]
+        hidden = ((np.isin(s0['joints'], bones) & (s0['weights'] > 0)) * s0['weights']).sum(1) > 0.5
+        log('  left out: %s (%d vertices)' % (', '.join(root for _, root in d.HIDE), int(hidden.sum())))
     parts, prims = list(t7['parts']), list(k['prims'])
     if getattr(d, 'TIGER', None):                # a summoned model: extra bones of the fighter's (tiger.py)
         tk = load_tekken7_model(paks, [('tiger', d.TIGER['mesh'])], ['tiger'])
@@ -359,6 +458,28 @@ def convert(paks, archives, d, log=print):
         prims += [dict(p, pos=tiger.hidden(p['pos'])) for p in tk['prims']]
         log('  tiger: %d extra bones (OPT %d..), %d sections' % (len(tk['bones']['names']), tiger.OPT_FIRST,
                                                                len(tk['prims'])))
+    mesh_order = dict(d.MESHES)
+    loaded = {}                                  # weapon meshes by path
+    for n, w in enumerate(getattr(d, 'WEAPONS', [])):   # weapons its animations pose: extra bones (weapons.py)
+        tag = 'weapon%d' % n
+        if w.get('mesh'):
+            if w['mesh'] not in loaded:
+                loaded[w['mesh']] = load_tekken7_model(paks, [(tag, w['mesh'])], [tag])
+            wk = loaded[w['mesh']]
+        else:                                    # a weapon only hitting: its bones are the costume's
+            wk = k
+        skel, index, number, points = weapons.append_bones(skel, wk['bones'], w)
+        kept = []
+        if w.get('mesh') and w.get('draw', True):
+            weight_maps[tag] = np.full(len(wk['bones']['names']), index, np.int64)
+            own = wk['bones']['names'].index(w['bone'])
+            kept = [dict(q, part=tag) for q in (weapons.triangles(q, own) for q in wk['prims']) if len(q['tris'])]
+            parts.append((tag, w['mesh']))
+            prims += kept
+            mesh_order[tag] = ('%s_wpn%d' % (d.CODE, n), w['parent'], 100 + n)
+        log('  weapon %s: OPT %d under %s (%s), hit points OPT %s, %d triangles drawn' % (
+            w['bone'], number, w['parent'], 'pair %d' % w['pair'] if w.get('pair') is not None else 'still', points,
+            sum(len(q['tris']) for q in kept)))
     names = [n[4:] if n.startswith('cha:') else n for n in skel['names']]
     bidx = {n: i for i, n in enumerate(names)}
     templates = load_templates(archives, d.TEMPLATES, d.TEMPLATE_TEXTURES)
@@ -376,19 +497,49 @@ def convert(paks, archives, d, log=print):
             if x['material']:
                 ref = short_ref(x['material'])
                 mat_paths.setdefault(ref.split('.')[-1], ref)
-    bank = TextureBank()
+    face = sorted((name for name in mat_paths if 'skin_face' in name.lower()), key=len)
+    own = None
+    if face:                                      # its face's colour picks the gain (skin.py)
+        rgb, _ = bake_albedo(materials.effective(mat_paths[face[0]], colours), textures)
+        own = rgb.reshape(-1, 3).mean(0) if rgb is not None else None
+    skin_gain, skin_hue = skin.gain(paks, archives, d.SEX, materials, lambda eff: bake_albedo(eff, textures), own=own,
+                                    log=log)
+    if getattr(d, 'SKIN_HUE', None) == 'own':    # (Gigas is red)
+        skin_hue = None
+    bank = TextureBank(GIDX_BASE + SLOT_GIDX * slot)
     built = {}
+    cutoffs = {}                    # hair material -> Tekken 7's alpha threshold (0..255)
     layers, palettes = {}, {}       # material -> its 2P colour layer (fit, palette numbers); the palette entries
 
+    kinds = {}
+
+    def kind_of(name):
+        """The definition's MATERIALS entry, else classify()."""
+        if name in d.MATERIALS:
+            return d.MATERIALS[name]
+        if name not in kinds:
+            eff = materials.effective(mat_paths[name], colours)
+            try:
+                rgb, al = bake_albedo(eff, textures)
+            except (KeyError, ValueError):
+                rgb, al = None, None
+            kinds[name] = classify(name, eff['base'], al) if rgb is not None else None   # nothing to draw
+            log('  material %s (%s): %s' % (name, eff['base'], kinds[name]))
+        return kinds[name]
+
     def build_material(name):
-        kind, use_normal, alpha = d.MATERIALS[name]
+        kind, use_normal, alpha = kind_of(name)
         mat, vtype, slots = templates[kind]
         if name not in built:
             eff = materials.effective(mat_paths[name], colours)
             rgb, al = bake_albedo(eff, textures)
             if rgb is None:
                 raise ValueError('material %s has no colour texture' % name)
+            if kind == 'skin':                   # TTT2's skin colours (skin.py)
+                rgb = skin.hue(np.clip(rgb * skin_gain, 0, 1), skin_hue)
             built[name] = albedo_image(rgb, al), eff['textures'].get('Normal') if use_normal else None
+            if 'AlphaThreshold' in eff['scalars']:
+                cutoffs[name] = int(round(255 * min(max(eff['scalars']['AlphaThreshold'], 0.0), 1.0)))
             if colours_2p is not None and kind == 'cloth' and 'colour' in templates:
                 rgb2, _ = bake_albedo(materials.effective(mat_paths[name], colours_2p), textures)
                 c1 = np.asarray(built[name][0].convert('RGB'), np.float64) / 255.0
@@ -397,10 +548,15 @@ def convert(paks, archives, d, log=print):
                 if f is not None:
                     nn = colours2p.FIRST_PALETTE + 2 * len(layers)
                     layers[name] = (f, (nn, nn + 1))
-                    for k, (e1, _, e2, _) in enumerate(f['groups']):
-                        palettes[nn + k] = (e1, e2)
+                    for k, (_, rgb1, _, rgb2) in enumerate(f['groups']):
+                        palettes[nn + k] = ([float(x) for x in rgb1], [float(x) for x in rgb2])
         albedo, normal = built[name]
         mat = copy.deepcopy(mat)
+        if kind == 'hair' and mat['alpha_test'] and name in cutoffs:
+            mat['ref'] = cutoffs[name]  # where Tekken 7 cuts its strands (the template's own cut is higher)
+        if kind == 'cloth' and alpha and not mat['alpha_test'] and 'colour_alpha' in templates:
+            for key in ('alpha_test', 'alpha_func', 'ref'):    # cloth with holes (lace, frills): alpha-tested
+                mat[key] = templates['colour_alpha'][0][key]
         ids = []
         for i, slot in enumerate(slots):
             if i == 0:
@@ -417,6 +573,7 @@ def convert(paks, archives, d, log=print):
                 ids.append(bank.constant(tuple(mean), slot['fmt']))
         for t, gid in zip(mat['textures'], ids):
             t['id'] = gid
+            t['wrap_s'] = t['wrap_t'] = WRAP_REPEAT        # Tekken 7 repeats textures (UVs run past 0..1)
         return mat, vtype, kind
 
     def layer_material(name):
@@ -451,6 +608,7 @@ def convert(paks, archives, d, log=print):
                 ids.append(bank.constant(tuple(mean), slot['fmt']))
         for t, gid in zip(mat['textures'], ids):
             t['id'] = gid
+            t['wrap_s'] = t['wrap_t'] = WRAP_REPEAT        # Tekken 7 repeats textures (UVs run past 0..1)
         (_, a1, _, _), (_, b1, _, _) = f['groups']
         props = []
         for n, v in mat['props']:
@@ -463,18 +621,35 @@ def convert(paks, archives, d, log=print):
         return mat, vtype
 
     meshes, dropped = {}, []
+    seen = set()                    # the triangles drawn so far (a hair material's second pass draws them again)
     for prim in prims:
         name = prim['material']
-        if name not in d.MATERIALS:
-            raise ValueError('the character definition does not say what to do with material %s' % name)
-        if d.MATERIALS[name] is None:
+        if kind_of(name) is None:
             dropped.append(name)
             continue
+        if hidden is not None and len(hidden) == len(prim['pos']):
+            prim = dict(prim, tris=prim['tris'][~hidden[prim['tris']].any(1)])
+            if not len(prim['tris']):
+                continue
+        corners = np.sort(np.round(prim['pos'][prim['tris']], 1).reshape(len(prim['tris']), -1), 1)
+        shape = hash(corners[np.lexsort(corners.T[::-1])].tobytes())
+        if shape in seen:
+            dropped.append(name + ' (a second pass)')
+            continue
+        seen.add(shape)
         mat, vtype, kind = build_material(name)
+        # Tekken 7 splits vertices its meshes share (copies with the same position, normal, uv and skin weights);
+        # they are welded: the game skins a fighter's vertices into a buffer made for its own fighters' (~30k)
         used = np.unique(prim['tris'])
+        same = np.concatenate([np.round(prim['pos'][used], 3), np.round(prim['nrm'][used], 4),
+                               np.round(prim['uv'][used], 6), weight_maps[prim['part']][prim['joints'][used]],
+                               np.round(prim['weights'][used], 4)], 1)
+        _, first, which = np.unique(same, axis=0, return_index=True, return_inverse=True)
         remap = np.full(len(prim['pos']), -1, np.int64)
-        remap[used] = np.arange(len(used))
+        remap[used] = which.reshape(-1)
         tris = remap[prim['tris']]
+        tris = tris[(tris[:, 0] != tris[:, 1]) & (tris[:, 1] != tris[:, 2]) & (tris[:, 0] != tris[:, 2])]
+        used = used[first]
         n = len(used)
         if n >= 0xFFFF:
             raise ValueError('section of %s has too many vertices for one NUD polygon' % name)
@@ -548,10 +723,39 @@ def convert(paks, archives, d, log=print):
             lverts['pos'] = pos + nrm * LAYER_OFFSET
             meshes[prim['part']].append(dict(vtype=vt, uvtype=0x10, pflag=4, tail=bytes(12),
                                              indices=np.array(strip, np.uint16), verts=lverts, materials=[lmat],
-                                             _order=ORDER['colour']))
+                                             _order=ORDER['colour'], _layer=name))
+    total = sum(len(p['verts']) for polys in meshes.values() for p in polys)
+    by_size = collections.Counter()
+    for polys in meshes.values():
+        for p in polys:
+            if p.get('_layer'):
+                by_size[p['_layer']] += len(p['verts'])
+    def used_textures():
+        return {t['id'] for polys in meshes.values() for p in polys for m in p['materials'] for t in m['textures']}
+
+    plain = []
+    for name, n in by_size.most_common():
+        if total <= VERTEX_BUDGET:
+            break
+        for tag in meshes:
+            meshes[tag] = [p for p in meshes[tag] if p.get('_layer') != name]
+        total -= n
+        plain.append(name)
+        layers.pop(name, None)
+    if plain:
+        log('  over %d vertices: no 2P colour layers over %s (player 2 has player 1\'s colours there)' % (
+            VERTEX_BUDGET, ', '.join(plain)))
+    # the textures the materials use (a left-out layer's are not), numbered again
+    renumber = bank.keep(used_textures())
+    slots = {id(t): t for polys in meshes.values() for p in polys for m in p['materials'] for t in m['textures']}
+    for t in slots.values():
+        t['id'] = renumber[t['id']]
+    for polys in meshes.values():
+        for p in polys:
+            p.pop('_layer', None)
     nmeshes = []
-    for tag in sorted(meshes, key=lambda p: d.MESHES[p][2]):
-        mname, singlebind, _ = d.MESHES[tag]
+    for tag in sorted(meshes, key=lambda p: mesh_order[p][2]):
+        mname, singlebind, _ = mesh_order[tag]
         polys = sorted(meshes[tag], key=lambda p: p['_order'])
         for p in polys:
             del p['_order']
@@ -559,10 +763,19 @@ def convert(paks, archives, d, log=print):
         nmeshes.append(dict(name=mname, sphere=sph, center=sph[:3], sort_bias=0.0, zero=0, boneflag=0x2c,
                             singlebind=bidx[singlebind], polys=polys))
     allp = np.concatenate([p['verts']['pos'] for m in nmeshes for p in m['polys']])
+    before = sum(len(m) for t in bank.textures for m in t['mips'])
+    halved = bank.fit(TEXTURE_BUDGET)
+    if halved:
+        log('  textures: %d KB, more than the game\'s own fighters have: %d halved (%d KB)' % (
+            before // 1024, halved, sum(len(m) for t in bank.textures for m in t['mips']) // 1024))
+    if len(allp) > VERTEX_BUDGET:
+        log('  WARNING: %d vertices: more than the game skins for a fighter (about %d); the other fighters in a fight '
+            'may break' % (len(allp), VERTEX_BUDGET))
     model = dict(version=0x0201, sphere=nud.bounding_sphere(allp), bone_first=None, meshes=nmeshes)
-    log('  model: %d meshes, %d polygons, %d textures (dropped: %s)' % (
-        len(nmeshes), sum(len(m['polys']) for m in nmeshes), len(bank.textures), ', '.join(dropped) or 'none'))
+    log('  model: %d meshes, %d polygons, %d vertices, %d textures (dropped: %s)' % (
+        len(nmeshes), sum(len(m['polys']) for m in nmeshes), len(allp), len(bank.textures),
+        ', '.join(dropped) or 'none'))
     if layers:
         log('  2P colours: layers over %s; palette numbers %s' % (', '.join(sorted(layers)), sorted(palettes)))
-    out = {'entries': palettes, 'grid': palette.grid_bytes()} if layers else None
+    out = palettes if layers else None
     return nud.write(model), nut.write(bank.textures), bone.write(skel), out

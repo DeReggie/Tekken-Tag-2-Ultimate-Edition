@@ -124,6 +124,7 @@ void Renderer::wait_value(uint64_t value) {
 uint64_t Renderer::submit(bool wait) {
     if (recording_) {
         end_rendering();
+        copy_write_backs();
         vkCmdWriteTimestamp2(cmd_, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, busy_pool_, 2 * slot_ + 1);
         VK_CHECK(vkEndCommandBuffer(cmd_));
         const uint64_t value = ++submitted_;
@@ -362,8 +363,10 @@ void Renderer::save_image(const Image& img, const std::string& path) {
 }
 
 // TTT2_CAPTURE=<directory>: every TTT2_CAPTURE_INTERVAL seconds (default
-// 5) the TV and GamePad images are saved as PNG files. The render targets
-// of a traced frame (TTT2_TRACE_FRAME/AT) are saved there too.
+// 5) the TV and GamePad images are saved as PNG files, from
+// TTT2_CAPTURE_START seconds on (default 0); TTT2_CAPTURE_TV_ONLY=1 saves
+// the TV image alone (no GamePad image, no extra frames). The render
+// targets of a traced frame (TTT2_TRACE_FRAME/AT) are saved there too.
 void Renderer::capture() {
     static const char* dir = [] {
         const char* d = std::getenv("TTT2_CAPTURE");
@@ -374,6 +377,11 @@ void Renderer::capture() {
         return v ? std::atof(v) : 5.0;
     }();
     static double last = now_seconds();
+    static const double start = [] {
+        const char* v = std::getenv("TTT2_CAPTURE_START");
+        return now_seconds() + (v ? std::atof(v) : 0.0);
+    }();
+    static const bool tv_only = std::getenv("TTT2_CAPTURE_TV_ONLY") != nullptr;
     static uint32_t index = 0;
     if (dir != nullptr && tracing()) {
         for (const auto& t : targets_) {
@@ -384,15 +392,15 @@ void Renderer::capture() {
             save_image(t->image, std::string(dir) + name);
         }
     }
-    if (dir == nullptr || now_seconds() - last < interval) return;
+    if (dir == nullptr || now_seconds() < start || now_seconds() - last < interval) return;
     last = now_seconds();
     for (int s = 0; s < 2; ++s) {
-        if (!scan_valid_[s]) continue;
+        if (!scan_valid_[s] || (tv_only && s == 1)) continue;
         char name[64];
         std::snprintf(name, sizeof(name), "/%s_%04u.png", s == 0 ? "tv" : "drc", index);
         save_image(scan_[s], std::string(dir) + name);
     }
-    captured_frame_ = static_cast<int64_t>(frame_number_);
+    captured_frame_ = tv_only ? -1 : static_cast<int64_t>(frame_number_);
     captured_index_ = index;
     ++index;
     // TTT2_CAPTURE_SEQUENCE=<frames>: also every image shown for the next
@@ -462,6 +470,7 @@ void Renderer::profile_report() {
 }
 
 void Renderer::swap() {
+    copy_write_backs(); // the frame's, before its replays render into the same targets
     capture();
     show_frame();
     if (profiling_) {

@@ -97,6 +97,8 @@ class Materials:
         cs = export_properties(load(self.paks, set_path))[0][1] or {}
         out = {}
         for ref in cs.get('CustomCharacterItems', []):
+            if not short_ref(ref):                  # an empty slot
+                continue
             cci = export_properties(load(self.paks, short_ref(ref).split('.')[0]))[0][1] or {}
             for ic in cci.get('ItemColors', []):
                 out[ic['LocationName']] = {'Color%02d' % (i + 1): c for i, c in enumerate(ic.get('InstanceColors', []))}

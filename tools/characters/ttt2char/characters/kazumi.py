@@ -14,7 +14,6 @@ SEX = 'female'
 # templates of hers, its moveset gives the generic and tag moves, and its voice and effects are used for her.
 DONOR = 'jun'                 # Jun Kazama: the 139-bone female skeleton
 DONOR_ROW = 42                # Jun's motion row (data005 / data006 entry)
-ROW = 58                      # the motion row the added fighter takes (unused by the game; see roster.cpp)
 
 # ------------------------------------------------------------------------------------------------ model
 _ITEM = '/Game/Character/Item'

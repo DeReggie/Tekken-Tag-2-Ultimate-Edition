@@ -65,6 +65,10 @@ public:
         return 0;
     }
     virtual void wait_for(uint64_t) {}
+    // On the retirement thread, after wait_for(value) and before the CPU is
+    // let see that the work up to `value` finished: memory the GPU writes on
+    // the console that a backend keeps elsewhere goes to guest memory.
+    virtual void retired(uint64_t) {}
 
     // Frame interpolation. A backend that shows more than one frame per
     // frame the title renders gets each finished frame's commands again
