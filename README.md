@@ -1,4 +1,4 @@
-# Tekken Tag 2 Recompiled
+# Tekken Tag 2 Ultimate Edition
 
 <img width="1593" height="888" alt="image" src="https://github.com/user-attachments/assets/3bd58409-1442-4ce7-b9a6-8f036f38f4f8" />
 
@@ -103,7 +103,7 @@ are too old.
 ## Building
 
 ```bash
-git clone https://github.com/Petexy/Tekken-Tag-2-Recompiled.git && cd Tekken-Tag-2-Recompiled
+git clone https://github.com/Petexy/Tekken-Tag-2-Ultimate-Edition.git && cd Tekken-Tag-2-Ultimate-Edition
 python3 tools/setup_deps.py                      # ZArchive and AMD's addrlib, at pinned revisions
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
