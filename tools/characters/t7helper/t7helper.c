@@ -17,6 +17,11 @@
  *                                      once loaded, turns the moveset and the command list from their file form
  *                                      into the form the game uses: "<moveset hex> <command list hex>"
  *     read <address hex> <size>        "data <n>" then n raw bytes of the game's memory (n < size where unreadable)
+ *     want <path>                      queues one of the game's files for `fetch` (a path in its paks,
+ *                                      "../../../TekkenGame/Content/..."): "ok", or "error ..."
+ *     fetch                            reads the queued files as the game reads them (its own file reader, which
+ *                                      decodes the files it keeps encrypted): "file <0/1> <n>" then n raw bytes per
+ *                                      file, in queue order, then "end"; the queue is emptied
  *     quit                             ends the helper
  * The game's functions are called on a thread of their own (they queue work on the game's own threads, or work on the
  * buffers alone); no address or code comes from the connection.
@@ -46,6 +51,8 @@ static const struct Function LOAD_FIGHTER = {0x1402c8130ull, 16, 0x60D3EFD802971
 static const struct Function LOAD_COMMON = {0x1402c81d0ull, 16, 0xFE35E9993E0F0DFEull};
 static const struct Function FIXUP_MOVESET = {0x140714f40ull, 16, 0x418477E3A11B5BD9ull};
 static const struct Function FIXUP_MOVELIST = {0x14075ad40ull, 16, 0xAFAAC7406FA4B2CCull};
+static const struct Function LOAD_FILE = {0x1408276c0ull, 16, 0xFE6C37993E3D21F8ull}; /* (TArray<u8>*, path, flags) */
+static const struct Function FREE = {0x1407cd730ull, 16, 0x5A43178A645AB271ull};
 static const unsigned long long TASK_MANAGER = 0x1434d6c18ull, FILE_LOADER = 0x1434cdfa0ull;
 /* A fighter record (0x70 bytes): code @0, moveset @0x40, animations @0x48, command list @0x68 (written last); the
  * common record (0x40 bytes): shared animations @0x38. */
@@ -182,7 +189,7 @@ static void attach(void) {
         return;
     }
     const struct Function* all[] = {&ALLOCATE, &FIGHTER_INFO, &LOAD_FIGHTER, &LOAD_COMMON, &FIXUP_MOVESET,
-                                    &FIXUP_MOVELIST};
+                                    &FIXUP_MOVELIST, &LOAD_FILE, &FREE};
     for (size_t i = 0; i < sizeof all / sizeof all[0]; ++i) {
         if (!matches(all[i])) {
             out_printf("error this Tekken 7 build is not the one the helper knows\n");
@@ -233,6 +240,121 @@ static unsigned long long call(const struct Function* f, unsigned long long a1, 
         }
     }
     return value;
+}
+
+/* Calls a function once per entry of a table, all on one thread of its own (the game keeps a file reader per
+ * thread): entries of 32 bytes {path, TArray<u8> {data, i32 count, i32 capacity}, result}; `load` calls
+ * function(&entry.array, entry.path, 0), otherwise function(entry.array.data). -> whether the thread finished. */
+enum { ENTRY_SIZE = 32, ENTRY_ARRAY = 8, MAX_FILES = 256, PATH_CHARS = 260 };
+static int call_each(const struct Function* f, unsigned long long table, unsigned count, int load) {
+    if (!g_checked) return 0;
+    unsigned char* stub = VirtualAllocEx(g_game, NULL, 4096, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!stub) return 0;
+    unsigned char code[128];
+    size_t n = 0;
+    code[n++] = 0x53; code[n++] = 0x56;                                       /* push rbx; push rsi */
+    code[n++] = 0x48; code[n++] = 0x83; code[n++] = 0xEC; code[n++] = 0x28;   /* sub rsp, 0x28 */
+    put64(code, &n, 0x48, 0xBB, table);                                       /* mov rbx, table */
+    code[n++] = 0xBE; memcpy(code + n, &count, 4); n += 4;                    /* mov esi, count */
+    const size_t loop = n;
+    code[n++] = 0x85; code[n++] = 0xF6;                                       /* test esi, esi */
+    code[n++] = 0x74; const size_t done = n++;                                /* je done */
+    if (load) {
+        code[n++] = 0x48; code[n++] = 0x8D; code[n++] = 0x4B; code[n++] = ENTRY_ARRAY; /* lea rcx, [rbx+8] */
+        code[n++] = 0x48; code[n++] = 0x8B; code[n++] = 0x13;                         /* mov rdx, [rbx] */
+        code[n++] = 0x45; code[n++] = 0x31; code[n++] = 0xC0;                         /* xor r8d, r8d */
+    } else {
+        code[n++] = 0x48; code[n++] = 0x8B; code[n++] = 0x4B; code[n++] = ENTRY_ARRAY; /* mov rcx, [rbx+8] */
+    }
+    put64(code, &n, 0x48, 0xB8, f->address);                                  /* mov rax, function */
+    code[n++] = 0xFF; code[n++] = 0xD0;                                       /* call rax */
+    code[n++] = 0x48; code[n++] = 0x89; code[n++] = 0x43; code[n++] = 0x18;   /* mov [rbx+0x18], rax */
+    code[n++] = 0x48; code[n++] = 0x83; code[n++] = 0xC3; code[n++] = ENTRY_SIZE; /* add rbx, 32 */
+    code[n++] = 0xFF; code[n++] = 0xCE;                                       /* dec esi */
+    code[n++] = 0xEB; code[n] = (unsigned char)(loop - (n + 1)); n++;         /* jmp loop */
+    code[done] = (unsigned char)(n - (done + 1));
+    code[n++] = 0x48; code[n++] = 0x83; code[n++] = 0xC4; code[n++] = 0x28;   /* add rsp, 0x28 */
+    code[n++] = 0x5E; code[n++] = 0x5B;                                       /* pop rsi; pop rbx */
+    code[n++] = 0x31; code[n++] = 0xC0; code[n++] = 0xC3;                     /* xor eax, eax; ret */
+    SIZE_T written;
+    int finished = 0;
+    if (WriteProcessMemory(g_game, stub, code, n, &written)) {
+        FlushInstructionCache(g_game, stub, n);
+        HANDLE t = CreateRemoteThread(g_game, NULL, 0, (LPTHREAD_START_ROUTINE)stub, NULL, 0, NULL);
+        if (t) {
+            finished = WaitForSingleObject(t, 600000) == WAIT_OBJECT_0;
+            CloseHandle(t);
+        }
+    }
+    if (finished) VirtualFreeEx(g_game, stub, 0, MEM_RELEASE);
+    return finished;
+}
+
+static char g_wanted[MAX_FILES][PATH_CHARS];
+static unsigned g_wanted_count;
+
+/* Only the game's own content, by a plain relative path: "../../../TekkenGame/Content/" then no "..", ':' or '\'. */
+static void want(const char* path) {
+    static const char prefix[] = "../../../TekkenGame/Content/";
+    const size_t len = strlen(path);
+    if (strncmp(path, prefix, sizeof prefix - 1) || len >= PATH_CHARS || strstr(path + sizeof prefix - 1, "..") ||
+        strpbrk(path, ":\\")) {
+        out_printf("error not a path of the game's content\n");
+        return;
+    }
+    if (g_wanted_count == MAX_FILES) {
+        out_printf("error too many files queued\n");
+        return;
+    }
+    memcpy(g_wanted[g_wanted_count++], path, len + 1);
+    out_printf("ok\n");
+}
+
+static void fetch(void) {
+    const unsigned count = g_wanted_count;
+    g_wanted_count = 0;
+    const size_t table_size = (size_t)count * ENTRY_SIZE, size = table_size + (size_t)count * PATH_CHARS * 2;
+    unsigned char* local = calloc(1, size ? size : 1);
+    unsigned char* remote = count ? VirtualAllocEx(g_game, NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE) : NULL;
+    SIZE_T done;
+    if (!g_checked || !local || (count && !remote)) {
+        out_printf("error cannot allocate\n");
+        free(local);
+        return;
+    }
+    for (unsigned i = 0; i < count; ++i) {   /* entries, then the paths (UTF-16) */
+        const size_t at = table_size + (size_t)i * PATH_CHARS * 2;
+        const unsigned long long path = (unsigned long long)(size_t)remote + at;
+        memcpy(local + (size_t)i * ENTRY_SIZE, &path, 8);
+        for (size_t k = 0; g_wanted[i][k]; ++k) local[at + 2 * k] = (unsigned char)g_wanted[i][k];
+    }
+    if (count && (!WriteProcessMemory(g_game, remote, local, size, &done) ||
+                  !call_each(&LOAD_FILE, (unsigned long long)(size_t)remote, count, 1) ||
+                  !read_game((unsigned long long)(size_t)remote, local, table_size))) {
+        out_printf("error the game did not read the files\n");   /* (memory left as it is: a thread may still run) */
+        free(local);
+        return;
+    }
+    for (unsigned i = 0; i < count; ++i) {
+        const unsigned char* e = local + (size_t)i * ENTRY_SIZE;
+        unsigned long long data, result;
+        int length;
+        memcpy(&data, e + ENTRY_ARRAY, 8);
+        memcpy(&length, e + ENTRY_ARRAY + 8, 4);
+        memcpy(&result, e + 24, 8);
+        char* bytes = length > 0 && data ? malloc((size_t)length) : NULL;
+        const int ok = (result & 0xFF) && bytes && read_game(data, bytes, (size_t)length);
+        out_printf("file %d %d\n", ok, ok ? length : 0);
+        if (ok) out_write(bytes, (size_t)length);
+        out_flush();
+        free(bytes);
+    }
+    if (count) {
+        call_each(&FREE, (unsigned long long)(size_t)remote, count, 0);
+        VirtualFreeEx(g_game, remote, 0, MEM_RELEASE);
+    }
+    out_printf("end\n");
+    free(local);
 }
 
 static void ready(void) {
@@ -370,6 +492,10 @@ static int serve(int port, const char* secret) {
             fixup(a, b);
         } else if (!strcmp(cmd, "read") && sscanf(line, "%*s %llx %llu", &a, &b) == 2 && b <= (256ull << 20)) {
             read_memory(a, (size_t)b);
+        } else if (!strcmp(cmd, "want") && sscanf(line, "%*s %299[^\n]", arg) == 1) {
+            want(arg);
+        } else if (!strcmp(cmd, "fetch")) {
+            fetch();
         } else {
             out_printf("error %s\n", line);
         }

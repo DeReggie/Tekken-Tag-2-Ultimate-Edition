@@ -85,9 +85,28 @@ class Weapons(unittest.TestCase):
         s, _, n1, _ = weapons.append_bones(skel, t7, still)
         s, _, n2, _ = weapons.append_bones(s, t7, dict(still, points={3: 30, 4: 40}))
         self.assertEqual((n1, n2), (820, 821))
-        self.assertEqual([k for k, _, _ in weapons.of_skeleton(s)], [20, 21])
+        self.assertEqual([k for k, _, _, _ in weapons.of_skeleton(s)], [20, 21])
         with self.assertRaises(ValueError):                                        # only 70..73
             weapons.append_bones(s, t7, dict(still, points={5: 50}))
+
+    def test_summoned_weapons_share_slots(self):
+        skel = fighter()
+        t7 = tekken7(bone.world_matrices(skel)[1], np.eye(3))
+        sword = dict(bone='ATH_R_weapon001', parent='TE_R_jnt', pair=3, summon=3,
+                     points={0x63: ('ATH_R_weapon001_top', 0), 0x66: (20, 1)})
+        dagger = dict(sword, pair=5, summon=5, points={0x64: (30, 0)})
+        s, _, _, _ = weapons.append_bones(skel, t7, sword)
+        s, _, _, used = weapons.append_bones(s, t7, dagger)
+        self.assertEqual(used, [852])
+        self.assertEqual(s['names'][-1], 'cha:OPT852_hit64_0')
+        self.assertEqual(weapons.points_of(s['names']), {0x63: 0x46, 0x66: 0x47, 0x64: 0x46})   # slots, not numbers
+        listed = weapons.of_skeleton(s, [sword, dagger])
+        self.assertEqual(listed, [(3, 1, [(0, 0), (1, 1)], 3), (5, 1, [(2, 0)], 5)])
+        ini = pack.character_ini(type('D', (), dict(NAME='X', CODE='abc', DONOR='lar', SEX='male')), 3,
+                                 weapons=listed)
+        self.assertIn('weapons = 3:1:0,1:3 5:1:2>0:5\n', ini)
+        with self.assertRaises(ValueError):                                        # slots are 0..3
+            weapons.append_bones(s, t7, dict(dagger, points={0x65: (40, 4)}))
 
     def test_triangles(self):
         joints = np.array([[1, 0], [1, 2], [2, 0], [1, 0]])

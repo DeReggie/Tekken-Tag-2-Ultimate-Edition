@@ -10,7 +10,8 @@ yourself, never upload or share it.
     python3 tools/characters/import_character.py --all --game ~/Games/TekkenTag2
 
 A moveset Tekken 7 only has while it runs: the ones not saved yet are saved first (dump_tekken7.py: Tekken 7 runs in
-the background, no window, no sound; Steam must be running). Fighters whose DLC your account does not own are skipped.
+the background, no window, no sound; Steam must be running), and so are the files Tekken 7 keeps encrypted (Geese's
+and Noctis's), as the game reads them. Fighters whose DLC your account does not own are skipped.
 Movesets saved from your own Tekken 7 with TKMovesets2 work too (--movesets); DLC fighters are imported only when your
 Steam account owns them.
 
@@ -28,13 +29,17 @@ def main():
         description='Add a fighter from your own Tekken 7 (PC) to Tekken Tag Tournament 2.',
         epilog='The pack holds Namco\'s assets: it is for your own use; never upload or share it.')
     parser.add_argument('fighter', nargs='*', help='who to add (one or more): kazumi, chloe, eliza, claudio, akuma, '
-                        'gigas, josie, katarina, master_raven, shaheen, fahkumram, leroy, lidia, kunimitsu2, negan')
+                        'gigas, josie, katarina, master_raven, shaheen, fahkumram, leroy, lidia, kunimitsu2, negan, '
+                        'geese, noctis')
     parser.add_argument('--all', action='store_true', help='every fighter above that your Tekken 7 has')
     parser.add_argument('--tekken7', metavar='FOLDER',
                         help='your Tekken 7 PC installation (the folder holding TekkenGame/; default: found through Steam)')
     parser.add_argument('--movesets', metavar='FOLDER',
                         help='the folder with the .tkmvst movesets saved from your own Tekken 7 (default: %s, filled as '
                              'needed)' % '~/.local/share/ttt2/tekken7/movesets')
+    parser.add_argument('--files', metavar='FOLDER',
+                        help='the folder with the files Tekken 7 keeps encrypted (Geese\'s, Noctis\'s), as the game reads '
+                             'them (default: %s, filled as needed)' % '~/.local/share/ttt2/tekken7/files')
     parser.add_argument('--game', required=True, metavar='FOLDER',
                         help='your installed Tekken Tag Tournament 2 (the folder ttt2 --install made)')
     parser.add_argument('--out', metavar='FOLDER',
@@ -58,6 +63,7 @@ def main():
     from ttt2char import InputError, importer
     from ttt2char import pack
     from ttt2char.tekken7 import autodump
+    from ttt2char.tekken7.pak import Paks
     fighters = list(importer.CHARACTERS) if args.all else [f.lower() for f in args.fighter]
     if not fighters:
         parser.error('name the fighters to add, or --all')
@@ -71,6 +77,7 @@ def main():
     except autodump.DumpError as error:
         sys.exit('import_character: %s (or give --tekken7)' % error)
     movesets = os.path.expanduser(args.movesets or os.path.join('~', '.local', 'share', 'ttt2', 'tekken7', 'movesets'))
+    files_folder = os.path.expanduser(args.files) if args.files else autodump.FILES
     # only fighters the player owns, whichever movesets are already saved (DLC fighters: as Steam tells)
     try:
         skipped = autodump.unowned([importer.definition(f).TEKKEN7_ID for f in fighters])
@@ -83,31 +90,46 @@ def main():
             fighters.remove(fighter)
     if not fighters:
         sys.exit('import_character: none of the fighters asked for is owned')
-    # the movesets not saved yet: Tekken 7 in the background, once for all of them
+    # the movesets and encrypted files not saved yet: Tekken 7 in the background, once for all of them
+    try:
+        paks = Paks(importer.tekken7_paks(tekken7), saved=files_folder)
+    except InputError as error:
+        sys.exit('import_character: %s' % error)
     have = importer.saved_movesets(movesets)
-    needed = {}
+    needed, files = {}, {}
     for fighter in fighters:
         d = importer.definition(fighter)
         if d.TEKKEN7_ID not in have:
             needed[d.TEKKEN7_ID] = (d.TEKKEN7_CODE, d.NAME)
-    if needed or importer.HEIHACHI not in have:            # (Heihachi's is saved along)
-        print('Saving %d Tekken 7 moveset(s) first (Tekken 7 runs hidden in the background for a minute or two) ...' % len(needed))
+        entries = autodump.unsaved_files(paks, d.TEKKEN7_CODE)
+        if entries:
+            files[d.TEKKEN7_ID] = (d.NAME, entries)
+    if importer.HEIHACHI not in have:                       # (every import needs his)
+        needed[importer.HEIHACHI] = ('hei', 'Heihachi')
+    if needed or files:
+        print('Saving %d Tekken 7 moveset(s) and %d fighter(s)\' encrypted files first (Tekken 7 runs hidden in the '
+              'background for a minute or two) ...' % (len(needed), len(files)))
         try:
-            _, skipped = autodump.dump(needed, movesets)
+            _, skipped = autodump.dump(needed, movesets, files=files, paks=paks)
         except autodump.DumpError as error:
             sys.exit('import_character: %s' % error)
+        who = {fid: name for fid, (_, name) in needed.items()}
+        who.update((fid, name) for fid, (name, _) in files.items())
         for fid, why in skipped.items():
-            name = needed.get(fid, ('', 'Heihachi'))[1]
-            print('Skipped %s: %s.' % (name, why))
+            print('Skipped %s: %s.' % (who[fid], why))
         have = importer.saved_movesets(movesets)
-        fighters = [f for f in fighters if importer.definition(f).TEKKEN7_ID in have]
+        fighters = [f for f in fighters if importer.definition(f).TEKKEN7_ID in have and
+                    not autodump.unsaved_files(paks, importer.definition(f).TEKKEN7_CODE)]
         if importer.HEIHACHI not in have:
             sys.exit('import_character: Heihachi\'s moveset could not be saved')
+        if not fighters:
+            sys.exit('import_character: none of the fighters asked for could be saved from Tekken 7')
     for n, fighter in enumerate(fighters):
         try:
             # what the packs share is made once, after the last fighter
             target = importer.run(fighter, tekken7, movesets, os.path.expanduser(args.game),
-                                  args.out and os.path.expanduser(args.out), make_shared=not args.no_shared and n + 1 == len(fighters))
+                                  args.out and os.path.expanduser(args.out), make_shared=not args.no_shared and n + 1 == len(fighters),
+                                  files=files_folder)
         except InputError as error:
             sys.exit('import_character: %s' % error)
         slot = int(pack.read_ini(os.path.join(target, 'character.ini')).get('slot', '0'))

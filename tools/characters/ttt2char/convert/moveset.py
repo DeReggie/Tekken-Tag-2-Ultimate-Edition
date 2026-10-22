@@ -48,8 +48,9 @@ REQ_OVERRIDE.update({c: c - 3 for c in range(88, 100)})
 # list made false (effects, sounds, camera zooms, stop motion; 1145 cancels of the 15 fighters) - except these, which
 # keep a state the list's other conditions may depend on
 REQ_PROP_KEEP = {0x8107}
-PROP_OVERRIDE = {0x8255: 0x8193, 0x8256: 0x8194}
 EFFECT_PROP = 0x801f                 # spawn an effect: value = body part << 8 | effect id
+# Tekken 7 spawns effects with 0x8036 (the id maps find 0x801f) and, in a few moves, 0x8038 (the same value)
+PROP_OVERRIDE = {0x8255: 0x8193, 0x8256: 0x8194, 0x8038: EFFECT_PROP}
 # Tekken 7 properties left out (Tekken 7-only presentation or mechanics, or values not converted yet)
 PROP_DROP = {0x828f: 'tiger animation', 0x828e: 'projectile index', 0x81bd: 'power crush',
              0x81be: 'rage art fx', 0x801b: 'rage drive vfx', 0x8233: 'rage drive bg', 0x8234: 'rage drive bg',
@@ -80,10 +81,35 @@ VALUE_KIND = {0x8331: 'reaction', 0x8332: 'reaction', 0x843c: 'throwcam', 0x843d
 # <value>): handlers in its property interpreter (sub_03AE86A0), used in the same order by its balloon and cloche
 # items. The alignment has no evidence for these ids (no Heihachi move spawns a projectile).
 PROJ_PROPS = {0x820b: 0x8168, 0x820c: 0x8169, 0x820d: 0x816a, 0x820e: 0x816b, 0x820f: 0x816c}
+# A projectile's look: Tekken 7 draws a missile actor (the character blueprint's missile of the row's field 2) that
+# flies with the projectile; TTT2's projectile rows name an effect of a common table, not the fighter's. So the
+# spawning move also spawns, right after the projectile, an effect of the fighter's (an id from PROJECTILE_EFFECTS on)
+# with the missile's particles, which the runtime keeps where that projectile is until it is gone (roster.cpp's level
+# effects): one id per (missile, life).
+PROJECTILE_EFFECTS = 230
+THROWING_HAND = 13                   # body part TE_L: where a thrown weapon's look is before its projectile moves
+PROJ_SPAWN, PROJ_BONE = 0x820b, 0x820c
+EFFECT_PARTS = 21                    # body parts TTT2 places effects on (its skeleton's first records); others: 0
+TTT2_EFFECT_PARTS = {27}             # ... and the parts above them TTT2's own moves use (asa, kaz, knm, cbt)
 # Throw damage: the thrown fighter plays the thrower's victim move (`.._n`), which deals the damage. Tekken 7 sets an
 # amount (0x821b, value = points; frame 0x8001 = from the start) and deals a percentage of it at a frame (0x821c, and
 # 0x821d alike); TTT2 deals points at the frame (0x8058, 0x8059): the same victim moves of Heihachi in both games
-# (e.g. He_OTOKO3n: 0x821b 30, 0x821d 100% at 2, 0x821c 100% at 44 -> 0x8059 30 at 2, 0x8058 30 at 44).
+# (e.g. He_OTOKO3n: 0x821b 30, 0x821d 100% at 2, 0x821c 100% at 44 -> 0x8059 30 at 2, 0x8058 30 at 44). A deal of
+# 0% is what is left of the amount (He_hp2_n2: 35, 42% at 64, 0% at 76 -> 15 at 64, 20 at 76).
+# Summoned weapons (Noctis's): Tekken 7 shows weapon n from 0x82a7 (value n) and puts it away with 0x82a8 (n, or 16:
+# all), its appearing and vanishing particles spawned with 0x82af (n << 16 | effect id). TTT2 has neither: the runtime
+# shows the weapons (roster.cpp, weapons) from 0x822E / 0x822F, ids its property interpreter ignores and no TTT2
+# moveset uses; the particles become the fighter's effects at the weapon's hand (the definition's weapon 'part').
+SUMMON_PROPS = {0x82a7: 0x822E, 0x82a8: 0x822F}
+SUMMON_EFFECT = 0x82af
+# A thrown weapon that hits stays where it hit (Noctis's Warp-Strike: Tekken 7 dismisses the sword as it hits, with
+# particles of its mesh lingering there, which convert/particles.py leaves out): the move a hit leads to (the
+# definition's WEAPON_HOLD, by Tekken 7 name) starts with this property (another id TTT2 ignores and no moveset uses),
+# and the runtime keeps the thrown weapons there, drawn though dismissed, until the warp takes them back (roster.cpp,
+# weapons)
+WEAPON_HOLD_PROP = 0x822B
+EFFECT_STEP = 6                      # frames: effect ends closer than this share a copy (split_effects)
+EFFECT_SPARE = range(229, 160, -1)   # ids for the copies: above Tekken 7's (100..160), below the projectiles' (230)
 DAMAGE_AMOUNT = 0x821b
 DAMAGE_DEAL = {0x821c: 0x8058, 0x821d: 0x8059}
 # A projectile row, Tekken 7 (42 x u32) -> TTT2 (34 x u32): (TTT2 field, Tekken 7 field, count). TTT2's fields as
@@ -147,6 +173,8 @@ class Converter:
         self.defn = d
         self.req_map, self.prop_map, self.react_remap, self.hitbox = maps
         self.hit_locations = {}         # Tekken 7 hit location -> TTT2's, before the id maps' (weapons.py)
+        self.summons = {w['summon']: w for w in getattr(d, 'WEAPONS', []) if w.get('summon') is not None}
+        self.posed = set()              # the donor's intro and win pose moves playing the fighter's animations
         self.usage = usage
         self.stats = collections.Counter()
         self.unmapped = collections.Counter()
@@ -159,7 +187,9 @@ class Converter:
         self.dn = {donor.move_name(i): i for i in range(len(donor.tables['moves']))}
         self.kn = {k.move_name(i): i for i in range(len(k.tables['moves']))}
         self.cls = classify(k, h7, donor)
-        self.effect_parts = getattr(d, 'EFFECT_PARTS', {})        # effect id -> the body part it spawns on
+        self.effect_ids = set()                                    # the Tekken 7 effect ids the moves spawn
+        self.effect_rows = []              # (property row, Tekken 7 effect id, frames left of its move or None)
+        self.projectile_effects = {}                               # effect id -> its projectile (projectile_look)
         self.thrown = getattr(d, 'THROWN', {})                    # move name -> its projectile (thrown_rows)
         # Tekken 7 plays some moves' animations as deltas on another's ("_sabun": Akuma's forward and back jumps
         # over his neutral jump); TTT2 has no such layers and plays them as poses (on the floor). Such a move
@@ -447,6 +477,7 @@ class Converter:
         t7 = M.xps(self.k, i) if i is not None else []
         air = any(idv == arcs.AIR_MOVE for _, idv, _ in t7)     # a 2D air move (convert/arcs.py)
         amounts = sorted((0 if f >= 0x8000 else f, v) for f, idv, v in t7 if idv == DAMAGE_AMOUNT)
+        dealt = collections.Counter()                       # points dealt so far (amount's frame, property)
         for f, idv, v in t7:
             if idv == 0 and f == 0:
                 break
@@ -455,10 +486,16 @@ class Converter:
                 continue
             if idv == DAMAGE_AMOUNT:
                 continue
+            if idv in SUMMON_PROPS or idv == SUMMON_EFFECT:  # summoned weapons
+                rows += self.summon_rows([(f, idv, v)], move)
+                continue
             if idv in DAMAGE_DEAL:                          # throw damage: points of the amount set before
                 at = 0 if f >= 0x8000 else f
-                amount = next((a for g, a in reversed(amounts) if g <= at), amounts[0][1] if amounts else 0)
-                points = int(round(amount * v / 100.0))
+                since, amount = next(((g, a) for g, a in reversed(amounts) if g <= at),
+                                     amounts[0] if amounts else (0, 0))
+                # 0 percent deals what is left of the amount (Heihachi's He_hp2_n2: 35, 42% then 0 -> 15, 20)
+                points = int(round(amount * v / 100.0)) if v else max(0, amount - dealt[since, idv])
+                dealt[since, idv] += points
                 if points:
                     rows.append(dict(frame=f, id=DAMAGE_DEAL[idv], value=points))
                     self.stats['throw damage dealt'] += 1
@@ -470,9 +507,17 @@ class Converter:
             if v2 is None:
                 self.stats['property dropped: value (sound bank / index)'] += 1
                 continue
-            if p == EFFECT_PROP and (v2 & 0xFF) in self.effect_parts:   # (an effect that flies from a set part)
-                v2 = self.effect_parts[v2 & 0xFF] << 8 | (v2 & 0xFF)
+            if p == EFFECT_PROP:
+                self.effect_ids.add(v2 & 0xFF)
+                if (v2 >> 8) > EFFECT_PARTS and (v2 >> 8) not in TTT2_EFFECT_PARTS:
+                    v2 &= 0xFF                         # a part TTT2 has not: the base
             rows.append(dict(frame=f, id=p, value=v2))
+            if p == EFFECT_PROP:
+                self.effect_rows.append((rows[-1], v2 & 0xFF, self.frames_left(move, f)))
+            if idv == PROJ_SPAWN:
+                look = self.projectile_look(v, {i: x for g, i, x in t7 if g == f})
+                if look is not None:
+                    rows.append(dict(frame=f, id=EFFECT_PROP, value=look))
         rows += extra
         if not rows:
             return None
@@ -480,6 +525,104 @@ class Converter:
         start = len(self.T['extra_move_properties'])
         self.T['extra_move_properties'] += rows
         return start
+
+    def summon_rows(self, t7, move=None):
+        """The rows of Tekken 7 properties [(frame, id, value)] that summon weapons and their particles (SUMMON_PROPS,
+        SUMMON_EFFECT), for a fighter whose definition has summoned weapons."""
+        rows = []
+        for f, idv, v in t7:
+            if not self.summons:
+                break
+            if idv in SUMMON_PROPS:
+                rows.append(dict(frame=f, id=SUMMON_PROPS[idv], value=v))
+                self.stats['weapon summons'] += 1
+            elif idv == SUMMON_EFFECT and (v >> 16) in self.summons and self.summons[v >> 16].get('part'):
+                eid = v & 0xFFFF
+                rows.append(dict(frame=f, id=EFFECT_PROP, value=self.summons[v >> 16]['part'] << 8 | eid))
+                self.effect_ids.add(eid)
+                self.effect_rows.append((rows[-1], eid, self.frames_left(move, f)))
+        return rows
+
+    def dismiss_when_hit(self):
+        """Tekken 7 puts a summoned weapon away when the fighter is hit (its game, not the moveset, does) and in its
+        stance; the added fighter is hit into, falls and gets up through the donor's generic moves, and gets up into the
+        donor's stance (La_KAM), so each of the donor's moves dismisses all summons as it starts (the fighter's own
+        moves never go through them with a weapon out: Noctis's only into a KO), but the intro and win poses that play
+        the fighter's animations (they summon their own)."""
+        if not self.summons:
+            return
+        made = {}
+        for i in range(len(self.d.tables['moves'])):
+            if i in self.posed:
+                continue
+            row = self.T['moves'][i]
+            start = row['extraprops']
+            if start not in made:
+                made[start] = self.with_props(start, [dict(frame=0x8001, id=SUMMON_PROPS[0x82a8], value=16)])
+            row['extraprops'] = made[start]
+            self.stats['weapon summons: dismissed by the donor\'s moves'] += 1
+
+    def hold_thrown(self):
+        """The definition's WEAPON_HOLD moves (a pattern of Tekken 7 move names: those a thrown weapon's hit leads
+        to) hold the thrown weapons where they are (WEAPON_HOLD_PROP)."""
+        pattern = getattr(self.defn, 'WEAPON_HOLD', None)
+        if not pattern or not self.summons:
+            return
+        made = {}
+        for t7, i in sorted(self.newidx.items()):
+            if not re.search(pattern, self.k.move_name(t7)):
+                continue
+            row = self.T['moves'][i]
+            start = row['extraprops']
+            if start not in made:
+                made[start] = self.with_props(start, [dict(frame=0x8001, id=WEAPON_HOLD_PROP, value=0)])
+            row['extraprops'] = made[start]
+            self.stats['weapon summons: thrown weapons held after a hit'] += 1
+
+    def with_props(self, start, extra):
+        """A new property list: the one at `start` (None: none) with rows `extra` after it -> its index."""
+        rows = []
+        table = self.T['extra_move_properties']
+        while start is not None and start < len(table) and not (table[start]['id'] == 0 and table[start]['frame'] == 0):
+            rows.append(dict(table[start]))
+            start += 1
+        out = len(table)
+        table += rows + list(extra) + [dict(frame=0, id=0, value=0)]
+        return out
+
+    def frames_left(self, move, f):
+        """The frames of Tekken 7 move `move` left from frame f (0x8001 = the start), or None (not known)."""
+        length = self.k.tables['moves'][move]['anim_len'] if move is not None else 0
+        return max(1, length - (0 if f >= 0x8000 else f)) if length else None
+
+    def split_effects(self, emitting, used):
+        """Tekken 7 stops the effect a move spawns when the move ends; an effect stops by itself in TTT2. An
+        effect that emits longer (`emitting`: {id: frames it emits for, None when only at its start}) than a move
+        spawning it lasts gets a copy that stops with that move: one copy a different end (rounded to EFFECT_STEP
+        frames) under a spare id (EFFECT_SPARE, none of `used`), the move's rows naming it; the longest end keeps the
+        id; when the spare ids run out, the longest end. -> {effect id: (Tekken 7 id, frames it emits for or None)}
+        (also the ids in effect_ids)."""
+        ends = collections.defaultdict(lambda: collections.defaultdict(list))
+        for row, effect, left in self.effect_rows:
+            full = emitting.get(effect)
+            end = full if full is None or left is None else min(full, -(-left // EFFECT_STEP) * EFFECT_STEP)
+            ends[effect][end].append(row)
+        spare = [i for i in EFFECT_SPARE if i not in used and i not in self.effect_ids]
+        out = {}
+        for effect, by_end in sorted(ends.items()):
+            order = sorted(by_end, key=lambda e: float('inf') if e is None else e, reverse=True)
+            out[effect] = (effect, order[0])
+            for end in order[1:]:
+                if not spare:
+                    self.stats['effect copies: no spare id (the longest end)'] += 1
+                    continue
+                copy_id = spare.pop(0)
+                out[copy_id] = (effect, end)
+                self.effect_ids.add(copy_id)
+                for row in by_end[end]:
+                    row['value'] = (row['value'] & ~0xFF) | copy_id
+                self.stats['effect copies ending with their moves'] += 1
+        return out
 
     def arc_rows(self, move, air, f, idv, v):
         """The TTT2 rows of a Tekken 7 2D-arc property (convert/arcs.py) of move `move`."""
@@ -662,6 +805,27 @@ class Converter:
         self.stats['projectiles converted'] += 1
         return idx
 
+    def projectile_look(self, pi, props):
+        """The effect showing Tekken 7 projectile `pi` spawned with `props` ({property: value} of its frame) ->
+        the 0x801f value (part << 8 | effect id), or None (no room for more ids). The look is the projectile's
+        missile's particle system; the runtime keeps it where the projectile is (convert/particles.py projectile)."""
+        t = self.k.tables['projectiles']
+        if not 0 < pi < len(t):
+            return None
+        v = struct.unpack('<42I', t[pi]['raw'])
+        bone = props.get(PROJ_BONE, 0)
+        spec = dict(missile=v[2], life=v[10])
+        for eid, known in self.projectile_effects.items():
+            if known == spec:
+                break
+        else:
+            eid = PROJECTILE_EFFECTS + len(self.projectile_effects)
+            if eid > 0xFF:
+                return None
+            self.projectile_effects[eid] = spec
+        self.stats['projectiles shown by an effect'] += 1
+        return (bone if bone <= EFFECT_PARTS else 0) << 8 | eid
+
     def thrown_rows(self, i, row):
         """A move of the definition's THROWN: its projectile (a row appended) and the properties spawning it; the
         move's hit boxes go. -> the properties, or []."""
@@ -678,11 +842,20 @@ class Converter:
         row['hitbox'], row['first_active'], row['last_active'] = bytes(4), 0, 0
         self.stats['weapons thrown as projectiles'] += 1
         f = spec['frame']
+        look = []
+        if spec.get('item'):                  # the weapon flying with it (convert/particles.py thrown)
+            seen = dict(item=spec['item'], trail=spec.get('trail'), life=spec['frames'])
+            eid = next((e for e, known in self.projectile_effects.items() if known == seen), None)
+            if eid is None and PROJECTILE_EFFECTS + len(self.projectile_effects) <= 0xFF:
+                eid = PROJECTILE_EFFECTS + len(self.projectile_effects)
+                self.projectile_effects[eid] = seen
+            if eid is not None:
+                look = [dict(frame=f, id=EFFECT_PROP, value=THROWING_HAND << 8 | eid)]   # (there until it flies)
         return [dict(frame=f, id=PROJ_PROPS[0x820c], value=0),
                 dict(frame=f, id=PROJ_PROPS[0x820d], value=spec['forward'] & 0xFFFF),
                 dict(frame=f, id=PROJ_PROPS[0x820e], value=spec['up'] & 0xFFFF),
                 dict(frame=f, id=PROJ_PROPS[0x820f], value=spec.get('side', 0) & 0xFFFF),
-                dict(frame=f, id=PROJ_PROPS[0x820b], value=idx)]
+                dict(frame=f, id=PROJ_PROPS[0x820b], value=idx)] + look     # (the look rides the projectile)
 
     def conv_proj_cancels(self, i):
         """A projectile's cancel list -> its new index, 0 if nothing but the end row is left. TTT2 runs it every
@@ -820,6 +993,8 @@ class Converter:
         self.alloc_ok -= 1
         self.bake_arcs()
         self.rebuild_hubs()
+        self.dismiss_when_hit()
+        self.hold_thrown()
         # every move belongs to the new motion row
         for n, row in enumerate(self.T['moves']):
             combined = (self.newid << 16) + n - (self.newid - 1)
@@ -985,6 +1160,7 @@ class Converter:
                     order.append(t)
         off = self.k.tables['moves'][t7]['anim']
         posed = False
+        self.posed.update(order)
         for m in order:
             name = d.anim_name(m)
             row = self.T['moves'][m]
@@ -995,6 +1171,9 @@ class Converter:
                 row['anim_name'] = self.string(self.k.anim_name(t7))
                 posed = True
                 self.stats['donor round-start moves with her animation'] += 1
+                summons = self.summon_rows(M.xps(self.k, self.k.tables['moves'][t7]['extraprops']), t7)
+                if summons:                              # the weapons its pose holds (Noctis's sword)
+                    row['extraprops'] = self.with_props(row['extraprops'], summons)
             elif not name.startswith('co_') or re.search(r'_%s\(' % re.escape(prefix), name):
                 frames = self.donor_anim_frames(d.tables['moves'][m]['anim'])
                 if frames:

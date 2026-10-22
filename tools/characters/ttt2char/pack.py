@@ -60,13 +60,16 @@ def default_folder():
 
 def character_ini(d, slot, chr_tones=0, voice_extra=(), weapons=()):
     """voice_extra: the se_Chr tones of the shouts past the donor's (the port appends them to the voice list);
-    weapons: weapons.of_skeleton's [(k, parent bone, [point numbers])] (the port poses them)."""
+    weapons: weapons.of_skeleton's [(k, parent bone, [(point number, slot)], summon)] (the port poses them):
+    k:parent:points[:summon], a point `n` hitting as slot n, else `n>slot`."""
+    def item(k, parent, points, summon):
+        return '%d:%d:%s' % (k, parent, ','.join('%d' % n if n == slot else '%d>%d' % (n, slot) for n, slot in points)) \
+            + (':%d' % summon if summon is not None else '')
     return ('# %s, from Tekken 7 (made on this machine from the player\'s own copy)\n'
             'code = %s\ndonor = %s\nsex = %s\nslot = %d\nchr_tones = %d\n'
             % (d.NAME.split(' (')[0], d.CODE, d.DONOR, d.SEX, slot, chr_tones)
             + ('voice_extra = %s\n' % ' '.join(map(str, voice_extra)) if voice_extra else '')
-            + ('weapons = %s\n' % ' '.join('%d:%d:%s' % (k, parent, ','.join(map(str, points)))
-                                          for k, parent, points in weapons) if weapons else ''))
+            + ('weapons = %s\n' % ' '.join(item(*w) for w in weapons) if weapons else ''))
 
 
 def read_ini(path):

@@ -11,6 +11,9 @@ has to run, and it runs where nobody sees or hears it, and with nothing pressed:
   command list into the form it uses; the helper knows those functions and checks their first bytes before calling
   any (another build of the game is refused, not crashed), and takes no address from outside;
 * the dumper reads the result from the game's memory (memdump.py) and writes .tkmvst files.
+Some fighters' files the game keeps encrypted in its paks (Geese Howard's and Noctis's costumes, Noctis's voice bank):
+the helper has the game read them with its own file reader (the one its loading uses), which hands them over decoded,
+and they are saved under their pak paths in a folder of their own (FILES) that the importer reads them from.
 No menu, key or screen is involved, so the player's key bindings, settings, language or pop-ups do not matter.
 Nothing is written into the game's files, its saves or its prefix (but the helper's copy at C:\\t7helper.exe).
 
@@ -25,6 +28,7 @@ import subprocess
 import time
 
 from . import memdump
+from .pak import plain
 
 APP_ID = 389730
 GAME_COMM = 'TekkenGame-Win6'                 # the game's Linux process name (15 characters)
@@ -38,6 +42,10 @@ DLC = {36: 592370, 43: 592373, 44: 592374, 45: 878460, 46: 878461, 47: 878462, 4
        51: 1114561, 52: 1162600, 53: 1162601, 54: 1236500, 55: 1289451, 56: 1289453}
 RECORD_MOVELIST = 0x68                          # a fighter record's command list: written last, once all is loaded
 COMMON_ANIMATIONS = 0x38
+# the encrypted files as the game reads them (pak paths below it)
+FILES = os.path.join(os.path.expanduser('~/.local/share'), 'ttt2', 'tekken7', 'files')
+FILE_BATCH = 64                                 # files the game reads at once (the helper takes up to 256) ...
+FILE_BATCH_BYTES = 96 << 20                     # ... and their size together, in the game's memory meanwhile
 
 
 class DumpError(Exception):
@@ -204,6 +212,23 @@ class Helper:
     def u64(self, address):
         return int.from_bytes(self.read(address, 8).ljust(8, b'\0'), 'little')
 
+    def files(self, paths):
+        """The game's files (pak paths, 'TekkenGame/Content/...') as the game reads them: [bytes, or None where the
+        game could not read one], in order."""
+        for p in paths:
+            self._answer('want ../../../' + p)
+        self.send('fetch')
+        out = []
+        while True:
+            line = self._line()
+            if line == 'end':
+                return out
+            if line.startswith('error'):
+                raise DumpError(line[6:])
+            _, ok, n = line.split()
+            d = self._exact(int(n))
+            out.append(d if ok == '1' else None)
+
     def quit(self):
         try:
             self.send('quit')
@@ -305,6 +330,43 @@ class Session:
             subprocess.run(['pactl', 'unload-module', self.sink_module], capture_output=True)
 
 
+# ---------------------------------------------------------------- the encrypted files
+
+def encrypted_files(paks, code):
+    """The pak entries of a fighter (its Tekken 7 code in the path) that the game keeps encrypted."""
+    code = code.lower()
+    return [e for k, e in sorted(paks.index.items()) if code in k and paks.encrypted(e)]
+
+
+def unsaved_files(paks, code):
+    """The fighter's encrypted entries not in paks.saved yet."""
+    out = []
+    for e in encrypted_files(paks, code):
+        p = paks.saved_path(e)
+        if not p or not os.path.isfile(p) or os.path.getsize(p) != e.usize:
+            out.append(e)
+    return out
+
+
+def _save_files(h, paks, entries):
+    """Has the game read the entries (in batches) and saves them below paks.saved."""
+    k = 0
+    while k < len(entries):
+        batch, size = [], 0
+        while k < len(entries) and len(batch) < FILE_BATCH and (not batch or size + entries[k].usize <= FILE_BATCH_BYTES):
+            batch.append(entries[k])
+            size += entries[k].usize
+            k += 1
+        for e, d in zip(batch, h.files([e.path for e in batch])):
+            if d is None or len(d) != e.usize or not plain(e.path, d):
+                raise DumpError('Tekken 7 did not read %s' % e.path)
+            path = paks.saved_path(e)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path + '.part', 'wb') as f:
+                f.write(d)
+            os.replace(path + '.part', path)
+
+
 # ---------------------------------------------------------------- dumping
 
 def owned_dlc(t7, helper_exe, run):
@@ -339,9 +401,10 @@ def _until(what, condition, timeout):
     raise DumpError(what)
 
 
-def dump(fighters, out, log=print, cache=None):
-    """Dumps the fighters ({roster id: (Tekken 7 code, name)}) into `out` as T7_<name>.tkmvst; Heihachi too.
-    -> ({id: path} dumped, {id: reason} skipped)."""
+def dump(fighters, out, log=print, cache=None, files=None, paks=None):
+    """Dumps the fighters ({roster id: (Tekken 7 code, name)}) into `out` as T7_<name>.tkmvst; Heihachi too (when
+    there are any). files: {roster id: (name, [pak entries])}: also saves those encrypted files (from unsaved_files)
+    of the fighters, as the game reads them, below paks.saved. -> ({id: path} dumped, {id: reason} skipped)."""
     if not steam_running():
         raise DumpError('Steam is not running: start it, then try again (Tekken 7 needs it)')
     if _running(GAME_COMM):
@@ -354,15 +417,17 @@ def dump(fighters, out, log=print, cache=None):
     log('Tekken 7: %s (Proton: %s)' % (t7.game, os.path.basename(t7.proton)))
     owned = owned_dlc(t7, helper_exe, run)
     names = dict(fighters)
-    names.setdefault(HEIHACHI, ('hei', 'Heihachi'))
-    skipped, wanted = {}, []
-    for fid in names:
+    if names:
+        names.setdefault(HEIHACHI, ('hei', 'Heihachi'))
+    files = {fid: v for fid, v in (files or {}).items() if v[1]}
+    skipped = {}
+    for fid in list(names) + list(files):
         if fid in DLC and not owned.get(DLC[fid], False):
             skipped[fid] = 'its DLC is not owned'
-        else:
-            wanted.append(fid)
+    wanted = [fid for fid in names if fid not in skipped]
+    files = {fid: v for fid, v in files.items() if fid not in skipped}
     dumped = {}
-    if not wanted:
+    if not wanted and not files:
         return dumped, skipped
     log('Starting Tekken 7 in the background (no window, no sound) ...')
     s = Session(t7, helper_exe, run, True)
@@ -379,8 +444,13 @@ def dump(fighters, out, log=print, cache=None):
                     raise
                 time.sleep(1)
         _until('Tekken 7 did not get ready', h.ready, 120)
-        common = h.common()
-        _until('the shared animations did not load', lambda: h.u64(common + COMMON_ANIMATIONS), LOAD_TIMEOUT)
+        for fid, (name, entries) in files.items():
+            log('  %s: %d encrypted files (%d MB), as the game reads them'
+                % (name, len(entries), sum(e.usize for e in entries) >> 20))
+            _save_files(h, paks, entries)
+        if wanted:
+            common = h.common()
+            _until('the shared animations did not load', lambda: h.u64(common + COMMON_ANIMATIONS), LOAD_TIMEOUT)
         for k in range(0, len(wanted), BATCH):
             batch = {}
             for fid in wanted[k:k + BATCH]:

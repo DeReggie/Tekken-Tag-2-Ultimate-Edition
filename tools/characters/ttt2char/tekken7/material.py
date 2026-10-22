@@ -61,10 +61,13 @@ class Materials:
         return out
 
     def base_defaults(self, base_path):
-        """Parameter defaults stored on a base Material's parameter expressions."""
+        """Parameter defaults stored on a base Material's parameter expressions, and the textures its graph samples
+        that are not parameters ('fixed': Noctis's hair-tips gradient)."""
         if base_path not in self._defaults:
-            out = {'vectors': {}, 'scalars': {}, 'textures': {}}
+            out = {'vectors': {}, 'scalars': {}, 'textures': {}, 'fixed': []}
             for ex, p in export_properties(load(self.paks, base_path.split('.')[0])):
+                if p and ex.class_name == 'MaterialExpressionTextureSample' and short_ref(p.get('Texture')):
+                    out['fixed'].append(short_ref(p['Texture']))
                 if not p or 'ParameterName' not in p:
                     continue
                 nm, cls = p['ParameterName'], ex.class_name
@@ -82,9 +85,9 @@ class Materials:
         -> {'name', 'base' (base material name), 'vectors', 'scalars', 'textures', 'overrides'}"""
         r = self._resolve(path)
         dfl = self.base_defaults(r['base']) if r['base_class'] == 'Material' else \
-            {'vectors': {}, 'scalars': {}, 'textures': {}}
+            {'vectors': {}, 'scalars': {}, 'textures': {}, 'fixed': []}
         name = path.split('.')[-1]
-        eff = {'name': name, 'base': r['base'].split('.')[-1], 'overrides': r['overrides']}
+        eff = {'name': name, 'base': r['base'].split('.')[-1], 'overrides': r['overrides'], 'fixed': list(dfl['fixed'])}
         for k in ('vectors', 'scalars', 'textures'):
             eff[k] = dict(dfl[k])
             eff[k].update(r[k])
@@ -93,13 +96,20 @@ class Materials:
         return eff
 
     def costume_colours(self, set_path):
-        """{material instance name: {'Color01': colour, ...}} of a costume set's CCIs."""
+        """{material instance name: {'Color01': colour, ...}} of a costume set's CCIs (the last naming a material
+        wins), then of the CCIs they depend on (for materials none of the set's names)."""
         cs = export_properties(load(self.paks, set_path))[0][1] or {}
-        out = {}
+        out, dependencies = {}, []
         for ref in cs.get('CustomCharacterItems', []):
             if not short_ref(ref):                  # an empty slot
                 continue
             cci = export_properties(load(self.paks, short_ref(ref).split('.')[0]))[0][1] or {}
             for ic in cci.get('ItemColors', []):
                 out[ic['LocationName']] = {'Color%02d' % (i + 1): c for i, c in enumerate(ic.get('InstanceColors', []))}
+            dependencies += [short_ref(r).split('.')[0] for r in cci.get('DependencyItems') or [] if short_ref(r)]
+        for path in dict.fromkeys(dependencies):
+            cci = export_properties(load(self.paks, path))[0][1] or {}
+            for ic in cci.get('ItemColors', []):
+                out.setdefault(ic['LocationName'],
+                               {'Color%02d' % (i + 1): c for i, c in enumerate(ic.get('InstanceColors', []))})
         return out

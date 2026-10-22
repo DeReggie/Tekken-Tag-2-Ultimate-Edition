@@ -54,12 +54,17 @@ def effect_names(donor_db):
 
 
 def add_effects(inst, effects):
-    """Names the effect files in the Instance's model (section A) and maps the ids to them."""
+    """Names the effect files in the Instance's model (section A) and maps the ids to them (in place of the
+    donor's effects of the same ids)."""
     model = next(c for c in inst['children'] if c['tag'] == 'Model' and dict(c['attrs']).get('section') == 'A')
     params = next((c for c in inst['children'] if c['tag'] == 'EffectParameters'), None)
     if params is None:
         params = dict(tag='EffectParameters', attrs=[], children=[])
         inst['children'].append(params)
+    params['children'] = [c for c in params['children'] if int(dict(c['attrs']).get('id', -1)) not in effects]
+    used = {dict(c['attrs']).get('effect') for c in params['children']} | {p for fs in effects.values() for p, _ in fs}
+    model['children'] = [c for c in model['children'] if c['tag'] != 'EffectGroup' or
+                         dict(c['attrs']).get('Filename') in used]       # effect files no id names any more
     named = {dict(c['attrs']).get('Filename') for c in model['children'] if c['tag'] == 'EffectGroup'}
     for effect_id, files in sorted(effects.items()):
         for path, bone in files:
@@ -68,3 +73,23 @@ def add_effects(inst, effects):
                 named.add(path)
             params['children'].append(dict(tag='Parameter', attrs=[('id', str(effect_id)), ('bone', bone or ANY_BONE),
                                                                    ('effect', path)], children=[]))
+
+
+def effect_files_named(db):
+    """The bare effect names a database's character effect Instance maps ids to (its effect files still in use)."""
+    info = bxml.parse(db)[0]
+    for inst in info['children']:
+        if dict(inst['attrs']).get('label') == EFFECT_INSTANCE:
+            return {dict(p['attrs']).get('effect') for c in inst['children'] if c['tag'] == 'EffectParameters'
+                    for p in c['children']}
+    return set()
+
+
+def effect_ids(db):
+    """The effect ids a database's character effect Instance maps."""
+    info = bxml.parse(db)[0]
+    for inst in info['children']:
+        if dict(inst['attrs']).get('label') == EFFECT_INSTANCE:
+            return {int(dict(p['attrs']).get('id')) for c in inst['children'] if c['tag'] == 'EffectParameters'
+                    for p in c['children']}
+    return set()

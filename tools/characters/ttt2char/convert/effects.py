@@ -65,3 +65,17 @@ def copy_files(archives, donor, donor_names, effects, log=None):
             len(kept), len(names), sum(1 for f in files if not f.startswith('alo/texture/')),
             sum(1 for f in files if f.startswith('alo/texture/'))))
     return files, names, kept
+
+
+def still_named(files, names):
+    """The pack files of the effects in `names` (bare names) and the textures they name."""
+    out = {}
+    for path, data in files.items():
+        if path.startswith('alo/texture/'):
+            continue
+        if os.path.splitext(os.path.basename(path))[0] in names:
+            out[path] = data
+            for t in textures_of(data):
+                if 'alo/texture/' + t in files:
+                    out['alo/texture/' + t] = files['alo/texture/' + t]
+    return out

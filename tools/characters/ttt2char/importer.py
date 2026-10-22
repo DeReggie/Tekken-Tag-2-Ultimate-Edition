@@ -9,15 +9,17 @@ import subprocess
 import time
 
 from . import InputError, pack, shared
-from .convert import art, chains, effects as fx, idmaps, itemdb, model, movelist, moveset, tiger, voice, weapons
+from .convert import art, chains, effects as fx, idmaps, itemdb, model, movelist, moveset, particles, tiger, voice, \
+    weapons
 from .tekken7 import tkmvst
-from .tekken7.pak import Paks
+from .tekken7.autodump import FILES
+from .tekken7.pak import EncryptedError, Paks
 from .ttt2 import bone, motbin
 from .ttt2.archive import Archives, key_of
 from .ttt2.rpx import Rpx
 
 CHARACTERS = ('kazumi', 'chloe', 'eliza', 'claudio', 'akuma', 'gigas', 'josie', 'katarina', 'master_raven', 'shaheen',
-              'fahkumram', 'leroy', 'lidia', 'kunimitsu2', 'negan')
+              'fahkumram', 'leroy', 'lidia', 'kunimitsu2', 'negan', 'geese', 'noctis')
 HEIHACHI = 8          # Tekken 7's roster id of Heihachi Mishima, the fighter both games share (for the id maps)
 REPOSITORY = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
 
@@ -99,9 +101,19 @@ def git_ignores(folder):
         return False
 
 
-def run(name, tekken7, movesets, game, out=None, log=print, make_shared=True):
+def run(name, tekken7, movesets, game, out=None, log=print, make_shared=True, files=FILES):
     """Imports fighter `name`; returns the pack's folder. make_shared: also remake what the packs share (shared/; an
-    import of several fighters makes it once, after the last)."""
+    import of several fighters makes it once, after the last). files: the folder of the files Tekken 7 keeps
+    encrypted, as the game reads them (tekken7/autodump.py saves them)."""
+    try:
+        return _run(name, tekken7, movesets, game, out, log, make_shared, files)
+    except EncryptedError as error:
+        raise InputError('Tekken 7 keeps %s encrypted and it has not been saved from the running game yet: run '
+                         'dump_tekken7.py %s (or import_character.py, which runs it) with Steam running'
+                         % (error.args[0], name))
+
+
+def _run(name, tekken7, movesets, game, out, log, make_shared, files):
     d = definition(name)
     paks_dir = tekken7_paks(tekken7)
     own, heihachi = find_movesets(movesets, d)
@@ -114,7 +126,7 @@ def run(name, tekken7, movesets, game, out=None, log=print, make_shared=True):
 
     step('reading Tekken 7 (%s) and Tekken Tag Tournament 2 (%s)' % (tekken7, game))
     try:
-        paks = Paks(paks_dir)
+        paks = Paks(paks_dir, saved=files)
     except (OSError, ValueError, struct.error) as error:
         raise InputError('cannot read the pak files in %s (%s): let Steam verify Tekken 7\'s files' % (paks_dir, error))
     try:
@@ -139,9 +151,8 @@ def run(name, tekken7, movesets, game, out=None, log=print, make_shared=True):
     step('model: %s (place %d)' % (d.NAME, slot))
     nud, nut, bon, palettes = model.convert(paks, archives, d, slot, log=lambda s: log('         ' + s.strip()))
     donor_xml = archives.read_name(d.DONOR + '.xml')
-    effect_files, effects, _ = fx.copy_files(archives, d.DONOR, itemdb.effect_names(donor_xml),
-                                             getattr(d, 'EFFECTS', {}), log=lambda s: log('         ' + s))
-    xml = itemdb.body_only(donor_xml, effects)
+    effect_files, _, _ = fx.copy_files(archives, d.DONOR, itemdb.effect_names(donor_xml), {},
+                                       log=lambda s: log('         ' + s))
     part3, opt_anims, mop = None, {}, None
     if getattr(d, 'TIGER', None):
         step('tiger: its animations and its bones\' spring entries')
@@ -201,9 +212,20 @@ def run(name, tekken7, movesets, game, out=None, log=print, make_shared=True):
     c.hit_locations = dict(getattr(d, 'HIT_LOCATIONS', {}))     # Tekken 7 hit locations TTT2 numbers otherwise
     c.hit_locations.update(weapons.points_of(bone.read(bon)['names']))         # ... and its weapons' points
     c.run()
+    copies = c.split_effects(particles.emitting_frames(paks, d.TEKKEN7_CODE, c.effect_ids),
+                             set(c.projectile_effects) | set(itemdb.effect_ids(donor_xml)))
     moves, motions = c.write()
     for line in c.summary():
         log('         ' + line)
+
+    step('effects: the Tekken 7 effects %s\'s moves spawn' % d.NAME)
+    own_files, own_effects = particles.convert_fighter(
+        paks, archives, d.TEKKEN7_CODE, c.effect_ids | {particles.HIT_EFFECT},
+        model.GIDX_BASE + model.SLOT_GIDX * slot + particles.FIRST_ID, c.projectile_effects,
+        log=lambda s: log('         ' + s), copies=copies)
+    xml = itemdb.body_only(donor_xml, {i: [(name, None) for name in names] for i, names in own_effects.items()})
+    effect_files = fx.still_named(effect_files, itemdb.effect_files_named(xml))    # the donor's not replaced
+    effect_files.update(own_files)
 
     mvl = None
     if k.movelist[:4] == b'MVLT':
@@ -221,7 +243,7 @@ def run(name, tekken7, movesets, game, out=None, log=print, make_shared=True):
     if palettes:
         files['colours.json'] = json.dumps({str(nn): v for nn, v in sorted(palettes.items())}).encode('utf-8')
     target = pack.write(out, d, files, slot, chr_tones=chr_tones, voice_extra=voice_extra,
-                        weapons=weapons.of_skeleton(bone.read(bon)))
+                        weapons=weapons.of_skeleton(bone.read(bon), getattr(d, 'WEAPONS', ())))
     step('wrote %s' % target)
 
     if not make_shared:

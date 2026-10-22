@@ -2,7 +2,8 @@
 
 Only names, paths and rules live here; every byte of his model, textures and moveset is read from the player's own
 Tekken 7 and Tekken Tag Tournament 2 files when the importer runs. His materials are classified by the importer
-(model.classify); MATERIALS lists only exceptions. His sunglasses (a static mesh on a socket) are not converted.
+(model.classify); MATERIALS lists only exceptions. His sunglasses (a static mesh on a socket) come with the costume
+(model.socket_items).
 """
 NAME = 'Leroy Smith'
 SHORT_NAME = 'LEROY'
@@ -37,6 +38,8 @@ MESHES = {
 }
 
 MATERIALS = {}
+# his lenses: a tinted-glass shader without a colour texture; drawn in its tint
+FLAT = {'MI_CH_nsb_gra_tr_1p_2': 'Color01'}
 
 # the material templates: Jun's (they are only shaders; the textures are his)
 TEMPLATES = {

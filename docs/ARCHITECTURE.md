@@ -502,10 +502,19 @@ normal, tangents and a per-vertex state its skinning shader carries from
 frame to frame), and in a match's first frame those of all four fighters,
 which is the only time a tag partner's state is set up; a partner that does
 not fit there draws black from its tag-in on. The buffers are sized for the
-title's fighters (20,000-34,000 vertices, 7 MiB each), so the port doubles
+title's fighters (20,000-34,000 vertices, 7 MiB each), so the port triples
 them (`sub_08977AE8`'s configuration), and the importer keeps an added fighter
-under 42,000 vertices (leaving out 2P colour layers if it must) and its
-textures at 4 MB like the title's (the largest halved).
+under 42,000 vertices (leaving out 2P colour layers if it must; Noctis, whose
+model holds all his summoned weapons and his trousers, 90,000: two of him and
+two others fit) and its textures at 4 MB like the title's (the largest
+halved). The effect files a match copies in (the common ones, the stage's and
+each fighter's) share the resource manager's 20 MiB pool (`sub_08A7ED8C`'s
+size) with textures that are loading and much else; two fighters with many
+effects filled it and the match did not load, so with added fighters it is
+twice the size. And the CPU's play (`sub_039A6214`) reads a table of 67
+fighters by the player's motion row with no bound, past which added fighters
+from place 5 on lie: the attract demo crashed on Lidia, so it gets the
+donor's row meanwhile.
 
 **Its voice.** A fighter has sound banks (raw NUS3BANKs in the sound
 archives): shouts, damage voices, KO screams and the announcer's call of its
@@ -628,17 +637,56 @@ axes are Tekken 7's with y reversed, and the pairs come in Tekken 7's order
 (Negan: the left bat's, then the right's). The importer makes each weapon an extra bone
 (800 + the pair's number; still ones 820 on) bound where Tekken 7's bind pose
 has it, skins the weapon's triangles to it and gives it still spring entries;
-the points it hits with become extra bones under it. TTT2 samples every
-fighter's animation with all its channels (`sub_06897540` calls the sampler
-`sub_0689C42C`; the extra ones reach only some fighters' code), so the port
-keeps the added fighter's from the sampler and, after the per-fighter
-dispatcher, writes them as the weapon bones' local transforms. Hits:
+the points it hits with become extra bones under it. Every frame TTT2
+samples each fighter's current animation with all its channels
+(`sub_069DF470` -> `sub_069DCBD0` -> the sampler `sub_0689C42C`) and copies
+the extra ones into the model (+13984; +13220 how many), where only some
+fighters' code reads them; after the per-fighter dispatcher the port writes
+them as the weapon bones' local transforms. (The sampling a move starts with,
+`sub_06897540`, is once a move: pairs taken from it froze a weapon at its
+animation's first frame, and Noctis's thrown sword never left his hand.) A
+weapon always in hand ignores a pair over 1.5 m out: Tekken 7's spin
+reactions carry 20 m paths in those channels. Hits:
 TTT2's hit test (`sub_03C74F50`) takes a bone's position only for hit
 locations 0..21 and keeps points per player for 27..77, those of a held
 item at player +3416 (70..77, written only by items; above 77 a location
 has no position at all), so the weapon's points hit as locations 70..73 and
 the port writes their positions there every frame, made from the parent
-bone's world matrix (the title keeps none for still extra bones).
+bone's world matrix (the title keeps none for still extra bones). That
+matrix (the hit test's skeleton) is a frame behind the animation, so the
+points take the local drawn the frame before; with the current one, Noctis's
+thrown sword (1 to 4 m from a hand swinging down) had its points fly over the
+opponent's head while the sword drawn went through him.
+
+**Summoned weapons (Noctis).** Noctis's mesh of weapons holds a copy of each
+for each hand (a great sword, a sword, a dagger; a spear in the right, a
+shield on the left forearm), and the pairs of a hand carry one pose, the
+grip's; a move shows weapon n with property 0x82a7 (value n) until 0x82a8
+(n, or 16: all; his stance ends them all), and its appearing and vanishing
+particles come with 0x82af (n << 16 | effect id). The importer turns 0x82a7 /
+0x82a8 into 0x822E / 0x822F (ids TTT2's property interpreter ignores and no
+TTT2 moveset uses; the intro and win poses get those of Tekken 7's pose too),
+the particles into the fighter's effects at the weapon's hand (their mesh
+particles, the weapon's own models, are left out: the model draws them), and
+character.ini lists a weapon's summon (`k:parent:points:summon`). The port
+keeps each player's summoned weapons (a hook on the interpreter,
+`sub_03AE86A0`) and collapses a weapon not summoned into its bone (axes 0).
+Tekken 7 puts the weapons away when the fighter is hit (its game does, not
+the moveset); the added fighter is hit, falls and gets up through the
+donor's generic moves and its stance, so each of those dismisses them as it
+starts (his own moves never pass through them with a weapon out).
+His Warp-Strike throws the sword (its pair flies it up to 4.8 m) and warps to
+it when it hits; Tekken 7 dismisses it as it hits, with particles of its mesh
+lingering there (left out, as above), and summons it again for the warp. The
+importer starts the move a hit leads to (the definition's `WEAPON_HOLD`) with
+0x822B (another id TTT2 ignores), and the port keeps a thrown weapon (over
+40 cm from its hand) where it was drawn last, drawn though dismissed (placed
+with the hand's pose extrapolated a frame on), until
+the warp's animation has it nearer the hand than that, a dismissal of all, or
+two seconds.
+His moves hit with a weapon's tip (Tekken 7's hitbox (tip, 0, tip, hand)) and
+some with its guard: a hand's weapons share the four point slots (a point
+`n>slot`), a slot taking the summoned weapon's point, else the first listed's.
 
 **Saving Tekken 7's movesets** (`tekken7/autodump.py`, `tekken7/memdump.py`,
 `tools/characters/t7helper/`): Tekken 7's data files are encrypted, and a
@@ -655,20 +703,36 @@ background tasks read its files (moveset, animations, command list; the
 game decrypts them), then the two in-place conversions the game runs before
 a fight, which turn the moveset's offsets and indices into pointers and the
 command list's offsets into the form it keeps. The helper knows those six
-functions and checks their first bytes before calling any, so another build
-of the game is refused, not crashed; no address comes from the connection.
+functions (and the two below) and checks their first bytes before calling
+any, so another build of the game is refused, not crashed; no address comes
+from the connection.
 Nothing is pressed and no screen is read, so key bindings, settings,
 language and pop-ups play no part. The dumper then reads the result from
 the game's memory: the moveset is one buffer (header with the aliases, 19
 tables back to back, the strings), every link an address; the .tkmvst form
 has row indices, string and animation offsets instead, and the command
-list's offsets are turned back. All 16 fighters the importer needs (the 15
-and Heihachi) load in one run and match TKMovesets2's files exactly: every
-table, name, animation and the command list.
+list's offsets are turned back. The first 15 fighters and Heihachi load in
+one run and match TKMovesets2's files exactly: every table, name, animation
+and the command list (Geese's and Noctis's load the same way).
+
+Some packages and sound banks Tekken 7 also keeps encrypted inside its paks
+(Geese Howard's and Noctis's costumes, Noctis's voice bank: about 2,300
+files, which then do not start with the package tag or BKHD); the game
+decodes them in its pak file layer as it opens them. In the same run the
+helper has the game read those files with Unreal's whole-file reader
+(`FFileHelper::LoadFileToArray`, the call its asset registry uses), a batch
+of paths at a time on one thread of its own (the pak layer keeps a reader
+per thread), copies the buffers out and frees them with the game's
+`FMemory::Free`; paths must be relative ones under the game's content. The
+dumper saves them under their pak paths in `~/.local/share/ttt2/tekken7/files/`,
+and the importer's pak reader takes a file from there whenever the pak's
+copy is encrypted. No key is looked for or used: the game reads its own
+files, as it does when it loads the fighter.
 
 **The importer** (`tools/characters/`, Python with numpy and Pillow) reads
 Tekken 7's pak files (version 3; every entry is flagged encrypted but
-stored plain) and its Unreal Engine 4.14 packages, the fighters' movesets
+stored plain, but for the files above, read from the saved copies) and its
+Unreal Engine 4.14 packages, the fighters' movesets
 (.tkmvst, TKMovesets2's layout) and the installed TTT2 game. The model keeps the
 donor's skeleton with the Tekken 7 joint positions (the face joints keep
 the donor's offsets, as face animations set absolute positions), skins the
@@ -679,7 +743,16 @@ a gain measured at import time on the fighters both games have (each one's
 TTT2 face texture against its Tekken 7 face, of the fighter's sex: the median
 of the five nearest in brightness to the added fighter's face, as TTT2 evens
 skin tones out); hair keeps Tekken 7's alpha cut-off rather than the
-template's. A fighter's character effects are found by bare names its item
+template's. Tekken 7 also lifts its cloth and hair with rim lights TTT2's
+templates lack, which matters only for the darkest (Noctis's outfit and hair,
+their colours 0.02-0.06 of the textures'): a definition can give a material
+kind or a material a gain (`GAIN`, measured against a Tekken 7 screenshot
+relative to the skin) and take a texture's brightness alone (`GREY`: his
+outfit is blue-grey where its textures are mauve); his hair's lighter tips
+come from a gradient texture its material samples beside its parameters. An
+item that another item of the costume depends on (`DependencyItems`:
+Noctis's trousers and boots, worn with his jacket) is worn too when the
+definition says so (`DEPENDENCY_ITEMS`). A fighter's character effects are found by bare names its item
 database lists, which the title expands to `<code>/alo/<name>.alo` with the
 fighter's own code (each fighter's folder has its own copies of the effect
 files and their textures): the importer copies the effect files an added

@@ -27,6 +27,11 @@ the added fighter's extra bone OPT 800 + k with pair k (title/roster.cpp, weapon
   position at all (the hit test keeps the previous one's);
 * extra bones need still entries in the spring file (an extra bone without one swings under gravity).
 
+A fighter that summons its weapons (Noctis: a sword, a great sword and a dagger for each hand, a spear and a shield,
+each shown from a move's summon property, Tekken 7's 0x82a7, until a dismiss, 0x82a8) has a weapon per summon
+(`summon`: its number); the runtime collapses a weapon not summoned. A hand holds one of them at a time, so its
+weapons' points share slots (a point's `(where, slot)`): a slot takes the summoned weapon's point.
+
 Written for this project from the files themselves (no third-party code).
 """
 import numpy as np
@@ -38,13 +43,25 @@ STILL_FIRST = 820                   # weapons no animation poses: cha:OPT820_.. 
 POINT_FIRST = 850                   # the hit points: cha:OPT850_.. on, hitting as TTT2's locations 70 on
 POINT_LOCATION = 0x46
 POINTS = 4                          # 70..73
+POINT_NUMBERS = 50                  # point bones 850..899
 NAME_LENGTH = 31
 M = np.diag([1.0, -1.0, 1.0])       # columns: the weapon bone's axes in Tekken 7's bone's
 _SWAP = np.eye(4)[[0, 2, 1, 3]]     # Tekken 7 bone coordinates (x, y, z) as model.load_tekken7_model keeps them
 
 
-def point_name(number, code):
-    return 'cha:OPT%d_hit%02x' % (number, code)
+def point_name(number, code, slot=None):
+    """A point's bone: hitting as location 70 + its slot (number - 850 unless one is given)."""
+    return 'cha:OPT%d_hit%02x' % (number, code) + ('_%d' % slot if slot is not None else '')
+
+
+def _point(name):
+    """(number, Tekken 7 code, slot) of a point's bone name, else None."""
+    head, _, tail = name.partition('_')
+    if not (head.startswith('cha:OPT') and head[7:].isdigit() and tail.startswith('hit')):
+        return None
+    number = int(head[7:])
+    code, _, slot = tail[3:].partition('_')
+    return number, int(code, 16), int(slot) if slot else number - POINT_FIRST
 
 
 def _numbers(skel):
@@ -61,21 +78,26 @@ def points_of(names):
     """{Tekken 7 hit location code: TTT2 hit location} of a skeleton's weapon points (by point_name)."""
     out = {}
     for name in names:
-        head, _, tail = name.partition('_')
-        if head.startswith('cha:OPT') and tail.startswith('hit'):
-            out[int(tail[3:], 16)] = POINT_LOCATION + int(head[7:]) - POINT_FIRST
+        point = _point(name)
+        if point:
+            out[point[1]] = POINT_LOCATION + point[2]
     return out
 
 
-def of_skeleton(skel):
-    """[(k = number - 800, parent bone index, [point numbers j])] of a skeleton's weapons, for character.ini."""
+def of_skeleton(skel, definitions=()):
+    """[(k = number - 800, parent bone index, [(point number - 850, slot)], summon or None)] of a skeleton's
+    weapons, for character.ini; definitions: the fighter's WEAPONS (their summons, by the bones' names)."""
     index = _numbers(skel)
     out = []
     for n in sorted(index):
         if OPT_FIRST <= n < POINT_FIRST:
             b = index[n]
-            points = [m - POINT_FIRST for m in sorted(index) if m >= POINT_FIRST and skel['parent'][index[m]] == b]
-            out.append((n - OPT_FIRST, skel['parent'][b], points))
+            points = [(m - POINT_FIRST, _point(skel['names'][index[m]])[2]) for m in sorted(index)
+                      if m >= POINT_FIRST and skel['parent'][index[m]] == b]
+            summon = next((w.get('summon') for w in definitions
+                           if (OPT_FIRST + w['pair'] == n if w.get('pair') is not None else
+                               ('cha:OPT%d_%s' % (n, w['bone']))[:NAME_LENGTH] == skel['names'][b])), None)
+            out.append((n - OPT_FIRST, skel['parent'][b], points, summon))
     return out
 
 
@@ -91,7 +113,7 @@ def append_bones(skel, t7bones, weapon):
     """The fighter's skeleton with a weapon's bone and its hit points after its own.
     t7bones: {'names', 'parents', 'world'} of the Tekken 7 skeleton holding the weapon's bone (model.load_tekken7_model:
     TTT2 space, mm); weapon: the definition's entry {'bone', 'parent' (a TTT2 bone), 'pair' (None: no animation poses
-    it), 'points': {code: a Tekken 7 bone's name, or cm along the weapon}}.
+    it), 'points': {code: a Tekken 7 bone's name, or cm along the weapon, or (either, slot)}}.
     -> (skeleton, the weapon bone's index, its number, the point numbers used)."""
     names = [n[4:] if n.startswith('cha:') else n for n in skel['names']]
     parent = names.index(weapon['parent'])
@@ -128,7 +150,12 @@ def append_bones(skel, t7bones, weapon):
     used = []
     for code, where in sorted(weapon.get('points', {}).items()):
         n = POINT_FIRST + len([o for o in s['opt'] if o >= POINT_FIRST])
-        if n >= POINT_FIRST + POINTS:
+        slot = None
+        if isinstance(where, tuple):
+            where, slot = where
+            if not 0 <= slot < POINTS or n >= POINT_FIRST + POINT_NUMBERS:
+                raise ValueError('weapon point slot %d (the slots are 0..%d)' % (slot, POINTS - 1))
+        elif n >= POINT_FIRST + POINTS:
             raise ValueError('more than %d weapon points' % POINTS)
         if isinstance(where, str):
             x = world_t7[t7[where]][:3, 3]
@@ -136,7 +163,7 @@ def append_bones(skel, t7bones, weapon):
             x = world_t7[i][:3, 3] + a[:, 0] * where * 10.0 * scale
         local = np.eye(4)
         local[:3, 3] = world[:3, :3].T @ (x - world[:3, 3])
-        add(point_name(n, code), n, index, local)
+        add(point_name(n, code, slot), n, index, local)
         used.append(n)
     s['t'], s['r'], s['s'] = np.array(ts, np.float32), np.array(rs, np.float32), np.array(ss, np.float32)
     return s, index, number, used

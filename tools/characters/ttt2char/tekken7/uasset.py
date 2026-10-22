@@ -257,8 +257,9 @@ class Package:
             out.append(e)
         if self.summary['depends_offset'] and r.tell() != self.summary['depends_offset']:
             raise ParseError('%s: export table size does not match Unreal Engine 4.14' % self.path)
-        for e in out:
-            e.class_name = self.object_name(e.class_index) or 'Class'
+        for e in out:                   # (a blueprint's objects have classes among its own exports)
+            i = e.class_index
+            e.class_name = (self.imports[-i - 1].name if i < 0 else out[i - 1].name if i > 0 else None) or 'Class'
         return out
 
     def object_name(self, index):

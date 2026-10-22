@@ -74,6 +74,9 @@ MOVESET = {
 # and her mask has a second copy for the moves she holds it in (on a hand attachment bone): both left out.
 MATERIALS['MI_CH_knm_bdu_1p_MufflerBack'] = None
 HIDE = [('gla', 'ATH_L_hand_mask_knm')]
+# her fringe is modelled through the mask (its hair item has no variant for it: the one her other fox mask names has
+# no scalp); Tekken 7 shows the mask over it: the hair in front of the mask's face is left out
+COVERED = [('har', 'MI_CH_knm_gla_1p_Mask')]
 
 # her blades, not drawn, posed by her animations' extra pairs (weapons.py): the left hand's short sword (pair 0; with
 # the other left-hand pairs it is the kunai she throws, which Tekken 7 flies by these pairs, up to 7 m out) and the
@@ -89,5 +92,10 @@ WEAPONS = [
 # her Piercing Kunai Throw (d, d/f, f + 1) and the kunai ending her low-high kicks: Tekken 7 flies the kunai by those
 # pairs, which TTT2 cannot follow at range; a TTT2 projectile instead (convert/moveset.py thrown_rows), flying as the
 # kunai does: from 1.2 m ahead of her hips at its first active frame, 1.1 m up, 460 mm a frame for 13 frames
-THROWN = {'Kt_236LP': dict(frame=15, forward=1200, up=350, speed=460, frames=13, radius=150, height=250),
-          'Kt_2lkrk_LP': dict(frame=26, forward=1200, up=350, speed=470, frames=13, radius=150, height=250)}
+# The kunai is seen flying with it: the blade of her left hand (its triangles in her weapon mesh, tip forward), with
+# the speed line Tekken 7 trails behind it (her effect 40)
+_KUNAI = {'mesh': _WEAPONS, 'bone': 'ATH_L_weapon001', 'tip': 'ATH_L_weapon001_top'}
+THROWN = {'Kt_236LP': dict(frame=15, forward=1200, up=350, speed=460, frames=13, radius=150, height=250,
+                           item=_KUNAI, trail=40),
+          'Kt_2lkrk_LP': dict(frame=26, forward=1200, up=350, speed=470, frames=13, radius=150, height=250,
+                              item=_KUNAI, trail=40)}

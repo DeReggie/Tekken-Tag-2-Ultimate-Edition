@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 
 from ttt2char import lz4, pack                        # noqa: E402
 from ttt2char.convert import art, chains, colours, movelist, skin, strips, tiger  # noqa: E402
-from ttt2char.tekken7 import tkmvst, wwise            # noqa: E402
+from ttt2char.tekken7 import autodump, pak, tkmvst, wwise  # noqa: E402
 from ttt2char.ttt2 import archive, bone, bxml, dsp, motion, nud, nus3bank, nut  # noqa: E402
 
 
@@ -533,6 +533,52 @@ class Effects(unittest.TestCase):
         alo = b'OELA' + bytes(12) + b'AL_EFFECT\0tfm_x00.nut\0tfm_cmn_part03.nut\0\0'
         self.assertEqual(effects.textures_of(alo), ['tfm_x00.nut', 'tfm_cmn_part03.nut'])
         self.assertEqual(effects.textures_of(b'OELA'), [])
+
+
+def _fstring(s):
+    b = s.encode('latin1') + b'\0'
+    return struct.pack('<i', len(b)) + b
+
+
+def write_pak(path, files):
+    """A version-3 pak of uncompressed entries {name: data} (each flagged encrypted, as Tekken 7's are)."""
+    body, records = b'', []
+    for name, data in files.items():
+        record = struct.pack('<qqqi', len(body), len(data), len(data), 0) + bytes(20) + b'\1' + struct.pack('<I', 0)
+        records.append(_fstring(name) + record)
+        body += record + data                      # the record's copy in front of the data (53 bytes)
+    index = _fstring('../../../') + struct.pack('<i', len(files)) + b''.join(records)
+    with open(path, 'wb') as f:
+        f.write(body + index + struct.pack('<IIqq', pak.PAK_MAGIC, 3, len(body), len(index)) + bytes(20))
+
+
+class EncryptedFiles(unittest.TestCase):
+    def test_saved_copies(self):
+        package = b'\xc1\x83\x2a\x9e' + bytes(12)
+        files = {'TekkenGame/Content/Character/Item/Sets/ABC/CS_ABC.uasset': package,
+                 'TekkenGame/Content/Character/Item/Sets/ABC/CS_ABC_2.uasset': b'\x09\xf8\x48\xc6' + bytes(12),
+                 'TekkenGame/Content/WwiseAudio/Windows/AkBankVoiceABC.bnk': b'\x13\x2e\xf7\x04' + bytes(4),
+                 'TekkenGame/Content/WwiseAudio/Windows/AkBankVoiceXYZ.bnk': b'BKHD' + bytes(4)}
+        with tempfile.TemporaryDirectory() as d:
+            os.mkdir(os.path.join(d, 'Paks'))
+            write_pak(os.path.join(d, 'Paks', 'a.pak'), files)
+            saved = os.path.join(d, 'files')
+            paks = pak.Paks(os.path.join(d, 'Paks'), saved=saved)
+            self.assertEqual(paks.read('/Game/Character/Item/Sets/ABC/CS_ABC'), package)
+            with self.assertRaises(pak.EncryptedError):
+                paks.read('/Game/Character/Item/Sets/ABC/CS_ABC_2')
+            self.assertEqual([e.path.rsplit('/', 1)[1] for e in autodump.unsaved_files(paks, 'abc')],
+                             ['CS_ABC_2.uasset', 'AkBankVoiceABC.bnk'])
+            self.assertEqual(autodump.unsaved_files(paks, 'xyz'), [])
+            # the game's reading of it, saved below its pak path
+            target = os.path.join(saved, 'TekkenGame', 'Content', 'Character', 'Item', 'Sets', 'ABC', 'CS_ABC_2.uasset')
+            os.makedirs(os.path.dirname(target))
+            with open(target, 'wb') as f:
+                f.write(package)
+            self.assertEqual(paks.read('/Game/Character/Item/Sets/ABC/CS_ABC_2'), package)
+            self.assertEqual([e.path.rsplit('/', 1)[1] for e in autodump.unsaved_files(paks, 'abc')],
+                             ['AkBankVoiceABC.bnk'])
+            paks.close()
 
 
 if __name__ == '__main__':

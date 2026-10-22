@@ -186,11 +186,10 @@ Debugging variables are listed in
 The fighters of Tekken 7 that Tekken Tag Tournament 2 does not have can join
 the roster beside its own (no fighter is replaced): Kazumi Mishima, Lucky
 Chloe, Eliza, Claudio Serafino, Akuma, Gigas, Josie Rizal, Katarina Alves,
-Master Raven, Shaheen, Fahkumram, Leroy Smith, Lidia Sobieska, Kunimitsu II
-and Negan. Each gets a cell of its own on the select screen: the free ends of
-the top row first, then new columns beyond the rows' ends (19 cells; the
-order follows the order of import). Geese Howard and Noctis cannot be made:
-Tekken 7 keeps their files encrypted.
+Master Raven, Shaheen, Fahkumram, Leroy Smith, Lidia Sobieska, Kunimitsu II,
+Negan, Geese Howard and Noctis. Each gets a cell of its own on the select
+screen: the free ends of the top row first, then new columns beyond the rows'
+ends (19 cells; the order follows the order of import).
 
 Nothing of them is in this repository: an importer makes them from **your own
 copies of both games** and writes character packs on your computer. You need:
@@ -215,14 +214,19 @@ while it sits on its start-up screens, and it is closed again. Nothing is
 pressed and no menu is used, so your key bindings and settings do not matter.
 Only fighters your Steam account owns are imported (Steam must be running; it
 tells which DLC you own): a fighter whose DLC you have not bought is skipped,
-whichever movesets are already saved. `tools/characters/dump_tekken7.py` does that step alone (the
+whichever movesets are already saved. Tekken 7 also keeps Geese's and
+Noctis's costumes (and Noctis's voice) encrypted in its files: in the same
+run the game reads those files with its own file reader, the one its loading
+uses, which hands them over decoded, and they are saved to
+`~/.local/share/ttt2/tekken7/files/` (about 670 MB for both) for the
+importer. `tools/characters/dump_tekken7.py` does that step alone (the
 movesets go to `~/.local/share/ttt2/tekken7/movesets/`); movesets saved with
 [TKMovesets2](https://github.com/Kiloutre/TKMovesets) work too
 (`--movesets FOLDER`).
 
 The fighters' names for the importer: `kazumi`, `chloe`, `eliza`, `claudio`,
 `akuma`, `gigas`, `josie`, `katarina`, `master_raven`, `shaheen`,
-`fahkumram`, `leroy`, `lidia`, `kunimitsu2`, `negan` (one or several; each
+`fahkumram`, `leroy`, `lidia`, `kunimitsu2`, `negan`, `geese`, `noctis` (one or several; each
 takes about a minute, and what they share is made once at the end). The packs
 go to `~/.local/share/ttt2/characters/` (a folder per fighter, and `shared/`,
 the title's pictures, colours and name calls the added fighters share;
@@ -235,16 +239,19 @@ types out of commits.
 Each has their own model with both players' colours (skin tones matched to
 Tekken Tag Tournament 2's own fighters), moves, voice, command list, and their
 pictures and name on the menus' screens and in fights; Kazumi's tiger appears
-in the moves that summon it, long hair and tails hang and swing, Eliza's
-fireballs and charges show the closest of Tekken Tag Tournament 2's own
-effects, Negan swings his bat and hits with it, Leroy's cane and Master Raven's
-sheathed katana are where they carry them, and the moves that hit with a
-weapon (Kunimitsu II's blades too) reach as far as the weapon. Left out for
-now: Rage Arts and Rage Drives, power crush armour (those moves are there,
-without it), Screw becomes Bound, the other fighters' effects, the weapons
-they take in hand only for some moves (Kunimitsu II's blades, Master Raven's
-drawn sword, Leroy's folding staff, Negan's knife), Katarina's and Leroy's
-sunglasses, and Gigas's back tubes.
+in the moves that summon it, long hair and tails hang and swing, their moves'
+effects (Eliza's and Akuma's fireballs, auras, smoke) are Tekken 7's own,
+converted to Tekken Tag Tournament 2's effect files (close, not the same:
+Tekken 7's glow and some of its shading are left out), Negan swings his bat
+and hits with it, Noctis summons his swords, daggers, spear and shield for the
+moves that use them, Leroy's cane and Master Raven's sheathed katana are where
+they carry them, and the moves that hit with a weapon (Kunimitsu II's blades
+too) reach as far as the weapon. Left out for now: Rage Arts and Rage Drives,
+power crush armour (those moves are there, without it), Screw becomes Bound,
+the weapons they take in hand only for some moves (Kunimitsu II's blades,
+Master Raven's drawn sword, Leroy's folding staff, Negan's knife), the weapons
+of Noctis's Rage Art, Katarina's and Leroy's sunglasses, and Gigas's back
+tubes.
 
 ## How it works
 

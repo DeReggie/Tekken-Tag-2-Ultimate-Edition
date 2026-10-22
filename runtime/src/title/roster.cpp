@@ -183,11 +183,16 @@ std::optional<uint32_t> tone_index(const std::vector<uint8_t>& bank, const std::
 
 // A weapon its animations pose (the importer's weapons.py): its bone
 // OPT 800 + k (k < 20: posed by the animations' extra pair k; from 20 still),
-// that bone's parent (a bone index) and its hit points (the numbers j of
-// OPT 850 + j).
+// that bone's parent (a bone index), its hit points (OPT 850 + n, each
+// hitting as the held item's point slot s) and, for a weapon the fighter
+// summons (Noctis's), the number of its summon (shown only while summoned).
+struct WeaponPoint {
+    uint32_t number = 0, slot = 0;
+};
 struct Weapon {
     uint32_t pair = 0, parent = 0;
-    std::vector<uint32_t> points;
+    std::vector<WeaponPoint> points;
+    int32_t summon = -1; // -1: always shown
 };
 
 // The added fighters, by number k (their slots).
@@ -305,7 +310,7 @@ struct Pack {
     int slot = -1;     // its number, as the importer chose it (shared/ holds pictures by number)
     uint32_t chr_tones = 0; // its voice bank's shouts (the win quotes' tones come after; 0: no merged bank)
     std::vector<uint32_t> voice_extra; // its bank's shouts past the donor's (appended to the voice list)
-    std::vector<Weapon> weapons;       // character.ini weapons: k:parent:points (see pose_weapons)
+    std::vector<Weapon> weapons;       // character.ini weapons: k:parent:points[:summon] (see pose_weapons)
 };
 
 fs::path packs_directory() {
@@ -340,7 +345,7 @@ std::optional<Pack> read_pack(const fs::path& directory) {
         else if (key == "voice_extra") {
             std::istringstream tones(value);
             for (uint32_t tone; tones >> tone;) pack.voice_extra.push_back(tone);
-        } else if (key == "weapons") { // k:parent:points, e.g. 1:9:0,1,2
+        } else if (key == "weapons") { // k:parent:points[:summon], points n or n>slot, e.g. 1:9:0,1,2 or 4:9:0>0,1>1:3
             std::istringstream items(value);
             for (std::string item; items >> item;) {
                 std::vector<std::string> fields;
@@ -352,8 +357,15 @@ std::optional<Pack> read_pack(const fs::path& directory) {
                 weapon.parent = static_cast<uint32_t>(std::strtoul(fields[1].c_str(), nullptr, 10));
                 std::istringstream points(fields.size() > 2 ? fields[2] : std::string());
                 for (std::string j; std::getline(points, j, ',');) {
-                    if (!j.empty()) weapon.points.push_back(static_cast<uint32_t>(std::strtoul(j.c_str(), nullptr, 10)));
+                    if (j.empty()) continue;
+                    WeaponPoint point;
+                    point.number = static_cast<uint32_t>(std::strtoul(j.c_str(), nullptr, 10));
+                    const size_t to = j.find('>');
+                    point.slot = to == std::string::npos ? point.number
+                                                         : static_cast<uint32_t>(std::strtoul(j.c_str() + to + 1, nullptr, 10));
+                    weapon.points.push_back(point);
                 }
+                if (fields.size() > 3 && !fields[3].empty()) weapon.summon = std::atoi(fields[3].c_str());
                 pack.weapons.push_back(weapon);
             }
         }
@@ -2000,6 +2012,23 @@ PPC_FUNC(sub_03D6B9F4_orig);
 PPC_FUNC(sub_03D6B9F4) { with_donor_id(ctx, base, ctx.r[3], sub_03D6B9F4_orig); }
 PPC_FUNC(sub_0399221C_orig);
 PPC_FUNC(sub_0399221C) { with_donor_id(ctx, base, load(0x10874864), sub_0399221C_orig); }
+// The CPU's play (sub_039A6214, for the player at 0x10874864) reads a table of
+// 67 fighters (0x101B9E70, 16-byte rows) by the player's motion row (+80) with
+// no bound: added fighters from place 5 on have rows 69 and up, and the
+// attract demo with Lidia (row 76) read past it and crashed. The donor's row
+// meanwhile.
+void with_donor_row(PPCContext& ctx, uint8_t* base, uint32_t player, void (*f)(PPCContext&, uint8_t*)) {
+    const int k = player ? slot_of_id(load(player + kPlayerSelectId)) : -1;
+    if (k < 0 || load(player + kPlayerRow) != g_added[k].row) {
+        f(ctx, base);
+        return;
+    }
+    store(player + kPlayerRow, g_added[k].donor_row);
+    f(ctx, base);
+    if (load(player + kPlayerRow) == g_added[k].donor_row) store(player + kPlayerRow, g_added[k].row);
+}
+PPC_FUNC(sub_039A6214_orig);
+PPC_FUNC(sub_039A6214) { with_donor_row(ctx, base, load(0x10874864), sub_039A6214_orig); }
 // The select strip's labels by select id (kProfiles), read with a bound (Paul's
 // row past it) or none (sub_0294C400, id r4): the added fighter's row lent to
 // Paul's, and Paul's id asked.
@@ -2348,6 +2377,14 @@ PPC_FUNC(sub_06F0A484) {
     if (any_art()) note_select_question(lr, ctx, slot);
 }
 
+// The loading and VS screens take a team whose members have the same UI
+// position for one fighter alone (sub_06F248CC, and inline in sub_06F24960):
+// two added fighters (both Paul's) would show as the first alone. At those
+// questions, whose answers are only compared, an added fighter has a
+// position of its own, beyond the tables.
+constexpr uint32_t kTeamQuestions[] = {0x06F24904, 0x06F24920, 0x06F251D8, 0x06F251E8};
+constexpr uint32_t kOwnPositions = 0x1000;
+
 // A fighter's UI position from a record: Paul's, not 59 ("nobody"), for an
 // added fighter's records, with its entries in Paul's rows.
 PPC_FUNC(sub_06F0A4A4_orig);
@@ -2355,6 +2392,10 @@ PPC_FUNC(sub_06F0A4A4) {
     const uint32_t lr = ctx.lr;
     const int k = slot_of_record(ctx.r[3]);
     const int slot = k >= 0 && g_art[k].on ? k : -1;
+    if (k >= 0 && std::find(std::begin(kTeamQuestions), std::end(kTeamQuestions), lr) != std::end(kTeamQuestions)) {
+        ctx.r[3] = kOwnPositions + static_cast<uint32_t>(k);
+        return;
+    }
     if (slot >= 0) {
         ctx.r[3] = 0;
     } else {
@@ -2663,34 +2704,94 @@ PPC_FUNC(sub_05BDC714) {
 // Weapons (the importer's weapons.py, character.ini weapons): the added
 // fighter's extra bone OPT 800 + k takes the extra pair k (translation,
 // rotation) of its body animation's channels (after the 23 body channels).
-// The title samples a fighter's body animations with all their channels
-// (sub_06897540 calls the sampler sub_0689C42C: r3 the animation, r4 the
-// buffer, 16 bytes a channel: (x, y, z, 1), rotations as the game's
-// quaternion; r5 the player; the animation it blends from first, the current
-// one last) but uses the extra ones only for some fighters: here the sampler
-// keeps the added fighter's. The pair is the bone's local transform, as TTT2
+// Every frame the title samples a fighter's current body animation with all
+// its channels (sub_069DF470 -> sub_069DCBD0 -> the sampler sub_0689C42C, 16
+// bytes a channel: (x, y, z, 1), rotations as the game's quaternion) and
+// copies the extra ones into the model (+13984; +13216 1 when there are any,
+// +13220 how many, 64 at most), which only some fighters' code reads. (The
+// sampling when a move starts, sub_06897540, is once a move: a pair taken from
+// it stays at its first frame, and a thrown weapon never leaves the hand.)
+// The pair is the bone's local transform, as TTT2
 // writes Yoshimitsu's katanas' (bones 1200, 1210) from his: the translation
 // as it is, the record's rotation the quaternion's matrix. Without its pair,
 // the bone goes back to its bind (the local the record had before any write
 // here); OPT 820 on are never posed.
-// The weapon's points (extra bones OPT 850 + j under it) hit as TTT2's hit
-// locations 70 + j, the points of a held item, which the hit test
-// (sub_03C74F50) reads from the player (+3416 + 12 j; items write them,
-// nothing does for the added fighter). The title keeps no world matrices for
-// still extra bones (spring flag 8: their records' stay their bind's), so the
-// points' positions are made here from the parent's world matrix (the hit
+// The weapon's points (extra bones OPT 850 + n under it) hit as TTT2's hit
+// locations 70 + s (s the point's slot), the points of a held item, which the
+// hit test (sub_03C74F50) reads from the player (+3416 + 12 s; items write
+// them, nothing does for the added fighter). The title keeps no world matrices
+// for still extra bones (spring flag 8: their records' stay their bind's), so
+// the points' positions are made here from the parent's world matrix (the hit
 // test's skeleton, sub_04E1A4C8(player) +32: 144-byte records, the body bones
 // by bone index, +64 world, rows the axes, row 3 the position) and the locals.
+// Those records are a frame behind the animation (as the hit test's own
+// bones), so the points take the local drawn the frame before: with this
+// frame's, a thrown sword's points (1 to 4 m from a swinging hand) flew
+// over the opponent's head while the sword drawn went through him.
+// Summoned weapons (Noctis's sword, daggers, spear, shield): a move summons
+// weapon n (Tekken 7's 0x82a7, the importer's 0x822E) and dismisses it or all
+// (0x82a8 -> 0x822F, value 16: all); a weapon not summoned is collapsed into
+// its bone's origin (its axes 0), its points not written. Weapons of one hand
+// share slots: a slot takes the summoned weapon's point, else the first
+// weapon's with that slot. A thrown weapon that hits stays where it hit
+// (Noctis's Warp-Strike: Tekken 7 dismisses the sword as it hits, with
+// particles of its mesh that linger there, which the port does not draw, and
+// summons it again for the warp): the move a hit leads to starts with 0x822B,
+// which holds each summoned weapon farther than kThrown from its parent where
+// it was drawn last in the world, drawn though dismissed, until the animation
+// has it summoned nearer the hand than that (the warp that takes it back), a
+// dismissal of all, or kHoldFrames.
 namespace {
 constexpr uint32_t kFirstWeaponBone = 800, kStillWeapons = 20, kFirstWeaponPoint = 850, kWeaponPoints = 4;
-constexpr uint32_t kBodySampling = 0x06897540, kBodySamplingEnd = 0x0689931C, kBodyChannels = 23;
-constexpr uint32_t kModelSamples = 6448; // the model's buffer for its current animation (+7472: the one before)
+constexpr uint32_t kModelExtraSampled = 13216, kModelExtraCount = 13220, kModelExtra = 13984, kModelExtraMax = 64;
 constexpr uint32_t kPlayerItemPoints = 3416, kSkeletonRecords = 32, kRecordSize = 144, kRecordWorld = 64;
+constexpr uint32_t kSummonProp = 0x822E, kDismissProp = 0x822F, kDismissAll = 16, kHoldProp = 0x822B;
+constexpr float kThrown = 400.0f; // mm from the parent bone: a weapon thrown, not held
+constexpr int kHoldFrames = 120;   // a held weapon let go after these frames whatever comes
+constexpr float kHeldReach = 1500.0f; // mm: a weapon always in hand (no summon) ignores a pair farther out (the
+                                      // channels of another animation's use: Tekken 7's spin reactions, 20 m paths)
 struct WeaponBone {
-    std::array<uint32_t, 16> bind{}, last{};
+    std::array<uint32_t, 16> bind{}, last{}, drawn{};
+    bool shown = false; // drawn last frame (with `drawn`, not collapsed)
 };
-std::map<uint32_t, WeaponBone> g_weapon_bones; // record -> its bind, and the local written last
-std::map<uint32_t, std::vector<uint32_t>> g_body_extra; // sample buffer -> its extra channels (words)
+std::map<uint32_t, WeaponBone> g_weapon_bones; // record -> its bind, the local written last, the one drawn
+std::map<uint32_t, uint64_t> g_summoned; // player -> its summoned weapons (bit n: summon n)
+// Row-vector 4x4 matrices (rows the axes, row 3 the position), as the title's records keep them.
+using Matrix = std::array<float, 16>;
+struct WeaponHold {
+    struct Held {
+        Matrix world; // where it is held
+        int frames = 0;
+    };
+    bool requested = false;          // 0x822B ran: hold the thrown weapons at the next posing
+    std::map<size_t, Held> held;     // by weapon index
+    std::map<size_t, Matrix> last;   // weapon index -> the local it was drawn with last frame
+    std::map<size_t, Matrix> parent; // weapon index -> its parent's record at the last posing
+};
+std::map<uint32_t, WeaponHold> g_weapon_holds; // by player
+
+Matrix multiply(const Matrix& a, const Matrix& b) {
+    Matrix out{};
+    for (int r = 0; r < 4; ++r) {
+        for (int c = 0; c < 4; ++c) {
+            float v = 0.0f;
+            for (int k = 0; k < 4; ++k) v += a[4 * r + k] * b[4 * k + c];
+            out[4 * r + c] = v;
+        }
+    }
+    return out;
+}
+Matrix rigid_inverse(const Matrix& m) { // axes orthonormal (scale 1)
+    Matrix out{};
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) out[4 * r + c] = m[4 * c + r];
+    }
+    for (int c = 0; c < 3; ++c) {
+        out[12 + c] = -(m[12] * out[c] + m[13] * out[4 + c] + m[14] * out[8 + c]);
+    }
+    out[15] = 1.0f;
+    return out;
+}
 
 uint32_t bits(float f) {
     uint32_t v;
@@ -2703,14 +2804,86 @@ float value(uint32_t v) {
     return f;
 }
 
+void summon_property(uint32_t player, uint32_t id, uint32_t n) {
+    if (id == kHoldProp) {
+        g_weapon_holds[player].requested = true;
+        return;
+    }
+    uint64_t& summoned = g_summoned[player];
+    if (id == kSummonProp && n < 64) {
+        summoned |= uint64_t{1} << n;
+    } else if (id == kDismissProp && n == kDismissAll) {
+        summoned = 0;
+        g_weapon_holds[player].held.clear();
+    } else if (id == kDismissProp && n < 64) {
+        summoned &= ~(uint64_t{1} << n);
+    }
+}
+
+bool summoned(const Weapon& weapon, uint32_t player) {
+    if (weapon.summon < 0) return true;
+    const auto it = g_summoned.find(player);
+    return weapon.summon < 64 && it != g_summoned.end() && (it->second >> weapon.summon & 1) != 0;
+}
+
+// A weapon's local transform held where it was thrown to (see above): parent the parent bone's world matrix (the
+// hit test's record, +64), which is a frame behind the animation: it places the local drawn last frame, and the
+// parent this frame is extrapolated from it and the one before. -> whether it is drawn (summoned or held).
+bool hold_weapon(uint32_t player, size_t w, bool summoned, uint32_t parent, std::array<uint32_t, 16>& local) {
+    WeaponHold& hold = g_weapon_holds[player];
+    if (!summoned && !hold.held.count(w)) {
+        hold.last.erase(w);
+        hold.parent.erase(w);
+        return false;
+    }
+    Matrix p, l;
+    for (int i = 0; i < 16; ++i) {
+        p[i] = loadf(parent + 4 * i);
+        l[i] = value(local[i]);
+    }
+    p[3] = p[7] = p[11] = 0.0f;
+    p[15] = 1.0f;
+    const auto reach = [](const Matrix& m) { return std::sqrt(m[12] * m[12] + m[13] * m[13] + m[14] * m[14]); };
+    const auto last = hold.last.find(w);
+    if (hold.requested && last != hold.last.end() && !hold.held.count(w) && reach(last->second) > kThrown) {
+        hold.held[w] = {multiply(last->second, p), 0}; // where it was drawn last frame
+    }
+    if (const auto held = hold.held.find(w); held != hold.held.end()) {
+        Matrix now = p; // the parent this frame: moved as it did since the frame before
+        if (const auto before = hold.parent.find(w); before != hold.parent.end()) {
+            now = multiply(p, multiply(rigid_inverse(before->second), p));
+        }
+        const Matrix there = multiply(held->second.world, rigid_inverse(now)); // the held place in the parent's frame
+        if ((summoned && reach(l) < reach(there)) || ++held->second.frames > kHoldFrames) { // the warp takes it back
+            hold.held.erase(held);
+            if (!summoned) {
+                hold.last.erase(w);
+                hold.parent.erase(w);
+                return false;
+            }
+        } else {
+            for (int i = 0; i < 16; ++i) local[i] = bits(there[i]);
+            l = there;
+        }
+    }
+    hold.last[w] = l;
+    hold.parent[w] = p;
+    return true;
+}
+
 void pose_weapons(PPCContext& ctx, uint8_t* base, uint32_t model, uint32_t player, const std::vector<Weapon>& weapons) {
     if (weapons.empty()) return;
-    static const std::vector<uint32_t> none;
-    const auto sampled = g_body_extra.find(model + kModelSamples);
-    const std::vector<uint32_t>& extra = sampled != g_body_extra.end() ? sampled->second : none;
+    std::vector<uint32_t> extra; // the current frame's extra channels, 4 words each
+    if (load(model + kModelExtraSampled) != 0) {
+        const uint32_t channels = std::min(load(model + kModelExtraCount), kModelExtraMax);
+        for (uint32_t i = 0; i < 4 * channels; ++i) extra.push_back(load(model + kModelExtra + 4 * i));
+    }
     const uint32_t skeleton = guest_call(ctx, base, sub_04E1A4C8, {player});
     const uint32_t records = skeleton ? load(skeleton + kSkeletonRecords) : 0;
-    for (const Weapon& weapon : weapons) {
+    std::vector<std::array<uint32_t, 16>> locals(weapons.size()); // the points' (as drawn last frame, not collapsed)
+    std::vector<bool> shown(weapons.size(), false);
+    for (size_t w = 0; w < weapons.size(); ++w) {
+        const Weapon& weapon = weapons[w];
         ctx.r[3] = load(model + kModelBones);
         ctx.r[4] = kFirstWeaponBone + weapon.pair;
         sub_06A5C5FC(ctx, base);
@@ -2720,10 +2893,14 @@ void pose_weapons(PPCContext& ctx, uint8_t* base, uint32_t model, uint32_t playe
         for (uint32_t i = 0; i < 16; ++i) now[i] = load(record + 4 * i);
         auto [it, fresh] = g_weapon_bones.try_emplace(record);
         WeaponBone& bone = it->second;
-        if (fresh || (now != bone.last && now != bone.bind)) bone.bind = now; // a new model's record
+        if (fresh || (now != bone.last && now != bone.bind)) bone = WeaponBone{now}; // a new model's record
         std::array<uint32_t, 16> local = bone.bind;
-        if (weapon.pair < kStillWeapons && 8 * weapon.pair + 8 <= extra.size()) {
-            const uint32_t* t = &extra[8 * weapon.pair];
+        const uint32_t* t =
+            weapon.pair < kStillWeapons && 8 * weapon.pair + 8 <= extra.size() ? &extra[8 * weapon.pair] : nullptr;
+        if (t != nullptr && weapon.summon < 0 && std::hypot(value(t[0]), value(t[1]), value(t[2])) > kHeldReach) {
+            t = nullptr;
+        }
+        if (t != nullptr) {
             const float x = value(t[4]), y = value(t[5]), z = value(t[6]), w = value(t[7]);
             const float m[3][3] = {{1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)},
                                    {2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)},
@@ -2735,13 +2912,31 @@ void pose_weapons(PPCContext& ctx, uint8_t* base, uint32_t model, uint32_t playe
             }
             local[15] = bits(1.0f);
         }
+        shown[w] = summoned(weapon, player);
+        if (records != 0) {
+            shown[w] = hold_weapon(player, w, shown[w], records + kRecordSize * weapon.parent + kRecordWorld, local);
+        }
+        locals[w] = bone.shown ? bone.drawn : local; // the parent's record is a frame behind the animation
+        bone.drawn = local;
+        bone.shown = shown[w];
+        if (!shown[w]) {
+            for (int row = 0; row < 3; ++row) {
+                for (int col = 0; col < 3; ++col) local[4 * row + col] = bits(0.0f);
+            }
+        }
         if (local != now) {
             for (uint32_t i = 0; i < 16; ++i) store(record + 4 * i, local[i]);
         }
         bone.last = local;
-        if (records == 0) continue;
-        // its points: position = p L R + t R + T (rows: L the local axes, R the parent's world axes; p the
-        // point's local translation)
+    }
+    if (const auto hold = g_weapon_holds.find(player); hold != g_weapon_holds.end()) hold->second.requested = false;
+    if (records == 0) return;
+    // the points: position = p L R + t R + T (rows: L the local axes, R the parent's world axes; p the point's
+    // local translation); the summoned weapons' first, then a slot none of them wrote from the first weapon with it
+    uint32_t written = 0;
+    auto write_points = [&](size_t w, bool only_unwritten) {
+        const Weapon& weapon = weapons[w];
+        const std::array<uint32_t, 16>& local = locals[w];
         const uint32_t parent = records + kRecordSize * weapon.parent + kRecordWorld;
         float axes[3][3], origin[3];
         for (int c = 0; c < 3; ++c) {
@@ -2752,16 +2947,28 @@ void pose_weapons(PPCContext& ctx, uint8_t* base, uint32_t model, uint32_t playe
                 origin[c] += value(local[12 + row]) * loadf(parent + 16 * row + 4 * c);
             }
         }
-        for (uint32_t j : weapon.points) {
-            if (j >= kWeaponPoints) continue;
+        for (const WeaponPoint& point : weapon.points) {
+            if (point.slot >= kWeaponPoints || (only_unwritten && (written >> point.slot & 1))) continue;
             ctx.r[3] = load(model + kModelBones);
-            ctx.r[4] = kFirstWeaponPoint + j;
+            ctx.r[4] = kFirstWeaponPoint + point.number;
             sub_06A5C5FC(ctx, base);
             if (ctx.r[3] == 0) continue;
             const float at[3] = {loadf(ctx.r[3] + 48), loadf(ctx.r[3] + 52), loadf(ctx.r[3] + 56)};
             for (int c = 0; c < 3; ++c) {
-                storef(player + kPlayerItemPoints + 12 * j + 4 * c,
+                storef(player + kPlayerItemPoints + 12 * point.slot + 4 * c,
                        origin[c] + at[0] * axes[0][c] + at[1] * axes[1][c] + at[2] * axes[2][c]);
+            }
+            if (!only_unwritten) written |= 1u << point.slot;
+        }
+    };
+    for (size_t w = 0; w < weapons.size(); ++w) {
+        if (shown[w]) write_points(w, false);
+    }
+    for (size_t w = 0; w < weapons.size(); ++w) {
+        if (!shown[w]) {
+            write_points(w, true);
+            for (const WeaponPoint& point : weapons[w].points) {
+                if (point.slot < kWeaponPoints) written |= 1u << point.slot;
             }
         }
     }
@@ -2769,21 +2976,6 @@ void pose_weapons(PPCContext& ctx, uint8_t* base, uint32_t model, uint32_t playe
 
 } // namespace
 
-
-// The sampler: keeps the added fighter's body animations' extra channels.
-PPC_FUNC(sub_0689C42C_orig);
-PPC_FUNC(sub_0689C42C) {
-    const uint32_t animation = ctx.r[3], buffer = ctx.r[4], player = ctx.r[5], lr = ctx.lr;
-    sub_0689C42C_orig(ctx, base);
-    if (!g_active || lr < kBodySampling || lr >= kBodySamplingEnd || player == 0 || animation == 0) return;
-    if (slot_of_id(load(player + kPlayerSelectId)) < 0) return;
-    const uint32_t channels = load(animation) & 0xFFFF;
-    std::vector<uint32_t>& extra = g_body_extra[buffer];
-    extra.clear();
-    for (uint32_t c = kBodyChannels; c < channels; ++c) {
-        for (uint32_t i = 0; i < 4; ++i) extra.push_back(load(buffer + 16 * c + 4 * i));
-    }
-}
 
 // A fighter's model, every frame (the per-fighter posing of extra bones among
 // the rest): then the added fighter's extra bones take the frame of its
@@ -2941,6 +3133,9 @@ PPC_FUNC(sub_03AE86A0) { // a move property (player r3, {id, value} r4, pass r5)
     if ((id == kArcProp || id == kArcBakedProp || id == kArcAirMoveProp) && ctx.r[5] == 0 &&
         slot_of_id(load(player + kPlayerSelectId)) >= 0)
         arc_property(player, id, load(ctx.r[4] + 4));
+    if ((id == kSummonProp || id == kDismissProp || id == kHoldProp) && ctx.r[5] == 0 &&
+        slot_of_id(load(player + kPlayerSelectId)) >= 0)
+        summon_property(player, id, load(ctx.r[4] + 4));
     sub_03AE86A0_orig(ctx, base);
 }
 
@@ -2983,6 +3178,192 @@ PPC_FUNC(sub_04336854) { // a fighter's physics, once a frame (r3; it recurses i
     }
 }
 
+// ------------------------------------------------------------------ effect room
+
+// The effect library's pools of loaded resources are sized once, at start-up
+// (sub_06D2BB54 sets the configuration, sub_08C0F368 makes them): 200 effect
+// files (sub_08BF4D30: r4 at +24), 200 models (sub_08BF4D38: r5 at +56) and
+// 500 textures (sub_08BF4D44: r5 at +40), for the common effects, the stage's,
+// the mode's and the four fighters of a match (a solo fighter's partner slot
+// loads it again). Registering past a pool's end fails silently, and the stage
+// loads last: an added fighter's effects (converted from Tekken 7's, 30-50
+// files) left a stage without its floor. Each pool is made three times its
+// size while added fighters are installed (a few kB of nodes).
+constexpr uint32_t kEffectRoom = 3;
+
+PPC_FUNC(sub_08BF4D30_orig);
+PPC_FUNC(sub_08BF4D30) {
+    if (g_active) ctx.r[4] *= kEffectRoom;
+    sub_08BF4D30_orig(ctx, base);
+}
+
+PPC_FUNC(sub_08BF4D38_orig);
+PPC_FUNC(sub_08BF4D38) {
+    if (g_active) ctx.r[5] *= kEffectRoom;
+    sub_08BF4D38_orig(ctx, base);
+}
+
+PPC_FUNC(sub_08BF4D44_orig);
+PPC_FUNC(sub_08BF4D44) {
+    if (g_active) ctx.r[5] *= kEffectRoom;
+    sub_08BF4D44_orig(ctx, base);
+}
+
+// ------------------------------------------------------------------ level effects
+
+// A fighter's effect sits on a body part (move property 0x801f) in that bone's
+// own frame: every frame its placement (sub_06BE756C) hands the bone's place
+// to the library's sub_08BE5688(effect, x, y, z) (+944) and its world matrix
+// (sub_06BE6CFC: bone record + 64) to sub_08BE56E4(effect, matrix) (+960,
+// the axes count). Tekken 7 places its effects at the bone in the
+// fighter's level facing frame (x ahead, z up), and converted ones are made
+// for that (a hand's frame turns a hadouken's flash to the floor). The
+// converted effects carry kLevelMark in their file's root (+700, zero in the
+// title's files and kept there once loaded): for them the setter gets the
+// bone's position with the model root's rotation made level. The root's
+// rotation is the hips' world rotation without their own (bone record 0:
+// local rows at +0, world rows at +64; rows are the axes, P = L^T W).
+//
+// A projectile's look (convert/particles.py projectile and thrown: also
+// kProjectileMark) rides the projectile itself: it takes the place of the
+// player's projectile spawned last when it starts (sub_041CE354(slot, row,
+// player) initialises one of the player's slots: + 7968, 96 bytes each,
+// position at +0, +32 -1 when free, row +60), follows it every frame and goes
+// out of sight (far below the stage) when the projectile is gone (a hit, the
+// end of its life), so that it ends where the projectile does.
+//
+// Tekken 7 places some emitters from the floor's height rather than the bone's
+// (ground smoke, a low wave): the converter puts them in a second file of the
+// effect, which kFloorMark marks; its height is the floor's under the fighter.
+constexpr uint32_t kLevelMark = 0x54374658, kLevelMarkAt = 700;       // "T7FX"
+constexpr uint32_t kProjectileMark = 0x50524F4A, kProjectileMarkAt = 704; // "PROJ"
+constexpr uint32_t kFloorMark = 0x464C4F52, kFloorMarkAt = 708;           // "FLOR"
+constexpr uint32_t kPlayerFloor = 72;                                      // player: f32 the floor's height
+constexpr uint32_t kEffectFile = 932, kEffectPlayer = 720;      // effect object: its loaded file, its slot
+constexpr uint32_t kRigBones = 32, kBoneLocal = 0, kBoneWorld = 64; // sub_04E1A518's model: its bone records
+constexpr uint32_t kProjectileFree = 32, kProjectileRow = 60;
+constexpr float kOutOfSight = -100000.0f;
+struct ProjectileLook {
+    uint32_t file, owner, slot, row; // owner: the effect's player slot (+720) the projectile was looked up for
+    float before[3]; // the slot's place when the look started (its last projectile's until the first update)
+    bool moved;
+};
+std::map<uint32_t, uint32_t> g_last_projectile;    // player -> the slot initialised last
+std::map<uint32_t, ProjectileLook> g_projectile_looks; // effect object -> the projectile it rides
+
+// sub_08BE5650(effect, file, ...): the library sets an effect object up for a new effect (objects are reused).
+PPC_FUNC(sub_08BE5650_orig);
+PPC_FUNC(sub_08BE5650) {
+    if (g_active) g_projectile_looks.erase(ctx.r[3]);
+    sub_08BE5650_orig(ctx, base);
+}
+
+PPC_FUNC(sub_041CE354_orig);
+PPC_FUNC(sub_041CE354) {
+    if (g_active) g_last_projectile[ctx.r[5]] = ctx.r[3];
+    sub_041CE354_orig(ctx, base);
+}
+
+// A projectile look's place: where its projectile is, or out of sight once it is gone. -> false for other effects.
+bool projectile_look_place(PPCContext& ctx, uint8_t* base, uint32_t effect, uint32_t file, float place[3]) {
+    if (load(file + kProjectileMarkAt) != kProjectileMark) return false;
+    // The effect's player slot is set after its first placement (still 0 then: player 1's first member), so a
+    // look is looked up again when it changes (a tag partner's).
+    const uint32_t owner = load(effect + kEffectPlayer);
+    auto look = g_projectile_looks.find(effect);
+    if (look == g_projectile_looks.end() || look->second.file != file || look->second.owner != owner) {
+        const uint32_t player = guest_call(ctx, base, sub_05C5EF74, {owner});
+        const auto last = g_last_projectile.find(player); // a new look: the player's newest projectile
+        const uint32_t slot = last == g_last_projectile.end() ? 0 : last->second;
+        ProjectileLook started{file, owner, slot, slot ? load(slot + kProjectileRow) : 0, {}, false};
+        for (int i = 0; i < 3 && slot; ++i) started.before[i] = loadf(slot + 4 * i);
+        look = g_projectile_looks.insert_or_assign(effect, started).first;
+    }
+    ProjectileLook& l = look->second;
+    const uint32_t slot = l.slot;
+    if (slot && load(slot + kProjectileFree) != 0xFFFFFFFF && load(slot + kProjectileRow) == l.row) {
+        float at[3];
+        for (int i = 0; i < 3; ++i) at[i] = loadf(slot + 4 * i);
+        l.moved = l.moved || at[0] != l.before[0] || at[1] != l.before[1] || at[2] != l.before[2];
+        if (l.moved) std::copy(at, at + 3, place); // (until then the body part's place)
+    } else {
+        l.slot = 0; // gone: never again, even when the slot is used anew
+        place[1] = kOutOfSight;
+    }
+    return true;
+}
+
+PPC_FUNC(sub_04E1A518); // a player's model
+
+// The hips' bone record of the fighter an effect belongs to (its slot's player), or 0.
+uint32_t effect_hips(PPCContext& ctx, uint8_t* base, uint32_t effect) {
+    const uint32_t player = guest_call(ctx, base, sub_05C5EF74, {load(effect + kEffectPlayer)});
+    const uint32_t model = player ? guest_call(ctx, base, sub_04E1A518, {player}) : 0;
+    return model ? load(model + kRigBones) : 0;
+}
+
+// A floor part's place (kFloorMark): its height that of the floor under the fighter (the player's +72: 7000 mm
+// on a raised stage, its toes 40 mm above). -> false for other effects.
+bool floor_place(PPCContext& ctx, uint8_t* base, uint32_t effect, uint32_t file, float place[3]) {
+    if (load(file + kFloorMarkAt) != kFloorMark) return false;
+    if (place[1] == kOutOfSight) return true;
+    if (const uint32_t player = guest_call(ctx, base, sub_05C5EF74, {load(effect + kEffectPlayer)})) {
+        place[1] = loadf(player + kPlayerFloor);
+    }
+    return true;
+}
+
+uint32_t level_file(uint32_t effect) {
+    const uint32_t file = effect ? load(effect + kEffectFile) : 0;
+    return file && load(file + kLevelMarkAt) == kLevelMark ? file : 0;
+}
+
+// sub_08BE5688(effect, x, y, z): the effect's place (+944), set before its matrix every frame.
+PPC_FUNC(sub_08BE5688_orig);
+PPC_FUNC(sub_08BE5688) {
+    if (g_active) {
+        if (const uint32_t file = level_file(ctx.r[3])) {
+            float place[3] = {float(ctx.f[1].ps0), float(ctx.f[2].ps0), float(ctx.f[3].ps0)};
+            const bool rides = projectile_look_place(ctx, base, ctx.r[3], file, place);
+            if (floor_place(ctx, base, ctx.r[3], file, place) || rides) {
+                for (int i = 0; i < 3; ++i) ctx.f[1 + i].ps0 = place[i];
+            }
+        }
+    }
+    sub_08BE5688_orig(ctx, base);
+}
+
+PPC_FUNC(sub_08BE56E4_orig);
+PPC_FUNC(sub_08BE56E4) {
+    if (g_active) {
+        const uint32_t effect = ctx.r[3], matrix = ctx.r[4];
+        if (const uint32_t file = level_file(effect)) {
+            float place[3] = {loadf(matrix + 48), loadf(matrix + 52), loadf(matrix + 56)};
+            projectile_look_place(ctx, base, effect, file, place);
+            floor_place(ctx, base, effect, file, place);
+            static const uint32_t level = system_alloc(64);
+            for (int i = 0; i < 12; ++i) store(level + 4 * i, load(matrix + 4 * i)); // (no model: the bone's axes)
+            if (const uint32_t hips = effect_hips(ctx, base, effect)) {
+                float ahead[3] = {0, 0, 0}; // the root's z row: sum over k of L[k][2] W[k]
+                for (int k = 0; k < 3; ++k) {
+                    const float l = loadf(hips + kBoneLocal + 16 * k + 8);
+                    for (int j = 0; j < 3; ++j) ahead[j] += l * loadf(hips + kBoneWorld + 16 * k + 4 * j);
+                }
+                const float n = std::sqrt(ahead[0] * ahead[0] + ahead[2] * ahead[2]);
+                if (n > 1e-3f) {
+                    const float x = ahead[0] / n, z = ahead[2] / n;
+                    const float rows[12] = {z, 0, -x, 0, 0, 1, 0, 0, x, 0, z, 0}; // left = up x ahead, up, ahead
+                    for (int i = 0; i < 12; ++i) storef(level + 4 * i, rows[i]);
+                }
+            }
+            for (int i = 0; i < 3; ++i) storef(level + 48 + 4 * i, place[i]);
+            storef(level + 60, 1.0f);
+            ctx.r[4] = level;
+        }
+    }
+    sub_08BE56E4_orig(ctx, base);
+}
+
 // ------------------------------------------------------------------ skinning room
 
 // The title skins the fighters on screen into one of four stream-out buffers
@@ -2991,9 +3372,26 @@ PPC_FUNC(sub_04336854) { // a fighter's physics, once a frame (r3; it recurses i
 // partner left out there is never reset: from its tag-in on it reads other
 // fighters' vertices as its state and draws black, then blotched). That first
 // frame stops at a buffer's size, made for the title's fighters (1-2.6 MB of
-// skinned vertices each); added fighters take up to 3.3 MB, so the buffers'
-// total in the configuration sub_08977AE8 is given (r4: u8 +16 the count,
-// u32 +8 the total, 28 MiB) is doubled while it allocates them.
+// skinned vertices each); added fighters take up to 3.3 MB (Noctis with his
+// weapons 5.5 MB: two of him and two others need 17.7 MB), so the buffers'
+// total in the configuration sub_08977AE8 is given (r4: u8 +16 the count, u32
+// +8 the total, 28 MiB) is tripled while it allocates them (from the title's
+// 384 MiB graphics pool).
+constexpr uint32_t kSkinningRoom = 3;
+// The resource manager's pool (sub_08A7ED8C: r3 the manager, 0x1084FEF0; r5
+// its size, 20 MiB, allocated there) holds the effect files a match copies in
+// ("alo copy": the common ones, the stage's and each fighter's; Geese's and
+// Noctis's together took 7.5 MB), textures while they load and much else: two
+// fighters with many effects filled it and the match did not load (an
+// allocation of the effect copies failed, sub_08A7A460 @0x08A7C5E4). With added
+// fighters it is twice the size.
+constexpr uint32_t kResourcePool = 0x1400000, kResourcePoolRoom = 2;
+PPC_FUNC(sub_08A7ED8C_orig);
+PPC_FUNC(sub_08A7ED8C) {
+    if (g_active && ctx.r[5] == kResourcePool) ctx.r[5] = kResourcePoolRoom * kResourcePool;
+    sub_08A7ED8C_orig(ctx, base);
+}
+
 PPC_FUNC(sub_08977AE8_orig);
 PPC_FUNC(sub_08977AE8) {
     const uint32_t config = ctx.r[4];
@@ -3002,7 +3400,7 @@ PPC_FUNC(sub_08977AE8) {
         sub_08977AE8_orig(ctx, base);
         return;
     }
-    store(config + 8, 2 * total);
+    store(config + 8, kSkinningRoom * total);
     sub_08977AE8_orig(ctx, base);
     store(config + 8, total);
 }

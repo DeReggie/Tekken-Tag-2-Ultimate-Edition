@@ -10,6 +10,10 @@ At `offset` every entry's data is preceded by a copy of its record (with offset 
 entry. Tekken 7 sets the encrypted flag on every entry although the data is plain, so the flag is ignored; no entry
 is compressed (zlib blocks are read anyway, block offsets being absolute in version 3). A path in a `*_P.pak` patch
 pak replaces the same path in the base paks.
+
+A few fighters' files (Geese Howard's and Noctis's costumes, Noctis's voice bank) are stored encrypted by Tekken 7
+itself (a package then does not start with the package tag, a sound bank not with BKHD). Those are read from a folder
+of the files as the game reads them (tekken7/autodump.py saves them from the running game), under their pak paths.
 """
 import os
 import struct
@@ -18,6 +22,18 @@ import zlib
 PAK_MAGIC = 0x5A6F12E1
 ENTRY_HEADER_SIZE = 53
 GAME_PREFIX = 'TekkenGame/Content/'
+# how each kind of file starts when it is plain (the others are taken as plain)
+PLAIN_START = {'.uasset': b'\xc1\x83\x2a\x9e', '.umap': b'\xc1\x83\x2a\x9e', '.bnk': b'BKHD'}
+
+
+class EncryptedError(Exception):
+    """A file Tekken 7 keeps encrypted, not saved from the running game yet (the message is its pak path)."""
+
+
+def plain(path, data):
+    """Whether a file's data (at least its first 4 bytes) is plain."""
+    start = PLAIN_START.get(os.path.splitext(path)[1].lower())
+    return start is None or data[:4] == start
 
 
 def _fstring(b, o):
@@ -72,7 +88,9 @@ class Paks:
     """Every pak of the game: path -> the entry that counts (patch paks win). Lookups take pak paths
     ('TekkenGame/Content/...uasset') or object paths ('/Game/...'), in any case."""
 
-    def __init__(self, pak_dir):
+    def __init__(self, pak_dir, saved=None):
+        """saved: the folder of the encrypted files as the game reads them (pak paths below it), if any."""
+        self.saved = saved
         names = sorted(n for n in os.listdir(pak_dir) if n.endswith('.pak'))
         names.sort(key=lambda n: (n.endswith('_P.pak'), n))     # base paks first, then the patches
         if not names:
@@ -97,17 +115,16 @@ class Paks:
         k = path.lower()
         return self.index.get(k) or self.index.get(self.object_to_file(path).lower())
 
-    def read(self, path):
-        e = self.find(path)
-        if e is None:
-            raise KeyError(path)
+    def stored(self, e, n=None):
+        """An entry's data as the pak stores it (the first n bytes, or all)."""
         f = self._files.get(e.pak)
         if f is None:
             f = self._files[e.pak] = open(e.pak, 'rb')
         if e.comp == 0:
+            n = e.size if n is None else min(n, e.size)
             f.seek(e.offset + ENTRY_HEADER_SIZE)
-            d = f.read(e.size)
-            if len(d) != e.size:
+            d = f.read(n)
+            if len(d) != n:
                 raise IOError('%s: short read of %s' % (e.pak, e.path))
             return d
         if e.comp != 1:
@@ -116,7 +133,29 @@ class Paks:
         for start, end in e.blocks:
             f.seek(start)
             parts.append(zlib.decompress(f.read(end - start)))
-        return b''.join(parts)[:e.usize]
+        return b''.join(parts)[:e.usize if n is None else min(n, e.usize)]
+
+    def encrypted(self, e):
+        """Whether Tekken 7 keeps an entry encrypted."""
+        return not plain(e.path, self.stored(e, 4))
+
+    def saved_path(self, e):
+        return os.path.join(self.saved, *e.path.split('/')) if self.saved else None
+
+    def read(self, path):
+        e = self.find(path)
+        if e is None:
+            raise KeyError(path)
+        d = self.stored(e)
+        if plain(e.path, d):
+            return d
+        saved = self.saved_path(e)
+        if saved and os.path.isfile(saved):
+            with open(saved, 'rb') as f:
+                d = f.read()
+            if plain(e.path, d):
+                return d
+        raise EncryptedError(e.path)
 
     def close(self):
         for f in self._files.values():

@@ -67,18 +67,3 @@ MOVESET = {
     'direct': [(r'^(la|mk)_s', 'anim', ['mx_s%02d' % k for k in range(6)]),     # the donor's intros -> his
                (r'^la_w', 'anim', ['mx_w%02d' % k for k in range(2)])],         # win poses
 }
-
-# ------------------------------------------------------------------------------------------------ effects
-# His moves keep Tekken 7's effect ids (0x801f = body part << 8 | id); each id names effects the game already has
-# (convert/itemdb.py): {Tekken 7 id: [(effect file, bone or None = the move's body part)]}. His own particle
-# systems are not converted; these are the closest effects of TTT2's own fighters.
-_FIREBALL = 'ji8/alo/eff_koyuu_fireball00.alo'      # Jinpachi's fireball
-_CHARGE = 'dvj/alo/eff_koyuu_spcharge00.alo'         # Devil Jin's charge-up
-EFFECTS = {
-    101: [(_CHARGE, None)], 111: [(_CHARGE, None)], 121: [(_CHARGE, None)], 144: [(_CHARGE, None)],   # charges
-    102: [(_FIREBALL, None)], 112: [(_FIREBALL, None)], 122: [(_FIREBALL, None)], 141: [(_FIREBALL, None)],
-    147: [(_FIREBALL, None)],                                                                        # fireballs
-    104: [('cmn/alo/eff_smoke00.alo', None)], 124: [('cmn/alo/eff_smoke00.alo', None)],              # smoke
-}
-# a fireball flies along its body part's axis: the part Jinpachi's fireball spawns on (1), not his hand
-EFFECT_PARTS = {i: 1 for i in (102, 112, 122, 141, 147)}
