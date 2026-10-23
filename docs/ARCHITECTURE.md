@@ -1050,18 +1050,20 @@ anything not implemented stops with the function's name and a guest
 backtrace. Iterating on the runtime rebuilds and relinks in ~2 s.
 
 The window shows the TV image (F11 toggles fullscreen; display.ini, below,
-says how it starts). Keyboard, by default: arrows D-pad, X/Z/S/A the A/B/X/Y
-buttons, Q/W L/R, 1/2 ZL/ZR, Enter +, Backspace −, H Home, I/J/K/L the left
-stick; SDL gamepads map by button position. Keys are SDL scancodes (USB HID
-usages: a key's place on the keyboard, whatever its layout prints on it),
-taken from `$XDG_CONFIG_HOME/ttt2/keyboard.ini` (`~/.config` when the
-variable is unset or not absolute) by `runtime/src/host/keymap.cpp`. The
-launcher's Settings write that file whole (a temporary file renamed over
-it); by hand it is one `input = key` per line, the inputs `dpad_up`,
-`dpad_down`, `dpad_left`, `dpad_right`, `face_top`, `face_bottom`,
-`face_left`, `face_right` (X, B, Y and A, by place), `l`, `r`, `zl`, `zr`,
-`stick_up`, `stick_down`, `stick_left`, `stick_right`, `plus`, `minus` and
-`home`. A key is a decimal scancode (4 to 511) or SDL's name for one
+says how it starts). Keyboard, by default: W/A/S/D the D-pad up, left,
+down, right; face buttons by place, I top (the Wii U's X), J left (Y), K
+bottom (B), L right (A); H/`;` L/R, U/O ZL/ZR, Enter +, Backspace −, Home
+HOME, the arrows the left stick; SDL gamepads map by button position. Keys
+are SDL scancodes (USB HID usages: a key's place on the keyboard, whatever
+its layout prints on it), taken from `$XDG_CONFIG_HOME/ttt2/keyboard.ini`
+(`~/.config` when the variable is unset or not absolute) by
+`runtime/src/host/keymap.cpp`. The launcher's Settings write that file
+whole (a temporary file renamed over it); by hand it is one `input = key`
+per line, the inputs `dpad_up`, `dpad_down`, `dpad_left`, `dpad_right`,
+`face_top`, `face_bottom`, `face_left`, `face_right` (X, B, Y and A, by
+place), `l`, `r`, `zl`, `zr`, `stick_up`, `stick_down`, `stick_left`,
+`stick_right`, `plus`, `minus` and `home`. A key is a decimal scancode
+(4 to 511) or SDL's name for one
 (`SDL_GetScancodeFromName`, in any case: `Z`, `Return`, `Left Shift`, `Menu`).
 Digits are always a scancode: the digit keys only as numbers (the 1 key is
 30, the 5 key 34), and `5` is the B key. `#` starts a comment at the start

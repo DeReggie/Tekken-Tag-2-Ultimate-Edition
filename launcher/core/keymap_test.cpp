@@ -207,10 +207,10 @@ void test_headers(const fs::path& linux_header, const fs::path& sdl_header) {
 void test_inputs() {
     check(inputs().size() == 19, "inputs: 19");
     const std::map<std::string, int> defaults = {
-        {"dpad_up", 82},    {"dpad_down", 81}, {"dpad_left", 80},  {"dpad_right", 79}, {"face_top", 22},
-        {"face_bottom", 29}, {"face_left", 4},  {"face_right", 27}, {"l", 20},          {"r", 26},
-        {"zl", 30},         {"zr", 31},        {"stick_up", 12},   {"stick_down", 14}, {"stick_left", 13},
-        {"stick_right", 15}, {"plus", 40},     {"minus", 42},      {"home", 11}};
+        {"dpad_up", 26},    {"dpad_down", 22}, {"dpad_left", 4},   {"dpad_right", 7},  {"face_top", 12},
+        {"face_bottom", 14}, {"face_left", 13}, {"face_right", 15}, {"l", 11},          {"r", 51},
+        {"zl", 24},         {"zr", 18},        {"stick_up", 82},   {"stick_down", 81}, {"stick_left", 80},
+        {"stick_right", 79}, {"plus", 40},     {"minus", 42},      {"home", 74}};
     std::set<int> keys_used;
     for (int i = 0; i < kInputs; ++i) {
         const Input& in = inputs()[i];
@@ -233,13 +233,13 @@ void test_inputs() {
 void test_bind() {
     Keymap map;
     check(map.is_default(), "bind: defaults first");
-    // Bottom button (Z) to 9: nobody has 9.
+    // Bottom button (K) to 9: nobody has 9.
     Keymap::Bound b = map.bind(input_index("face_bottom"), 38);
     check(b.ok && b.swapped == -1 && key(map, "face_bottom") == 38 && !map.is_default(), "bind: a free key");
-    // Top button (S) to 9: Bottom button had it, and gets S.
+    // Top button (I) to 9: Bottom button had it, and gets I.
     b = map.bind(input_index("face_top"), 38);
     check(b.ok && b.swapped == input_index("face_bottom") && key(map, "face_top") == 38 &&
-              key(map, "face_bottom") == 22,
+              key(map, "face_bottom") == 12,
           "bind: swaps");
     b = map.bind(input_index("face_top"), 38);
     check(b.ok && b.swapped == -1 && key(map, "face_top") == 38, "bind: its own key again");
@@ -295,13 +295,13 @@ void test_file(const fs::path& root) {
                                       "minus = Left GUI\n",
                                       &notes);
     check(key(hand, "dpad_up") == 96 && key(hand, "face_bottom") == 40, "file: names");
-    check(key(hand, "face_top") == 22 && key(hand, "l") == 20 && key(hand, "r") == 26 && key(hand, "home") == 11 &&
+    check(key(hand, "face_top") == 12 && key(hand, "l") == 11 && key(hand, "r") == 51 && key(hand, "home") == 74 &&
               key(hand, "minus") == 42,
           "file: what is not a usable key keeps the default");
     check(key(hand, "zr") == 300, "file: a number the launcher does not know is kept");
     // (Enter is plus's by default: face_bottom, given it, keeps it, and plus
-    // gets Z, as if they had swapped.)
-    check(key(hand, "face_bottom") == 40 && key(hand, "plus") == 29, "file: a key given and a default");
+    // gets K, as if they had swapped.)
+    check(key(hand, "face_bottom") == 40 && key(hand, "plus") == 14, "file: a key given and a default");
     std::set<int> used;
     for (int i = 0; i < kInputs; ++i) used.insert(hand.key(i));
     check(used.size() == kInputs, "file: no key twice after reading");
@@ -313,23 +313,24 @@ void test_file(const fs::path& root) {
     // A key given twice: the earlier line's input keeps it, and the page
     // says that the game presses both.
     notes = {};
-    const Keymap twice = Keymap::parse("face_bottom = 82\ndpad_up = 82\n", &notes);
-    check(key(twice, "face_bottom") == 82 && key(twice, "dpad_up") == 29 && notes.warnings.empty() &&
-              notes.shared == std::vector<std::string>{"Up: Bottom button and D-pad Up"} && !notes.as_shown(),
+    const Keymap twice = Keymap::parse("face_bottom = 26\ndpad_up = 26\n", &notes);
+    check(key(twice, "face_bottom") == 26 && key(twice, "dpad_up") == 14 && notes.warnings.empty() &&
+              notes.shared == std::vector<std::string>{"W: Bottom button and D-pad Up"} && !notes.as_shown(),
           "file: given twice");
-    const Keymap thrice = Keymap::parse("face_bottom = 82\ndpad_up = 82\nface_left = 29\n");
-    check(key(thrice, "dpad_up") == 4, "file: given twice, neither default free: the first key free (A)");
+    const Keymap thrice = Keymap::parse("face_bottom = 26\ndpad_up = 26\nface_left = 14\n");
+    check(key(thrice, "dpad_up") == 5,
+          "file: given twice, neither default free: the first key free (B: A is D-pad Left's)");
     // Given to one input while another has it by default: the game presses both.
     notes = {};
-    const Keymap taken = Keymap::parse("face_top = 29\n", &notes);
-    check(key(taken, "face_top") == 29 && key(taken, "face_bottom") == 22 &&
-              notes.shared == std::vector<std::string>{"Z: Top button and Bottom button"},
+    const Keymap taken = Keymap::parse("face_top = 14\n", &notes);
+    check(key(taken, "face_top") == 14 && key(taken, "face_bottom") == 12 &&
+              notes.shared == std::vector<std::string>{"K: Top button and Bottom button"},
           "file: a default taken");
 
     // Written by hand as the game reads it (runtime/src/host/keymap.cpp).
     struct Hand {
         const char* text;
-        int dpad_up; // 82: the default
+        int dpad_up; // 26: the default
     };
     for (const Hand& h : std::initializer_list<Hand>{
              {"\xEF\xBB\xBF" "dpad_up = 5", 5}, // (a byte order mark)
@@ -338,19 +339,19 @@ void test_file(const fs::path& root) {
              {"\vdpad_up\f=\v5", 5},
              {"dpad_up = 5\r# a comment", 5},
              {"dpad_up = 5\v# a comment", 5},
-             {"dpad_up = 5#no comment", 82},
-             {"dpad_up = 1", 82}, // (1 to 3 are no keys)
-             {"dpad_up = 3", 82},
+             {"dpad_up = 5#no comment", 26},
+             {"dpad_up = 1", 26}, // (1 to 3 are no keys)
+             {"dpad_up = 3", 26},
              {"dpad_up = 4", 4},
              {"dpad_up = 0004", 4},
              {"dpad_up = 511", 511},
-             {"dpad_up = 512", 82},
-             {"dpad_up = 99999999999999999999", 82},
-             {"dpad_up = +5", 82},
+             {"dpad_up = 512", 26},
+             {"dpad_up = 99999999999999999999", 26},
+             {"dpad_up = +5", 26},
              {"dpad_up = Menu", 118},
              {"dpad_up = keypad ,", 133},
              {"dpad_up = AC Back", 282},
-             {"dpad_up = Keypad #", 82}, // (" #" starts a comment: "Keypad")
+             {"dpad_up = Keypad #", 26}, // (" #" starts a comment: "Keypad")
              {"dpad_up = Keypad = (AS400)", 134},
              {"dpad_up = =", 46},
              {"dpad_up = 5\ndpad_up = 6", 6}, // (the later line)

@@ -56,11 +56,11 @@ std::optional<keymap::Watcher> g_keymap_file;
 // The keymap's numbers are SDL's scancodes: the defaults are these keys.
 static_assert(keymap::kKeyCount == SDL_SCANCODE_COUNT);
 constexpr SDL_Scancode kDefaultKeys[] = {
-    SDL_SCANCODE_UP,     SDL_SCANCODE_DOWN,      SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT, // D-pad
-    SDL_SCANCODE_S,      SDL_SCANCODE_Z,         SDL_SCANCODE_A,    SDL_SCANCODE_X,     // X, B, Y, A
-    SDL_SCANCODE_Q,      SDL_SCANCODE_W,         SDL_SCANCODE_1,    SDL_SCANCODE_2,     // L, R, ZL, ZR
-    SDL_SCANCODE_I,      SDL_SCANCODE_K,         SDL_SCANCODE_J,    SDL_SCANCODE_L,     // left stick
-    SDL_SCANCODE_RETURN, SDL_SCANCODE_BACKSPACE, SDL_SCANCODE_H,                        // +, -, HOME
+    SDL_SCANCODE_W,      SDL_SCANCODE_S,         SDL_SCANCODE_A,    SDL_SCANCODE_D,     // D-pad
+    SDL_SCANCODE_I,      SDL_SCANCODE_K,         SDL_SCANCODE_J,    SDL_SCANCODE_L,     // X, B, Y, A
+    SDL_SCANCODE_H,      SDL_SCANCODE_SEMICOLON, SDL_SCANCODE_U,    SDL_SCANCODE_O,     // L, R, ZL, ZR
+    SDL_SCANCODE_UP,     SDL_SCANCODE_DOWN,      SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT, // left stick
+    SDL_SCANCODE_RETURN, SDL_SCANCODE_BACKSPACE, SDL_SCANCODE_HOME,                     // +, -, HOME
 };
 static_assert([] {
     for (size_t i = 0; i < keymap::kInputCount; ++i) {

@@ -208,17 +208,26 @@ starts fullscreen is a setting, below).
 
 | Wii U GamePad | Keyboard |
 | --- | --- |
-| D-pad | Arrow keys |
-| A / B / X / Y | X / Z / S / A |
-| L / R | Q / W |
-| ZL / ZR | 1 / 2 |
-| + / − | Enter / Backspace |
-| HOME | H |
-| Left stick | I / J / K / L |
+| D-pad up / left / down / right | W / A / S / D |
+| Top face button (the Wii U's X) | I |
+| Left face button (the Wii U's Y) | J |
+| Bottom face button (the Wii U's B) | K |
+| Right face button (the Wii U's A) | L |
+| L / R | H / ; |
+| ZL / ZR | U / O |
+| + (Start) / − (Select) | Enter / Backspace |
+| HOME | Home |
+| Left stick up / left / down / right | ↑ / ← / ↓ / → |
 
-Keys go by position, as on a US QWERTY keyboard. These are the defaults:
-the launcher's **Settings** (the gear next to Play) change them, at once,
-also while the game runs. They are kept in `~/.config/ttt2/keyboard.ini`
+The face buttons go by their place on the pad, not by their letters, which
+differ between controllers (an Xbox-style pad's bottom button is its A):
+I / J K L on the keyboard make the same diamond as the pad's buttons, so
+with the game's own button setup J is left punch, I right punch, K left
+kick and L right kick. Keys go by position, as on a US QWERTY keyboard.
+
+These are the defaults: the launcher's **Settings** (the gear next to Play)
+change them, at once, also while the game runs, and **Restore Defaults**
+there brings them back. They are kept in `~/.config/ttt2/keyboard.ini`
 (`$XDG_CONFIG_HOME/ttt2/`), one `input = key` per line, which can be edited
 by hand too ([its format](docs/ARCHITECTURE.md#running-the-port)); F11,
 Escape and the Windows keys cannot be given to a button, and the game prints
@@ -226,7 +235,7 @@ what it read when it starts.
 
 Gamepads work through SDL by button position, as on the Wii U: the right
 face button is A, the bottom one B, the top one X and the left one Y, and
-fights use them that way. In menus the bottom button (B, by default Z on the
+fights use them that way. In menus the bottom button (B, by default K on the
 keyboard) confirms and the right one goes back, except with a Nintendo
 controller, which confirms with its A as on the Wii U. The icons follow the
 last controller used (the keyboard counts as a neutral one).

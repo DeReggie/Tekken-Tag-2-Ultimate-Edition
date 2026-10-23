@@ -105,7 +105,7 @@ public:
         // Lines left out, as the game leaves them out (an unknown input, a
         // value that is no key, a reserved key): that input keeps its default.
         std::vector<std::string> warnings;
-        // Keys the file gives to more than one input ("Z: Bottom button and
+        // Keys the file gives to more than one input ("K: Bottom button and
         // D-pad Up"), which the game presses together. The launcher keeps one
         // key per input: the input of the earlier line keeps it, the other
         // gets its default when that is free (else another free key), so

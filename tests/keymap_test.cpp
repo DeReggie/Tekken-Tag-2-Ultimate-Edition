@@ -78,16 +78,16 @@ void test_inputs() {
         int stick_x, stick_y;
         uint16_t key;
     } expected[] = {
-        {"dpad_up", cafe::os::vpad::kUp, 0, 0, 82},       {"dpad_down", cafe::os::vpad::kDown, 0, 0, 81},
-        {"dpad_left", cafe::os::vpad::kLeft, 0, 0, 80},   {"dpad_right", cafe::os::vpad::kRight, 0, 0, 79},
-        {"face_top", cafe::os::vpad::kX, 0, 0, 22},       {"face_bottom", cafe::os::vpad::kB, 0, 0, 29},
-        {"face_left", cafe::os::vpad::kY, 0, 0, 4},       {"face_right", cafe::os::vpad::kA, 0, 0, 27},
-        {"l", cafe::os::vpad::kL, 0, 0, 20},              {"r", cafe::os::vpad::kR, 0, 0, 26},
-        {"zl", cafe::os::vpad::kZL, 0, 0, 30},            {"zr", cafe::os::vpad::kZR, 0, 0, 31},
-        {"stick_up", 0, 0, 1, 12},                        {"stick_down", 0, 0, -1, 14},
-        {"stick_left", 0, -1, 0, 13},                     {"stick_right", 0, 1, 0, 15},
+        {"dpad_up", cafe::os::vpad::kUp, 0, 0, 26},       {"dpad_down", cafe::os::vpad::kDown, 0, 0, 22},
+        {"dpad_left", cafe::os::vpad::kLeft, 0, 0, 4},    {"dpad_right", cafe::os::vpad::kRight, 0, 0, 7},
+        {"face_top", cafe::os::vpad::kX, 0, 0, 12},       {"face_bottom", cafe::os::vpad::kB, 0, 0, 14},
+        {"face_left", cafe::os::vpad::kY, 0, 0, 13},      {"face_right", cafe::os::vpad::kA, 0, 0, 15},
+        {"l", cafe::os::vpad::kL, 0, 0, 11},              {"r", cafe::os::vpad::kR, 0, 0, 51},
+        {"zl", cafe::os::vpad::kZL, 0, 0, 24},            {"zr", cafe::os::vpad::kZR, 0, 0, 18},
+        {"stick_up", 0, 0, 1, 82},                        {"stick_down", 0, 0, -1, 81},
+        {"stick_left", 0, -1, 0, 80},                     {"stick_right", 0, 1, 0, 79},
         {"plus", cafe::os::vpad::kPlus, 0, 0, 40},        {"minus", cafe::os::vpad::kMinus, 0, 0, 42},
-        {"home", cafe::os::vpad::kHome, 0, 0, 11},
+        {"home", cafe::os::vpad::kHome, 0, 0, 74},
     };
     check(std::size(expected) == keymap::kInputCount, "19 inputs");
     const keymap::Keys defaults = keymap::default_keys();
@@ -101,9 +101,11 @@ void test_inputs() {
         check(!keymap::reserved(defaults[i]), what + " default not reserved");
     }
     // SDL's names for the defaults are the US keys.
-    check(sdl_name("Up") == 82 && sdl_name("S") == 22 && sdl_name("Return") == 40 && sdl_name("Backspace") == 42 &&
-              sdl_name("1") == 30,
-          "SDL names of the default keys");
+    const char* names[] = {"W", "S", "A", "D", "I", "K", "J", "L", "H", ";",
+                           "U", "O", "Up", "Down", "Left", "Right", "Return", "Backspace", "Home"};
+    for (size_t i = 0; i < std::size(names) && i < keymap::kInputCount; ++i) {
+        check(sdl_name(names[i]) == defaults[i], std::string("SDL's name of the default key ") + names[i]);
+    }
     check(keymap::reserved(68) && keymap::reserved(41) && keymap::reserved(227) && keymap::reserved(231) &&
               !keymap::reserved(4),
           "reserved keys");
@@ -111,7 +113,7 @@ void test_inputs() {
 
 void test_good() {
     const keymap::Parsed parsed = keymap::parse("# my keys\n"
-                                                "dpad_up = 26\n"
+                                                "dpad_up = 29\n"
                                                 "face_bottom=Return   # by name\n"
                                                 "\tl\t=\tleft shift\n"
                                                 "home = Keypad 1 # keypad\n"
@@ -120,7 +122,7 @@ void test_good() {
     check(parsed.warnings.empty(), "good file: no warnings");
     check(parsed.assigned == 5, "good file: 5 assigned");
     keymap::Keys expected = keymap::default_keys();
-    expected[index_of("dpad_up")] = 26;
+    expected[index_of("dpad_up")] = 29;
     expected[index_of("face_bottom")] = 40;
     expected[index_of("l")] = 225;
     expected[index_of("home")] = 89;
@@ -155,7 +157,7 @@ void test_comments() {
                                                 "zl = 8 #9\n"
                                                 "zr = # 10\n",
                                                 test_name);
-    check(parsed.keys[index_of("dpad_up")] == 82 && parsed.keys[index_of("dpad_down")] == 81, "commented-out lines");
+    check(parsed.keys[index_of("dpad_up")] == 26 && parsed.keys[index_of("dpad_down")] == 22, "commented-out lines");
     check(parsed.keys[index_of("l")] == 100, "# inside a word is no comment");
     check(has_warning(parsed, 4, "unknown key \"6#7\""), "6#7 is a name, not 6");
     check(parsed.keys[index_of("zl")] == 8, "comment after a space");
@@ -224,9 +226,9 @@ void test_duplicates() {
     check(bad_again.keys[index_of("l")] == 5 && bad_again.assigned == 1, "a bad repeat keeps the good key");
 
     // One key on two inputs is allowed (it then presses both).
-    const keymap::Parsed shared = keymap::parse("face_top = 29\n", sdl_name);
-    check(shared.warnings.empty() && shared.keys[index_of("face_top")] == 29 &&
-              shared.keys[index_of("face_bottom")] == 29,
+    const keymap::Parsed shared = keymap::parse("face_top = 14\n", sdl_name);
+    check(shared.warnings.empty() && shared.keys[index_of("face_top")] == 14 &&
+              shared.keys[index_of("face_bottom")] == 14,
           "a key on two inputs");
 }
 

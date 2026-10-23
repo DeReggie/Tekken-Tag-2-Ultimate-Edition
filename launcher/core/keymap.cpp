@@ -201,29 +201,29 @@ constexpr Named kSdlNames[] = {
     {289, "Call"}, {290, "EndCall"},
 };
 
-// The GamePad's inputs, as the game's keyboard table had them (Z, X, A and
-// S are the face buttons' diamond; the arrows the D-pad; I J K L the left
-// stick).
+// The GamePad's inputs, with the game's default keys (W, A, S and D for the
+// D-pad; I, J, K and L the face buttons' diamond; H and ; for L and R, U and
+// O for ZL and ZR; the arrows for the left stick).
 constexpr std::array<Input, kInputs> kInputList = {{
-    {"dpad_up", "D-pad", "Up", "D-pad Up", 82},
-    {"dpad_down", "D-pad", "Down", "D-pad Down", 81},
-    {"dpad_left", "D-pad", "Left", "D-pad Left", 80},
-    {"dpad_right", "D-pad", "Right", "D-pad Right", 79},
-    {"face_top", "Face buttons", "Top button", "Top button", 22},
-    {"face_bottom", "Face buttons", "Bottom button", "Bottom button", 29},
-    {"face_left", "Face buttons", "Left button", "Left button", 4},
-    {"face_right", "Face buttons", "Right button", "Right button", 27},
-    {"l", "Shoulders", "L", "L", 20},
-    {"r", "Shoulders", "R", "R", 26},
-    {"zl", "Shoulders", "ZL", "ZL", 30},
-    {"zr", "Shoulders", "ZR", "ZR", 31},
-    {"stick_up", "Left stick", "Up", "Left stick Up", 12},
-    {"stick_down", "Left stick", "Down", "Left stick Down", 14},
-    {"stick_left", "Left stick", "Left", "Left stick Left", 13},
-    {"stick_right", "Left stick", "Right", "Left stick Right", 15},
+    {"dpad_up", "D-pad", "Up", "D-pad Up", 26},
+    {"dpad_down", "D-pad", "Down", "D-pad Down", 22},
+    {"dpad_left", "D-pad", "Left", "D-pad Left", 4},
+    {"dpad_right", "D-pad", "Right", "D-pad Right", 7},
+    {"face_top", "Face buttons", "Top button", "Top button", 12},
+    {"face_bottom", "Face buttons", "Bottom button", "Bottom button", 14},
+    {"face_left", "Face buttons", "Left button", "Left button", 13},
+    {"face_right", "Face buttons", "Right button", "Right button", 15},
+    {"l", "Shoulders", "L", "L", 11},
+    {"r", "Shoulders", "R", "R", 51},
+    {"zl", "Shoulders", "ZL", "ZL", 24},
+    {"zr", "Shoulders", "ZR", "ZR", 18},
+    {"stick_up", "Left stick", "Up", "Left stick Up", 82},
+    {"stick_down", "Left stick", "Down", "Left stick Down", 81},
+    {"stick_left", "Left stick", "Left", "Left stick Left", 80},
+    {"stick_right", "Left stick", "Right", "Left stick Right", 79},
     {"plus", "System", "+ (Start)", "+ (Start)", 40},
     {"minus", "System", "\u2212 (Select)", "\u2212 (Select)", 42},
-    {"home", "System", "HOME", "HOME", 11},
+    {"home", "System", "HOME", "HOME", 74},
 }};
 
 

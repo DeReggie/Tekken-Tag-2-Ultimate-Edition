@@ -29,29 +29,30 @@ struct Input {
 };
 
 // In the launcher's order. The defaults go by position, as on a US QWERTY
-// keyboard: arrows for the D-pad; X/Z/S/A for A/B/X/Y (the GamePad's
-// diamond); Q/W for L/R, 1/2 for ZL/ZR; I/K/J/L the left stick; Enter Plus,
-// Backspace Minus, H Home.
+// keyboard: W/S/A/D for the D-pad; I/K/J/L for X/B/Y/A (the GamePad's
+// diamond, by place: I top, K bottom, J left, L right); H/; for L/R, U/O
+// for ZL/ZR; the arrows the left stick; Enter Plus, Backspace Minus, the
+// Home key HOME.
 inline constexpr std::array<Input, 19> kInputs{{
-    {"dpad_up", os::vpad::kUp, 0, 0, 82},
-    {"dpad_down", os::vpad::kDown, 0, 0, 81},
-    {"dpad_left", os::vpad::kLeft, 0, 0, 80},
-    {"dpad_right", os::vpad::kRight, 0, 0, 79},
-    {"face_top", os::vpad::kX, 0, 0, 22},
-    {"face_bottom", os::vpad::kB, 0, 0, 29},
-    {"face_left", os::vpad::kY, 0, 0, 4},
-    {"face_right", os::vpad::kA, 0, 0, 27},
-    {"l", os::vpad::kL, 0, 0, 20},
-    {"r", os::vpad::kR, 0, 0, 26},
-    {"zl", os::vpad::kZL, 0, 0, 30},
-    {"zr", os::vpad::kZR, 0, 0, 31},
-    {"stick_up", 0, 0, 1, 12},
-    {"stick_down", 0, 0, -1, 14},
-    {"stick_left", 0, -1, 0, 13},
-    {"stick_right", 0, 1, 0, 15},
+    {"dpad_up", os::vpad::kUp, 0, 0, 26},
+    {"dpad_down", os::vpad::kDown, 0, 0, 22},
+    {"dpad_left", os::vpad::kLeft, 0, 0, 4},
+    {"dpad_right", os::vpad::kRight, 0, 0, 7},
+    {"face_top", os::vpad::kX, 0, 0, 12},
+    {"face_bottom", os::vpad::kB, 0, 0, 14},
+    {"face_left", os::vpad::kY, 0, 0, 13},
+    {"face_right", os::vpad::kA, 0, 0, 15},
+    {"l", os::vpad::kL, 0, 0, 11},
+    {"r", os::vpad::kR, 0, 0, 51},
+    {"zl", os::vpad::kZL, 0, 0, 24},
+    {"zr", os::vpad::kZR, 0, 0, 18},
+    {"stick_up", 0, 0, 1, 82},
+    {"stick_down", 0, 0, -1, 81},
+    {"stick_left", 0, -1, 0, 80},
+    {"stick_right", 0, 1, 0, 79},
     {"plus", os::vpad::kPlus, 0, 0, 40},
     {"minus", os::vpad::kMinus, 0, 0, 42},
-    {"home", os::vpad::kHome, 0, 0, 11},
+    {"home", os::vpad::kHome, 0, 0, 74},
 }};
 constexpr size_t kInputCount = kInputs.size();
 

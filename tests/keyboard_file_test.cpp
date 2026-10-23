@@ -127,9 +127,10 @@ void test_by_hand() {
              "dpad_up = +5\n", "dpad_up = -5\n", "dpad_up = 0x16\n", "home = Menu\n", "home = Keypad ,\n",
              "home = Mute\n", "home = AC Back\n", "home = keypad #\n", "home = #\n", "home = Keypad = (AS400)\n",
              "home = =\n", "home = Return\n", "home = Escape\n", "home = Left GUI\n", "home = F11\n",
-             "face_top = 29\n", "face_top = 82\ndpad_up = 82\n", "dpad_up = 82\nface_top = 82\n",
+             "face_top = 14\n", "face_top = 26\ndpad_up = 26\n", "dpad_up = 26\nface_top = 26\n",
+             "dpad_up = Home\n", "face_top = ;\n", "home = h\nl = Home\n",
              "dpad_up = 5\ndpad_up = 6\n", "dpad_up = 5\nface_top = 5\nface_left = 5\n", "nope = 5\n",
-             "dpad_up 5\n", "dpad_up =\n", "= 5\n", "\r\n\r\n", "", "#", "dpad_up = Z\r\nface_bottom = 82\r\n",
+             "dpad_up 5\n", "dpad_up =\n", "= 5\n", "\r\n\r\n", "", "#", "dpad_up = K\r\nface_bottom = 26\r\n",
          }) {
         compare(text, std::string("\"") + text + "\"");
     }
@@ -140,8 +141,8 @@ void test_by_hand() {
     }
     // Files made of lines like those, at random (always the same ones).
     const std::vector<std::string> ids = {"dpad_up", "face_top", "face_bottom", "zr", "home", "plus", "nope", ""};
-    const std::vector<std::string> values = {"5", "1", "3", "4", "29", "82", "40", "68", "300", "511", "512",
-                                             "Z", "return", "Menu", "Keypad ,", "Mute", "Left GUI", "Up",
+    const std::vector<std::string> values = {"5", "1", "3", "4", "14", "26", "40", "68", "300", "511", "512",
+                                             "K", "return", "Menu", "Keypad ,", "Mute", "Left GUI", "W",
                                              "AC Back", "#", "", "x", "0x16", "+5"};
     const std::vector<std::string> spaces = {"", " ", "\t", "\v", "\f", "\r", "  "};
     const std::vector<std::string> ends = {"", " # c", "#c", "\r", "\v# c"};
