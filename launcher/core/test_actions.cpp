@@ -2,6 +2,7 @@
 
 #include "test_actions.h"
 
+#include "display.h"
 #include "keymap.h"
 
 #include <algorithm>
@@ -79,6 +80,14 @@ std::optional<std::vector<TestAction>> parse_test_actions(std::string_view text,
                      number < 1024;
                 from = plus + 1;
             }
+        } else if (a.name == "fullscreen" || a.name == "interpolation") {
+            a.args = {rest};
+            ok = rest == "yes" || rest == "no";
+        } else if (a.name == "resolution") {
+            // (As the file names it, whatever the case given.)
+            const auto resolution = display::resolution_named(rest);
+            ok = resolution.has_value();
+            if (ok) a.args = {std::string(display::name_of(*resolution))};
         } else if (a.name == "wait") {
             char* end = nullptr;
             const double seconds = std::strtod(rest.c_str(), &end);

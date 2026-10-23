@@ -1,8 +1,15 @@
 # The launcher's logic without GTK: finding the install, the kit, the importer
 # and Python; reading the builder's and the importer's output; checking the
-# PC before an install; uninstalling; the game's keyboard keys. Tested on its
-# own.
+# PC before an install; uninstalling; the game's keyboard keys and display
+# settings. Tested on its own.
+#
+# display.ini is read and written by the game's own code for it (runtime/src,
+# found from here so that this folder also builds as a project's
+# subdirectory of its own): what the launcher writes is what the game reads.
+set(runtime_src ${CMAKE_CURRENT_SOURCE_DIR}/../../runtime/src)
 add_library(ttt2_launcher_core STATIC
+    display.cpp
+    files.cpp
     json.cpp
     keymap.cpp
     paths.cpp
@@ -10,8 +17,9 @@ add_library(ttt2_launcher_core STATIC
     status.cpp
     system.cpp
     test_actions.cpp
-    uninstall.cpp)
-target_include_directories(ttt2_launcher_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+    uninstall.cpp
+    ${runtime_src}/host/display_settings.cpp)
+target_include_directories(ttt2_launcher_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${runtime_src})
 target_compile_features(ttt2_launcher_core PUBLIC cxx_std_20)
 target_compile_options(ttt2_launcher_core PRIVATE -Wall -Wextra -Wpedantic)
 

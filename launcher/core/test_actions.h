@@ -18,7 +18,10 @@
 // input's key clicked, unless it waits for a key already, then those XKB
 // keycodes pressed one after another and let go the other way round,
 // through the window's key handler: bind:face_bottom:38, Left Alt alone
-// bind:zl:64, Alt+Tab bind:zl:64+23) and reset-keys (its Restore Defaults).
+// bind:zl:64, Alt+Tab bind:zl:64+23), reset-keys (its Restore Defaults), and
+// fullscreen:yes|no, resolution:<auto|1280x720|1920x1080|2560x1440|3840x2160|
+// 5120x2880> and interpolation:yes|no (that display setting's switch or list
+// set, which saves display.ini, then the file read back).
 
 #include <optional>
 #include <string>
@@ -30,7 +33,8 @@ namespace launcher {
 struct TestAction {
     std::string name;              // "install", "add", ...
     std::vector<std::string> args; // install: GAME, FOLDER; add: names; remove: the name; uninstall: keep/all;
-                                   // wait: the seconds; focus: the widget's id; bind: the input, the keycode
+                                   // wait: the seconds; focus: the widget's id; bind: the input, the keycode;
+                                   // fullscreen, interpolation: yes/no; resolution: as display.ini names it
     std::string text;              // as given
 
     // For the picture's file name: the name and short arguments

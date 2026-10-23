@@ -27,6 +27,7 @@
 #include "gpu/vulkan/renderer.h"
 
 #include "gpu/latte.h"
+#include "host/display_settings.h"
 #include "host/window.h"
 
 #include "cafe/runtime.h"
@@ -171,13 +172,14 @@ void Renderer::FrameRecord::clear() {
 }
 
 void Renderer::init_interpolation() {
-    uint32_t fps = 0;
-    if (const char* v = std::getenv("TTT2_FPS")) {
-        fps = static_cast<uint32_t>(std::atoi(v));
-    } else {
-        // Smoother than the title's 60 only on displays that refresh faster
-        // (the window's, or the primary one it is likely moved to).
-        fps = std::max(host::display_refresh_rate(), host::window_refresh_rate()) >= 100.0f ? 120 : 60;
+    // The run's frame rate (TTT2_FPS, or 60 when display.ini turns
+    // interpolation off), else smoother than the title's 60 only on displays
+    // that refresh faster (the window's, or the primary one it is likely
+    // moved to).
+    uint32_t fps = host::display::active().fps;
+    if (fps == 0) {
+        const float hz = std::max(host::display_refresh_rate(), host::window_refresh_rate());
+        fps = hz >= host::display::kInterpolationHz ? 120 : 60;
     }
     frames_per_frame_ = std::clamp((fps + 30) / 60, 1u, 4u);
     if (frames_per_frame_ > 1) {

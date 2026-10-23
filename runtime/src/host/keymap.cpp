@@ -157,7 +157,15 @@ Loaded load(const fs::path& file, const Resolver& resolve) {
         return loaded;
     }
     std::ifstream in(file, std::ios::binary);
-    const std::string text = in ? std::string(std::istreambuf_iterator<char>(in), {}) : std::string();
+    std::string text;
+    try {
+        if (in) text.assign(std::istreambuf_iterator<char>(in), {});
+    } catch (const std::ios_base::failure& e) {
+        // libstdc++'s file buffer throws on a failed read (EIO: a failing
+        // disk, a network home gone) whatever the stream's exception mask.
+        loaded.log.push_back("keyboard: defaults (cannot read " + name + ": " + e.code().message() + ")");
+        return loaded;
+    }
     if (!in.is_open() || in.bad()) {
         const int error = errno;
         loaded.log.push_back("keyboard: defaults (cannot read " + name + ": " + std::strerror(error) + ")");

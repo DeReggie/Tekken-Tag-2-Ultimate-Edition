@@ -49,6 +49,7 @@ add_library(cafe_runtime OBJECT
     src/gpu/vulkan/targets.cpp
     src/gpu/vulkan/textures.cpp
     src/host/audio.cpp
+    src/host/display_settings.cpp
     src/host/keymap.cpp
     src/host/window.cpp
     src/gx2/cbpool.cpp

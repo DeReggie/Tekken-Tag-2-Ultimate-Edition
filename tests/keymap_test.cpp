@@ -9,9 +9,11 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -287,6 +289,16 @@ void test_load(const fs::path& scratch) {
               "an unreadable file: " + joined(denied.log));
     }
     fs::permissions(unreadable, fs::perms::owner_read | fs::perms::owner_write);
+
+    // Opened, but the read fails (EIO, as from a failing disk): Linux's
+    // /proc/self/mem is a regular file whose first bytes are never mapped.
+    if (std::ifstream("/proc/self/mem").is_open()) {
+        const keymap::Loaded failed = keymap::load("/proc/self/mem", sdl_name);
+        const std::string why = std::string("cannot read /proc/self/mem: ") + std::strerror(EIO);
+        check(failed.keys == keymap::default_keys() &&
+                  failed.log == std::vector<std::string>{"keyboard: defaults (" + why + ")"},
+              "a failed read: " + joined(failed.log));
+    }
 }
 
 void test_watcher(const fs::path& scratch) {

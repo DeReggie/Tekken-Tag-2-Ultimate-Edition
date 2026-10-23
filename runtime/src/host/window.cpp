@@ -2,6 +2,7 @@
 
 #include "cafe/input.h"
 #include "cafe/runtime.h"
+#include "host/display_settings.h"
 #include "host/keymap.h"
 
 #include <SDL3/SDL.h>
@@ -17,6 +18,8 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <tuple>
+#include <vector>
 
 namespace cafe::host {
 namespace {
@@ -221,28 +224,37 @@ bool open_window(const char* title) {
         std::fprintf(stderr, "ttt2: no window: %s\n", SDL_GetError());
         return false;
     }
-    // The window starts at the largest multiple of 640x360 that leaves room
-    // on the desktop (1280x720 on 1080p, 1920x1080 on 1440p and up).
+    // The player's display settings (display.ini, which the launcher's
+    // Settings write) with the environment's values over them, for this run:
+    // the renderer takes the scale and the frame rate when it starts.
+    const display::Loaded loaded = display::load(display::file_path());
+    std::vector<std::string> log = loaded.log;
+    display::set_active(display::resolve(loaded.settings, std::getenv("TTT2_FULLSCREEN"), std::getenv("TTT2_SCALE"),
+                                         std::getenv("TTT2_FPS"), log));
+    for (const std::string& line : log) std::fprintf(stderr, "ttt2: %s\n", line.c_str());
+    const display::Active& active = display::active();
+    // The window starts at the render size when that fits on the desktop
+    // with room to spare, else at the largest multiple of 640x360 that does
+    // (1280x720 on 1080p, 1920x1080 on 1440p, 3200x1800 on 4K at 100 %).
     int window_w = 1280, window_h = 720;
     if (const SDL_DisplayMode* mode = SDL_GetDesktopDisplayMode(SDL_GetPrimaryDisplay())) {
         g_display_width = static_cast<uint32_t>(mode->w * mode->pixel_density);
         g_display_height = static_cast<uint32_t>(mode->h * mode->pixel_density);
         if (const float hz = refresh_of(SDL_GetPrimaryDisplay()); hz > 0.0f) g_display_refresh = g_window_refresh = hz;
-        const int fit = std::max(1, std::min((mode->w - 64) / 640, (mode->h - 128) / 360));
-        window_w = 640 * fit;
-        window_h = 360 * fit;
+        std::tie(window_w, window_h) = display::window_size(mode->w, mode->h, mode->pixel_density, active.scale);
     }
-    // TTT2_FULLSCREEN=1 starts fullscreen (F11 toggles it).
-    const char* fullscreen = std::getenv("TTT2_FULLSCREEN");
+    // Fullscreen keeps the desktop's mode (F11 switches it in the game; that is not saved).
     g_window = SDL_CreateWindow(title, window_w, window_h,
                                 SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
-                                    (fullscreen && *fullscreen == '1' ? SDL_WINDOW_FULLSCREEN : 0));
+                                    (active.fullscreen ? SDL_WINDOW_FULLSCREEN : 0));
     if (g_window == nullptr) {
         std::fprintf(stderr, "ttt2: no window: %s\n", SDL_GetError());
         return false;
     }
     update_size();
     update_window_refresh();
+    std::fprintf(stderr, "ttt2: window: %ux%u pixels, %s\n", g_width.load(), g_height.load(),
+                 active.fullscreen ? "fullscreen" : "windowed");
     g_keymap_file.emplace(keymap::file_path(), [](const std::string& name) {
         return static_cast<uint16_t>(SDL_GetScancodeFromName(name.c_str()));
     });

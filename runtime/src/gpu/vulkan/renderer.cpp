@@ -4,6 +4,7 @@
 #include "gpu/vulkan/renderer.h"
 
 #include "gpu/vulkan/png.h"
+#include "host/display_settings.h"
 #include "host/window.h"
 
 #include "cafe/runtime.h"
@@ -62,16 +63,18 @@ Renderer::Renderer() {
     VK_CHECK(vkCreateQueryPool(ctx_.device, &qci, nullptr, &busy_pool_));
 
     if (const char* f = std::getenv("TTT2_TRACE_FRAME")) trace_frame_ = std::strtoull(f, nullptr, 10);
-    // Render scale: TTT2_SCALE=1-4, else enough to cover the display
-    // (2 on 1080p and 1440p, 3 on 4K).
-    if (const char* sc = std::getenv("TTT2_SCALE")) {
-        scale_ = static_cast<uint32_t>(std::clamp(std::atoi(sc), 1, 4));
+    // Render scale: the run's (display.ini's resolution or TTT2_SCALE, set
+    // by the window), else enough to cover the display (2 on 1080p and
+    // 1440p, 3 on 4K).
+    if (const float chosen = host::display::active().scale; chosen > 0) {
+        scale_ = chosen;
     } else {
         uint32_t dw = 0, dh = 0;
         host::display_size(dw, dh);
-        scale_ = std::clamp((dh + 719) / 720, 1u, 4u);
+        scale_ = host::display::auto_scale(dh);
     }
-    std::fprintf(stderr, "ttt2: GPU: rendering at %ux%u (scale %u)\n", 1280 * scale_, 720 * scale_, scale_);
+    std::fprintf(stderr, "ttt2: GPU: rendering at %ux%u (scale %g)\n", scaled(1280, scale_), scaled(720, scale_),
+                 static_cast<double>(scale_));
     compiler_ = shaderc_compiler_initialize();
     load_pipeline_cache();
     surface_ = host::create_vulkan_surface(ctx_.instance);
@@ -299,8 +302,8 @@ void Renderer::copy_to_scan_buffer(const gx2::ColorBuffer& buffer, uint32_t scan
     const int index = scan_target == gx2::kScanDrc ? 1 : 0;
     Target* t = color_target(buffer);
     if (t == nullptr) return;
-    const uint32_t width = std::min<uint32_t>(buffer.surface.width * t->scale, t->image.width);
-    const uint32_t height = std::min<uint32_t>(buffer.surface.height * t->scale, t->image.height);
+    const uint32_t width = std::min(scaled(buffer.surface.width, t->scale), t->image.width);
+    const uint32_t height = std::min(scaled(buffer.surface.height, t->scale), t->image.height);
     Image& scan = scan_[index];
     if (scan.image == VK_NULL_HANDLE || scan.width != width || scan.height != height || scan.format != t->image.format) {
         if (scan.image != VK_NULL_HANDLE) {

@@ -970,11 +970,17 @@ bool Renderer::present_image(uint32_t i, uint64_t ready, uint64_t present_id) {
         di.pImageMemoryBarriers = &ib;
         vkCmdPipelineBarrier2(present_cmd_, &di);
     };
-    // Letterboxed to the TV image's aspect ratio.
-    const double scale = std::min(double(swapchain_extent_.width) / src.width, double(swapchain_extent_.height) / src.height);
+    // Letterboxed to the TV image's aspect ratio. A window within 2 pixels of
+    // the image shows it 1:1, centred, those pixels cut off or left black: at
+    // a fractional desktop scale a window of the chosen render size can come
+    // out a pixel smaller, and scaling by 0.999 would blur the whole picture.
+    const int32_t extent_w = static_cast<int32_t>(swapchain_extent_.width);
+    const int32_t extent_h = static_cast<int32_t>(swapchain_extent_.height);
+    const bool one_to_one = std::abs(extent_w - static_cast<int32_t>(src.width)) <= 2 &&
+                            std::abs(extent_h - static_cast<int32_t>(src.height)) <= 2;
+    const double scale = one_to_one ? 1.0 : std::min(double(extent_w) / src.width, double(extent_h) / src.height);
     const int32_t w = static_cast<int32_t>(src.width * scale), h = static_cast<int32_t>(src.height * scale);
-    const int32_t x = (static_cast<int32_t>(swapchain_extent_.width) - w) / 2;
-    const int32_t y = (static_cast<int32_t>(swapchain_extent_.height) - h) / 2;
+    const int32_t x = (extent_w - w) / 2, y = (extent_h - h) / 2; // -1 to 1 when 1:1
     if (compute_present_) {
         transition(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
         vkCmdBindPipeline(present_cmd_, VK_PIPELINE_BIND_POINT_COMPUTE, scale_pipeline_);
@@ -991,8 +997,8 @@ bool Renderer::present_image(uint32_t i, uint64_t ready, uint64_t present_id) {
         writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         writes[1].pImageInfo = &target;
         ctx_.cmd_push_descriptor_set(present_cmd_, VK_PIPELINE_BIND_POINT_COMPUTE, scale_layout_, 0, 2, writes);
-        const int32_t rect[6] = {x, y, w, h, static_cast<int32_t>(swapchain_extent_.width),
-                                 static_cast<int32_t>(swapchain_extent_.height)};
+        // Texel centres: 1:1 is an exact copy, whatever the offset.
+        const int32_t rect[6] = {x, y, w, h, extent_w, extent_h};
         vkCmdPushConstants(present_cmd_, scale_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof rect, rect);
         vkCmdDispatch(present_cmd_, (swapchain_extent_.width + 15) / 16, (swapchain_extent_.height + 15) / 16, 1);
         transition(VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -1008,8 +1014,17 @@ bool Renderer::present_image(uint32_t i, uint64_t ready, uint64_t present_id) {
         blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         blit.dstOffsets[0] = {x, y, 0};
         blit.dstOffsets[1] = {x + w, y + h, 1};
+        if (one_to_one) {
+            // A blit's offsets must lie inside both images: the part of the
+            // image the window shows, to the same size (nothing filtered).
+            const int32_t copy_w = std::min(w, extent_w), copy_h = std::min(h, extent_h);
+            blit.srcOffsets[0] = {std::max(0, -x), std::max(0, -y), 0};
+            blit.srcOffsets[1] = {blit.srcOffsets[0].x + copy_w, blit.srcOffsets[0].y + copy_h, 1};
+            blit.dstOffsets[0] = {std::max(0, x), std::max(0, y), 0};
+            blit.dstOffsets[1] = {blit.dstOffsets[0].x + copy_w, blit.dstOffsets[0].y + copy_h, 1};
+        }
         vkCmdBlitImage(present_cmd_, src.image, VK_IMAGE_LAYOUT_GENERAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-                       &blit, VK_FILTER_LINEAR);
+                       &blit, one_to_one ? VK_FILTER_NEAREST : VK_FILTER_LINEAR);
         transition(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     }
     VK_CHECK(vkEndCommandBuffer(present_cmd_));

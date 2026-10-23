@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <iterator>
 
 namespace launcher {
 namespace {
@@ -592,6 +593,34 @@ void Launcher::run_next_test() {
         }
         restore_keys();
         test_done(keymap_.is_default(), keymap_.is_default() ? "the default keys" : "not restored");
+    } else if (a.name == "fullscreen" || a.name == "resolution" || a.name == "interpolation") {
+        // The control set as a click sets it (its handler saves display.ini),
+        // then the file read back as the game reads it.
+        if (!in_settings()) {
+            test_done(false, "Settings is not open");
+            return;
+        }
+        display::Settings wanted = display_;
+        if (a.name == "fullscreen") {
+            wanted.fullscreen = a.args[0] == "yes";
+            gtk_switch_set_active(GTK_SWITCH(fullscreen_switch_), wanted.fullscreen);
+        } else if (a.name == "interpolation") {
+            wanted.interpolation = a.args[0] == "yes";
+            gtk_switch_set_active(GTK_SWITCH(interpolation_switch_), wanted.interpolation);
+        } else {
+            wanted.resolution = display::resolution_named(a.args[0]).value_or(display::Resolution::kAuto);
+            const auto& all = display::kResolutions;
+            const auto at = std::find(std::begin(all), std::end(all), wanted.resolution) - std::begin(all);
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(resolution_list_), static_cast<guint>(at));
+        }
+        const display::Loaded loaded = display::load(places_.display());
+        const display::Settings& s = loaded.settings;
+        std::string text = std::string("display.ini: fullscreen ") + (s.fullscreen ? "yes" : "no") + ", resolution " +
+                           std::string(display::name_of(s.resolution)) + ", interpolation " +
+                           (s.interpolation ? "yes" : "no");
+        if (!loaded.error.empty()) text = loaded.error;
+        if (gtk_widget_get_visible(display_error_)) text = gtk_label_get_text(GTK_LABEL(display_error_));
+        test_done(loaded.error.empty() && s == wanted && display_ == wanted, text);
     } else if (a.name == "wait") {
         g_timeout_add(static_cast<guint>(std::stod(a.args[0]) * 1000), +[](gpointer data) -> gboolean {
             static_cast<Launcher*>(data)->test_done(true, "");

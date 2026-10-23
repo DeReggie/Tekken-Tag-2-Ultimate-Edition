@@ -1,7 +1,9 @@
 // The launcher's logic without its window: the JSON reader, the progress
 // lines, the install's state and folders, the PC checks' parsing, the test
-// actions, and uninstalling (in a folder of its own, made and deleted here).
+// actions, the display settings' file, and uninstalling (in a folder of its
+// own, made and deleted here).
 
+#include "display.h"
 #include "json.h"
 #include "paths.h"
 #include "protocol.h"
@@ -11,14 +13,18 @@
 #include "uninstall.h"
 
 #include <signal.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <thread>
 
@@ -437,12 +443,151 @@ void test_actions() {
         check((*settings)[0].name == "settings" && (*settings)[3].name == "reset-keys" && (*settings)[4].name == "back",
               "actions: settings, reset-keys, back");
     }
+    const auto shown = parse_test_actions(
+        "fullscreen:yes;fullscreen:no;resolution:1920x1080;resolution:AUTO;interpolation:no;interpolation:yes", &error);
+    check(shown && shown->size() == 6, "actions: display settings (" + error + ")");
+    if (shown && shown->size() == 6) {
+        check((*shown)[0].name == "fullscreen" && (*shown)[0].args == std::vector<std::string>{"yes"} &&
+                  (*shown)[0].label() == "fullscreen-yes" && (*shown)[1].args[0] == "no",
+              "actions: fullscreen");
+        check((*shown)[2].name == "resolution" && (*shown)[2].args == std::vector<std::string>{"1920x1080"} &&
+                  (*shown)[2].label() == "resolution-1920x1080",
+              "actions: resolution");
+        check((*shown)[3].args == std::vector<std::string>{"auto"} && (*shown)[3].text == "resolution:AUTO",
+              "actions: resolution as the file names it");
+        check((*shown)[4].name == "interpolation" && (*shown)[4].args[0] == "no" &&
+                  (*shown)[5].label() == "interpolation-yes",
+              "actions: interpolation");
+    }
     for (const char* bad : {"install:/only", "uninstall:some", "add:", "dance", "play:now", "wait:x", "focus:", "focus",
                             "refresh:now", "bind", "bind:face_bottom", "bind:face_bottom:", "bind:nope:38",
                             "bind:face_bottom:x", "bind:face_bottom:0", "settings:now", "reset-keys:all",
-                            "bind:zl:64+", "bind:zl:+64", "bind:zl:64++23", "bind:zl:64+x", "bind:zl:-1"}) {
+                            "bind:zl:64+", "bind:zl:+64", "bind:zl:64++23", "bind:zl:64+x", "bind:zl:-1",
+                            "fullscreen", "fullscreen:", "fullscreen:on", "fullscreen:YES", "interpolation",
+                            "interpolation:1", "resolution", "resolution:", "resolution:1920", "resolution:1366x768",
+                            "resolution:auto:x"}) {
         check(!parse_test_actions(bad), std::string("actions: rejects ") + bad);
     }
+}
+
+std::string text_of(const fs::path& file) {
+    std::ifstream in(file, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), {});
+}
+
+// display.ini as the Settings page saves it, read back by the game's code.
+void test_display(const fs::path& root) {
+    Places places;
+    places.config = root / "config";
+    const fs::path file = places.display();
+    check(file == root / "config/ttt2/display.ini", "display: next to keyboard.ini");
+    check(display::load(file).error.empty() && display::load(file).settings == display::Settings{},
+          "display: no file, the defaults");
+
+    // Every value, each written whole over the one before (the folder made
+    // by the first).
+    int saved = 0;
+    for (const bool fullscreen : {false, true}) {
+        for (const display::Resolution resolution : display::kResolutions) {
+            for (const bool interpolation : {true, false}) {
+                const display::Settings settings{fullscreen, resolution, interpolation};
+                std::string error;
+                const bool ok = save_display(file, settings, &error);
+                const display::Loaded loaded = display::load(file);
+                const std::string what = "display: round trip of " + std::string(display::name_of(resolution)) +
+                                         (fullscreen ? ", fullscreen" : "") + (interpolation ? "" : ", 60 fps");
+                check(ok && error.empty(), what + ", saved (" + error + ")");
+                check(loaded.error.empty() && loaded.settings == settings && text_of(file) == display::format(settings),
+                      what + ", read back");
+                saved += ok;
+            }
+        }
+    }
+    check(saved == 24, "display: all 24 saved");
+    std::error_code ec;
+    size_t files = 0;
+    for (const auto& entry : fs::directory_iterator(file.parent_path(), ec)) files += entry.path() == file ? 1 : 100;
+    check(files == 1, "display: no temporary file left");
+
+    // Its mode kept, and a link kept as one (the file it leads to written).
+    fs::permissions(file, fs::perms(0640), ec);
+    check(save_display(file, {}), "display: saved over a 0640 file");
+    struct stat st{};
+    check(::stat(file.c_str(), &st) == 0 && (st.st_mode & 07777) == 0640, "display: its mode kept");
+    const fs::path elsewhere = root / "dotfiles/display.ini";
+    write(elsewhere, "fullscreen = yes\n");
+    fs::remove(file, ec);
+    fs::create_symlink("../../dotfiles/display.ini", file, ec);
+    const display::Settings big{true, display::Resolution::k2880, false};
+    check(save_display(file, big) && fs::is_symlink(file, ec) && display::load(elsewhere).settings == big,
+          "display: a link followed and kept");
+    fs::remove(file, ec);
+    // A link to itself, and a loop of two, say why (not "Success").
+    const std::string loop = "cannot follow the link " + file.string() + ": " + std::strerror(ELOOP);
+    for (const char* to : {"display.ini", "other.ini"}) {
+        fs::create_symlink(to, file, ec);
+        if (std::string_view(to) != "display.ini") fs::create_symlink("display.ini", file.parent_path() / to, ec);
+        std::string error;
+        check(!save_display(file, big, &error) && error == loop, "display: a link loop (" + error + ")");
+        fs::remove(file, ec);
+        fs::remove(file.parent_path() / "other.ini", ec);
+    }
+
+    // A file that is there and cannot be read: the reason without its path.
+    fs::create_directories(file, ec);
+    display::Loaded loaded = display::load(file);
+    check(unreadable_reason(loaded.error, file) == "it is not a file" && loaded.settings == display::Settings{},
+          "display: a folder (" + loaded.error + ")");
+    std::string error;
+    check(!save_display(file, big, &error) && error.starts_with("cannot write " + file.string() + ": ") &&
+              fs::is_directory(file, ec),
+          "display: a folder is not replaced (" + error + ")");
+    fs::remove(file, ec);
+    write(file, "resolution = 1920x1080\n");
+    fs::permissions(file, fs::perms::none, ec);
+    loaded = display::load(file);
+    // (Root reads it anyway.)
+    if (::geteuid() != 0) {
+        check(unreadable_reason(loaded.error, file) == "Permission denied",
+              "display: unreadable (" + loaded.error + ")");
+    }
+    check(save_display(file, big) && display::load(file).settings == big, "display: an unreadable file written anew");
+    check(::stat(file.c_str(), &st) == 0 && (st.st_mode & 07777) == 0600, "display: written anew, its owner's");
+    check(unreadable_reason("something else", file) == "something else", "display: other reasons as they are");
+
+    check(resolution_label(display::Resolution::kAuto) == "Automatic" &&
+              resolution_label(display::Resolution::k720) == "1280 \u00d7 720" &&
+              resolution_label(display::Resolution::k1080) == "1920 \u00d7 1080" &&
+              resolution_label(display::Resolution::k2880) == "5120 \u00d7 2880",
+          "display: the list's names");
+    check(automatic_size(720) == "1280 \u00d7 720" && automatic_size(1080) == "2560 \u00d7 1440" &&
+              automatic_size(1440) == "2560 \u00d7 1440" && automatic_size(2160) == "3840 \u00d7 2160" &&
+              automatic_size(0) == "1280 \u00d7 720" && automatic_size(4320) == "5120 \u00d7 2880",
+          "display: automatic sizes");
+
+    // What the page says of the monitors: figures only when the game surely
+    // goes by them (one monitor; with more, every one below 100 Hz).
+    check(automatic_note({{1080, 60000}}) == "Automatic: enough to cover the display (2560 \u00d7 1440 on this one)." &&
+              automatic_note({{2160, 0}}) == "Automatic: enough to cover the display (3840 \u00d7 2160 on this one)." &&
+              automatic_note({{0, 60000}}) == "Automatic: enough to cover the display." &&
+              automatic_note({}) == "Automatic: enough to cover the display." &&
+              automatic_note({{1080, 60000}, {1080, 60000}}) == "Automatic: enough to cover the main display.",
+          "display: the Automatic note");
+    check(hertz_text(60000) == "60" && hertz_text(59940) == "60" && hertz_text(99499) == "99" &&
+              hertz_text(99500) == "99.5" && hertz_text(99982) == "99.98" && hertz_text(99999) == "99.99" &&
+              hertz_text(99900) == "99.9" && hertz_text(100000) == "100" && hertz_text(143998) == "144",
+          "display: refresh rates as said");
+    const auto note = [](std::vector<Monitor> monitors) { return refresh_note(monitors); };
+    check(note({{1080, 60000}}) == "This display refreshes at 60 Hz: the game stays at 60 fps there." &&
+              note({{1080, 99982}}) == "This display refreshes at 99.98 Hz: the game stays at 60 fps there." &&
+              note({{1080, 100000}}).empty() && note({{1080, 144000}}).empty() && note({{1080, 0}}).empty() &&
+              note({}).empty(),
+          "display: the 60 fps note, one monitor");
+    check(note({{1080, 60000}, {2160, 59940}}) == "These displays refresh at 60 Hz: the game stays at 60 fps." &&
+              note({{1080, 60000}, {1440, 75000}}) ==
+                  "These displays refresh at up to 75 Hz: the game stays at 60 fps." &&
+              note({{1080, 60000}, {1440, 144000}}).empty() && note({{1080, 60000}, {1440, 0}}).empty(),
+          "display: the 60 fps note, more monitors");
 }
 
 void test_uninstall(const fs::path& root) {
@@ -476,6 +621,7 @@ void test_uninstall(const fs::path& root) {
         write(places.desktop_entry(), "[Desktop Entry]\nExec=\"" + (folder / kProgramName).string() + "\"\n");
         write(places.record(), folder.string() + "\n");
         write(places.keyboard(), "face_top = 22\n");
+        write(places.display(), "fullscreen = yes\n");
         write(places.cache / "ttt2/pipelines.bin", "p");
         write(places.cache / "ttt2/spirv/1.spv", "s");
         write(places.cache / "ttt2/build/gen/a.cpp", "w");
@@ -521,6 +667,7 @@ void test_uninstall(const fs::path& root) {
               there(places.home / ".cache/ttt2/tekken7"),
           "uninstall: saves and characters kept");
     check(there(places.keyboard()), "uninstall: the keyboard's keys kept (a setting)");
+    check(there(places.display()), "uninstall: the display settings kept (a setting)");
 
     // Everything, and a folder left empty goes too.
     fs::remove_all(folder);
@@ -546,6 +693,7 @@ void test_uninstall(const fs::path& root) {
         check(there(places.packs / name / "readme.txt"), std::string("uninstall all: not the importer's: ") + name);
     }
     check(there(places.keyboard()), "uninstall all: the keyboard's keys kept");
+    check(there(places.display()), "uninstall all: the display settings kept");
 
     // Not an install: nothing happens.
     write(root / "Games/other/file.txt", "x");
@@ -650,6 +798,7 @@ int main(int argc, char** argv) {
     test_system();
     test_compiler(root / "compiler");
     test_actions();
+    test_display(root / "display");
     test_uninstall(root / "uninstall");
     std::error_code ec;
     fs::remove_all(root, ec);

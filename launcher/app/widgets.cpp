@@ -86,6 +86,14 @@ textview.log text { background-color: alpha(black, 0.25); }
 
 button.suggested-action.play { padding-left: 22px; padding-right: 22px; font-weight: 700; }
 
+.setting-list {
+    border-radius: 10px;
+    border: 1px solid alpha(currentColor, 0.09);
+    background-color: alpha(currentColor, 0.03);
+}
+.setting-row { padding: 10px 8px 10px 12px; border-bottom: 1px solid alpha(currentColor, 0.07); }
+.setting-row:last-child { border-bottom: none; }
+
 .key-group-title { font-size: 86%; font-weight: 700; opacity: 0.62; margin: 0 4px 6px 4px; }
 .key-list {
     border-radius: 10px;

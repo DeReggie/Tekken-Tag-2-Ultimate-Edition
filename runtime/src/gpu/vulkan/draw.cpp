@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -625,7 +626,7 @@ void Renderer::draw(const Registers& regs, const Draw& d) {
     dc.step_rate[0] = r(reg::VGT_INSTANCE_STEP_RATE_0);
     dc.step_rate[1] = r(reg::VGT_INSTANCE_STEP_RATE_0 + 4);
     // The pass's scale: its attachments are all upscaled or none is.
-    uint32_t pass_scale = 0;
+    float pass_scale = 0;
     bool mixed_scales = false;
     const auto take_scale = [&](const Target* t) {
         if (t == nullptr) return;
@@ -635,11 +636,14 @@ void Renderer::draw(const Registers& regs, const Draw& d) {
     for (uint32_t i = 0; i < color_count; ++i) take_scale(colors[i]);
     take_scale(depth);
     if (pass_scale == 0) pass_scale = 1;
-    if (mixed_scales) report_once("draw into upscaled and title-sized targets at once, scale", pass_scale);
+    if (mixed_scales) {
+        report_once("draw into upscaled and title-sized targets at once, twice the scale",
+                    static_cast<uint32_t>(2 * pass_scale));
+    }
     dc.alpha_ref = std::bit_cast<float>(r(reg::SX_ALPHA_REF));
     dc.point_size = static_cast<float>((r(reg::PA_SU_POINT_SIZE) >> 16) & 0xFFFF) / 8.0f * pass_scale;
-    dc.pixel_scale = static_cast<float>(pass_scale);
-    dc.texture_scale = static_cast<float>(scale_);
+    dc.pixel_scale = pass_scale;
+    dc.texture_scale = scale_;
     for (uint32_t slot = 0; slot < abi::kTextureSlots; ++slot) {
         if (vs_textures[slot].scaled) dc.vs_scaled_textures |= 1u << slot;
         if (ps_textures[slot].scaled) dc.ps_scaled_textures |= 1u << slot;
@@ -851,7 +855,7 @@ void Renderer::draw(const Registers& regs, const Draw& d) {
     const float zscale = std::bit_cast<float>(r(reg::PA_CL_VPORT_XSCALE_0 + 16));
     const float zoffset = std::bit_cast<float>(r(reg::PA_CL_VPORT_XSCALE_0 + 20));
     VkViewport viewport{};
-    const float vscale = static_cast<float>(pass_scale);
+    const float vscale = pass_scale;
     viewport.x = (xoffset - xscale) * vscale;
     viewport.width = 2.0f * xscale * vscale;
     viewport.y = (yoffset - yscale) * vscale;
@@ -875,11 +879,14 @@ void Renderer::draw(const Registers& regs, const Draw& d) {
     const uint32_t vtl = r(reg::PA_SC_VPORT_SCISSOR_0_TL), vbr = r(reg::PA_SC_VPORT_SCISSOR_0_TL + 4);
     int32_t x0 = std::max<int32_t>(tl & 0x7FFF, vtl & 0x7FFF), y0 = std::max<int32_t>((tl >> 16) & 0x7FFF, (vtl >> 16) & 0x7FFF);
     int32_t x1 = std::min<int32_t>(br & 0x7FFF, vbr & 0x7FFF), y1 = std::min<int32_t>((br >> 16) & 0x7FFF, (vbr >> 16) & 0x7FFF);
-    const int32_t sc = static_cast<int32_t>(pass_scale);
-    x0 *= sc;
-    y0 *= sc;
-    x1 *= sc;
-    y1 *= sc;
+    // An edge takes the image pixels whose centres are inside it: e * scale
+    // at the whole scales; at 1.5 the pixels a title pixel covers more than
+    // half of (as the rasteriser's coverage of the scaled viewport).
+    const auto edge = [&](int32_t e) { return static_cast<int32_t>(std::ceil(e * pass_scale - 0.5f)); };
+    x0 = edge(x0);
+    y0 = edge(y0);
+    x1 = edge(x1);
+    y1 = edge(y1);
     x1 = std::min<int32_t>(x1, static_cast<int32_t>(pass_width_));
     y1 = std::min<int32_t>(y1, static_cast<int32_t>(pass_height_));
     VkRect2D scissor{{x0, y0}, {static_cast<uint32_t>(std::max(x1 - x0, 0)), static_cast<uint32_t>(std::max(y1 - y0, 0))}};
@@ -987,7 +994,8 @@ void Renderer::draw(const Registers& regs, const Draw& d) {
     if (writes_stream_out) stream_out_pending_ = true;
     if (profiling_) {
         profile_mark("draw", colors[0] ? colors[0]->address : depth ? depth->address : 0,
-                     (colors[0] ? colors[0]->pitch * colors[0]->scale : 0) << 16 | (colors[0] ? colors[0]->height * colors[0]->scale : 0),
+                     (colors[0] ? scaled(colors[0]->pitch, colors[0]->scale) : 0) << 16 |
+                         (colors[0] ? scaled(colors[0]->height, colors[0]->scale) : 0),
                      d.count * std::max(instances, 1u));
     }
 

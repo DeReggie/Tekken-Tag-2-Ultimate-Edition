@@ -247,15 +247,23 @@ attachment formats and blend state.
 - The TV scan buffer is blitted, letterboxed, to an SDL3 window
   (`runtime/src/host/window.cpp`, on the process's main thread).
 - Upscaling: targets the size of the screen and its halvings (heights 720,
-  368, 192, 96) get images `TTT2_SCALE` times larger (default: enough to
-  cover the display, 2 on 1080p and 1440p, 3 on 4K). Shadow maps, the
-  GPU's texture-compression targets and the GamePad screen keep the
-  title's size. Passes into upscaled targets scale the viewport, scissor
-  and point size; pixel shaders see `gl_FragCoord` in the title's pixels;
-  textures copied from upscaled targets stay upscaled, and shaders scale
-  texel coordinates, size queries and texel offsets for them
-  (`DrawConstants` carries the scale and a per-stage mask). Copies
-  between images of different scale are filtered blits.
+  368, 192, 96) get images 1, 1.5, 2, 3 or 4 times larger (display.ini's
+  resolution or `TTT2_SCALE`, else enough to cover the display, 2 on 1080p
+  and 1440p, 3 on 4K). Shadow maps, the GPU's texture-compression targets
+  and the GamePad screen keep the title's size. Passes into upscaled
+  targets scale the viewport, scissor and point size; pixel shaders see
+  `gl_FragCoord` in the title's pixels; textures copied from upscaled
+  targets stay upscaled, and shaders scale texel coordinates, size queries
+  and texel offsets for them (`DrawConstants` carries the scale and a
+  per-stage mask). Copies between images of different scale are filtered
+  blits. At 1.5 a title pixel covers one or two image pixels: sizes round
+  up (`scaled()`; an odd size ends in half a pixel), a mip level's copy is
+  clamped to the image's level (whose sizes halve the rounded one), a
+  scissor edge e becomes ceil(1.5e − 0.5) (the pixels whose centres it
+  covers), a texel fetch reads image texel floor(1.5c + 0.5), and a size
+  query gives level 0's size divided by 1.5, rounded, then halved to the
+  level. At the whole scales each of these is the exact product (or
+  quotient).
 - Validated 2026-10-02 with the Khronos layer (core, synchronization,
   object lifetime, thread safety) through boot, menus and a match: no
   errors or hazards. One warning remains by design,
@@ -263,8 +271,11 @@ attachment formats and blend state.
   shaders that also write colour, which Vulkan discards when no colour
   attachment is bound; trimming those outputs would multiply shader
   variants.
-- Frame interpolation (`gpu/vulkan/interpolate.cpp`, default on displays of
-  100 Hz or more, `TTT2_FPS=60/120/180/240`): the title's logic, physics
+- Frame interpolation (`gpu/vulkan/interpolate.cpp`, default when the
+  primary display or the window's refreshes at 100 Hz or more, exactly
+  (`display::kInterpolationHz`: 99.98 Hz gets 60), unless display.ini says
+  `interpolation = no`, fixed for a run; `TTT2_FPS=60/120/180/240` over
+  both): the title's logic, physics
   and hitboxes stay at 59.94 steps a second; between two of its frames the
   renderer shows K-1 more. The command processor logs each frame (register
   writes and operations with their arguments, nothing the guest can
@@ -313,8 +324,11 @@ attachment formats and blend state.
   compute queue (AMD's asynchronous compute, `TTT2_PRESENT_BLIT=1` for
   the rendering queue): a present there waits only for its own frame, not
   for rendering queued after it. A compute shader scales the frame,
-  letterboxed, into the swapchain. The mode follows the display the
-  window is on, chosen again when the window moves to another display or
+  letterboxed, into the swapchain; a swapchain within 2 pixels of the
+  frame's size gets it 1:1, centred (a window sized for the render size
+  can come out a pixel short under fractional desktop scaling, and a
+  0.999 scale would blur the whole frame). The mode follows the display
+  the window is on, chosen again when the window moves to another display or
   its mode changes. On a display refreshing at a multiple of 60 Hz of at
   least 120 Hz with present waits (`VK_KHR_present_wait2`), the thread
   presents at every refresh in FIFO order, a few presents ahead of the
@@ -959,7 +973,9 @@ compiler.
   when asked, the saves the game wrote (`common/` and the 8-digit user
   folders, nothing else of a `TTT2_SAVE_DIR` folder) and the character
   packs (with the importer's hidden `.<code>.part` and `.<code>.old`
-  folders). A character whose pack is outdated shows "Older version", Remove
+  folders). The game's settings, `keyboard.ini` and `display.ini`, are
+  kept (`~/.config/ttt2` goes only when it is left empty). A character
+  whose pack is outdated shows "Older version", Remove
   and Add Again (Add All and Add All Owned add them again too, and a line
   above the list counts them); a newer version's shows "Newer version" and
   Remove only.
@@ -1033,8 +1049,8 @@ function is plain C++ registered with `CAFE_EXPORT(module, name, fn)`, and
 anything not implemented stops with the function's name and a guest
 backtrace. Iterating on the runtime rebuilds and relinks in ~2 s.
 
-The window shows the TV image (F11 toggles fullscreen, `TTT2_FULLSCREEN=1`
-starts in it). Keyboard, by default: arrows D-pad, X/Z/S/A the A/B/X/Y
+The window shows the TV image (F11 toggles fullscreen; display.ini, below,
+says how it starts). Keyboard, by default: arrows D-pad, X/Z/S/A the A/B/X/Y
 buttons, Q/W L/R, 1/2 ZL/ZR, Enter +, Backspace −, H Home, I/J/K/L the left
 stick; SDL gamepads map by button position. Keys are SDL scancodes (USB HID
 usages: a key's place on the keyboard, whatever its layout prints on it),
@@ -1070,6 +1086,55 @@ shortcut, which stops choosing), and the keys' labels follow the keyboard's
 layout (GTK 4.18's, else that of the last key pressed that every layout
 defines). Saving writes through a link to where it leads, keeping that
 file's mode.
+
+How the game starts comes from `$XDG_CONFIG_HOME/ttt2/display.ini` (the
+same folder rule), read once by `open_window` before the window is made
+(`runtime/src/host/display_settings.cpp`, without SDL: the launcher builds
+the same file into its core, so what its Settings write is what the game
+reads), so a change applies at the next start. It is one `name = value`
+per line, `#` starting a comment as in keyboard.ini: `fullscreen = yes` or
+`no` (default no; fullscreen keeps the desktop's mode), `resolution =
+auto`, `1280x720`, `1920x1080`, `2560x1440`, `3840x2160` or `5120x2880`
+(the render scale 1, 1.5, 2, 3 or 4; default auto, the scale that covers
+the primary display's height in pixels) and `interpolation = yes` or `no`
+(default yes: 120 frames a second when the primary display or the one the
+window opens on refreshes at 100 Hz or more, compared exactly, 60 below;
+no: 60 always).
+Booleans also take `true`/`false`, `on`/`off` and `1`/`0`, and values (not
+names) may be in any case; an unknown name or a bad value is left out with
+a warning, keeping that setting's default, and of a name given twice the
+later line counts. Only a regular file of at most 64 KiB is read; one that
+cannot be means the defaults. `TTT2_FULLSCREEN` (`1` fullscreen, another
+value windowed), `TTT2_SCALE` (1, 1.5, 2, 3 or 4) and `TTT2_FPS` win over
+the file when set and not empty, and a value they cannot use is left out
+with a line in the log. The window opens at the render size (in the
+desktop's units: pixels over its scale) when that leaves at least 64 units
+across and 128 down free on the primary display, otherwise at the largest
+multiple of 640x360 that does (at least 640x360; Automatic always so). The
+game logs `ttt2: display: fullscreen no, resolution auto, interpolation yes
+(from <file>)` (or `display: defaults (no <file>)`), a line per variable
+set, `ttt2: window: <w>x<h> pixels, windowed` and `ttt2: GPU: rendering at
+<w>x<h> (scale <s>)`. The launcher's Settings show the three above the
+keys, in a Display section: Fullscreen and 120 fps switches and a
+Resolution list (Automatic, 1280 × 720 ... 5120 × 2880, as wide as its
+widest item whichever is chosen). Under them it says what the game will
+do only as far as it can be sure, since GTK cannot name the primary
+display on Wayland (`automatic_note` and `refresh_note` in
+`launcher/core/display.h`). With one monitor: the size Automatic gives on
+it (its height in pixels from GTK 4.14's fractional scale; before 4.14
+only a whole scale factor of 1 counts, as fractional scaling rounds the
+factor up, otherwise no size is named) and, when it reports a refresh rate
+below 100 Hz by the game's exact rule, that the game stays at 60 fps (a
+rate just below is shown with decimals, "99.98 Hz", never as 100). With
+several: "enough to cover the main display" without a size, and the 60 fps
+note only when every monitor reports a rate below 100 Hz (it gives the
+highest). The monitors are read again each time the page opens and when
+one is added or removed. The page reads the file each time it opens and
+writes it whole whenever a control changes, as keyboard.ini (a temporary
+file renamed over it, through a link, keeping its mode); when that fails
+it shows why and puts the control back, and a file that is there but
+cannot be read gets a note saying the game uses the defaults.
+
 `TTT2_GPU=null` runs headless without a window. Sound plays on the
 default output device; `TTT2_AUDIO=0` disables it and
 `TTT2_AUDIO_VOLUME=<percent>` scales it.
@@ -1113,14 +1178,14 @@ ignores. Renderer debugging:
 | `TTT2_DUMP_TEXTURES=<dir>` | every texture loaded from memory, as PNG |
 | `TTT2_TRACE_TARGETS=1`, `TTT2_WATCH=<hex address>` | render target creation; writes and loads touching an address |
 | `TTT2_CHECK_TILING=1` | compare fast detiling with addrlib per element |
-| `TTT2_SCALE=1..4` | render scale of screen-sized targets (default from the display) |
-| `TTT2_FPS=60/120/180/240` | frames shown per second (default 120 on displays of 100 Hz and more) |
+| `TTT2_SCALE=1/1.5/2/3/4` | render scale of screen-sized targets (over display.ini's resolution; default from the display) |
+| `TTT2_FPS=60/120/180/240` | frames shown per second (over display.ini's interpolation; default 120 on displays of 100 Hz and more) |
 | `TTT2_INTERP_TEST=1` | replays without blending: extra frames must equal real ones |
 | `TTT2_INTERP_2D=1` | blend flat (not depth-tested) draws too |
 | `TTT2_PRESENT_TIMED=1` | present at chosen times instead of at every refresh |
 | `TTT2_PRESENT_QUEUE=1..4` | presents kept ahead of the screen when presenting every refresh (default about 8 ms of refreshes) |
 | `TTT2_DISPLAY_HZ=<hz>` | report this refresh rate for the window's display (tests the rate check) |
-| `TTT2_FULLSCREEN=1` | start fullscreen |
+| `TTT2_FULLSCREEN=1` | start fullscreen (another value: windowed; over display.ini) |
 | `TTT2_TRACE_INTERP=1`, `TTT2_TRACE_PACING=1` | draw matching, carried targets; frame readiness, swap times after the vblank |
 | `TTT2_PROFILE_AT=<s>` | GPU time of every operation of one frame |
 | `TTT2_VK_VALIDATION=1` | Khronos validation layer, if installed (synchronization checks: `khronos_validation.validate_sync = true` in a file named by `VK_LAYER_SETTINGS_PATH`) |
@@ -1138,7 +1203,7 @@ has loaded, then quits:
 
 | Variable | Effect |
 | --- | --- |
-| `TTT2_LAUNCHER_TEST_ACTIONS="install:<GAME>:<FOLDER>;add:kazumi;quit"` | actions one after another, each once the one before has ended: `install:<GAME>:<FOLDER>`, `update`, `add:<name>[,<name>...]`, `add-all-base`, `add-all-owned`, `remove:<name>`, `uninstall:keep`, `uninstall:all`, `play` (ends once the game has run 3 s), `quit`, and `expand-dlc`, `expand-log`, `show-uninstall`, `wait:<seconds>`, `focus:<id>` (the keyboard focus on `play`, `uninstall`, `fighter:<name>`, `add-all`, `dlc` ...) and `refresh` (logs the id focused afterwards); for Settings `settings` (opens it through the gear), `back`, `bind:<input>:<XKB keycode>[+<XKB keycode>...]` (that input's key clicked unless it waits for one already, then those keys pressed one after another and let go the other way round through the window's key handler, e.g. `bind:face_bottom:39` gives it S, `bind:zl:64` Left Alt, `bind:zl:64+23` is Alt+Tab, which stops choosing; a refused key, Esc and a shortcut log `failed` with the reason) and `reset-keys` (Restore Defaults); each logs `@test <action> ok\|failed <why>` to stderr |
+| `TTT2_LAUNCHER_TEST_ACTIONS="install:<GAME>:<FOLDER>;add:kazumi;quit"` | actions one after another, each once the one before has ended: `install:<GAME>:<FOLDER>`, `update`, `add:<name>[,<name>...]`, `add-all-base`, `add-all-owned`, `remove:<name>`, `uninstall:keep`, `uninstall:all`, `play` (ends once the game has run 3 s), `quit`, and `expand-dlc`, `expand-log`, `show-uninstall`, `wait:<seconds>`, `focus:<id>` (the keyboard focus on `play`, `uninstall`, `fighter:<name>`, `add-all`, `dlc` ...) and `refresh` (logs the id focused afterwards); for Settings `settings` (opens it through the gear), `back`, `bind:<input>:<XKB keycode>[+<XKB keycode>...]` (that input's key clicked unless it waits for one already, then those keys pressed one after another and let go the other way round through the window's key handler, e.g. `bind:face_bottom:39` gives it S, `bind:zl:64` Left Alt, `bind:zl:64+23` is Alt+Tab, which stops choosing; a refused key, Esc and a shortcut log `failed` with the reason) and `reset-keys` (Restore Defaults), and for its Display section `fullscreen:yes`/`no`, `interpolation:yes`/`no` and `resolution:<value>` (a value of display.ini's `resolution`, in any case: `auto`, `1920x1080` ...), each setting that switch or list as a click does, which saves display.ini, then reading the file back (`ok` when it holds what was set; the text is what it holds, or why it could not be saved); each logs `@test <action> ok\|failed <why>` to stderr |
 | `TTT2_LAUNCHER_TEST_SHOTS=<dir>` | the window as `<dir>/NN-<action>.png` after each action (`00-start.png` first, `NN-<action>-running.png` half-way through its task) |
 | `TTT2_LAUNCHER_TEST_PAGE=1` | also all of the window's content, scrolled into view or not, as `...-page.png` |
 | `TTT2_LAUNCHER_TEST_SCALE=2`, `TTT2_LAUNCHER_TEST_SIZE=<w>x<h>` | pictures at twice the scale; the window's size |

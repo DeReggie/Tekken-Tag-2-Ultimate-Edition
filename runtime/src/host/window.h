@@ -3,7 +3,9 @@
 // The game window: SDL3 on the process's main thread, which owns the event
 // loop; keyboard (keys from keyboard.ini, host/keymap.h) and gamepads feed
 // the Wii U GamePad state. The renderer presents into it from the GPU
-// thread through a Vulkan surface.
+// thread through a Vulkan surface. Whether it starts fullscreen, its size
+// and the renderer's scale and frame rate come from display.ini
+// (host/display_settings.h), read when it opens.
 
 #include <vulkan/vulkan.h>
 
@@ -14,7 +16,8 @@
 namespace cafe::host {
 
 // Opens the window; false if there is no display (the port then runs
-// headless). Main thread only.
+// headless). Sets display::active() for the run first: the renderer reads
+// it. Main thread only.
 bool open_window(const char* title);
 bool window_open();
 // The window's icon, RGBA rows top first. Main thread only.

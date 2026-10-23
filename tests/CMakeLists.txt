@@ -120,6 +120,16 @@ target_link_libraries(keyboard_file_test PRIVATE ttt2_launcher_core SDL3::SDL3)
 target_compile_options(keyboard_file_test PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME keyboard_file_test COMMAND keyboard_file_test)
 
+# The display settings from display.ini, the environment over them and the
+# window's size (files in a scratch folder of the build tree; no SDL).
+add_executable(display_settings_test display_settings_test.cpp
+    ${CMAKE_SOURCE_DIR}/runtime/src/host/display_settings.cpp)
+target_include_directories(display_settings_test PRIVATE ${CMAKE_SOURCE_DIR}/runtime/src)
+target_compile_features(display_settings_test PRIVATE cxx_std_20)
+target_compile_options(display_settings_test PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME display_settings_test
+    COMMAND display_settings_test ${CMAKE_CURRENT_BINARY_DIR}/display_settings_test.d)
+
 # Guest polling loops must see other threads' stores (no Dolphin needed).
 add_executable(memory_model_test memory_model_test.cpp)
 target_include_directories(memory_model_test PRIVATE ${CMAKE_SOURCE_DIR}/runtime/include)

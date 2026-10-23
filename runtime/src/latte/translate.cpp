@@ -904,13 +904,18 @@ void Translator::emit_texture(const TexInstruction& t) {
         const std::string ic = format("ivec%d(", std::max(coords, 2));
         std::string args;
         // Texel coordinates scale with the texture; an array layer does not.
+        // floor(c * scale + 0.5) is c * scale at the whole scales, and at
+        // 1.5 an image texel inside the title's texel c.
+        constexpr const char* kScaled = "int(floor(float(%s.%c) * tex_scale(%uu) + 0.5))";
         for (int i = 0; i < coords; ++i) {
             const bool texel = i < spatial;
-            args += (i ? ", " : "") + format(texel ? "%s.%c * int(tex_scale(%uu))" : "%s.%c", gpr(t.src_gpr, t.src_rel, kLoopIndex).c_str(),
+            args += (i ? ", " : "") + format(texel ? kScaled : "%s.%c", gpr(t.src_gpr, t.src_rel, kLoopIndex).c_str(),
                                             kChan[t.src_sel[i] & 3], slot);
         }
-        if (coords == 1) call = format("texelFetch(%s, %s.%c * int(tex_scale(%uu)), %s.%c)", sampler.c_str(), gpr(t.src_gpr, t.src_rel, kLoopIndex).c_str(),
-                                       kChan[t.src_sel[0] & 3], slot, gpr(t.src_gpr, t.src_rel, kLoopIndex).c_str(), kChan[t.src_sel[3] & 3]);
+        if (coords == 1) call = format("texelFetch(%s, %s, %s.%c)", sampler.c_str(),
+                                       format(kScaled, gpr(t.src_gpr, t.src_rel, kLoopIndex).c_str(),
+                                              kChan[t.src_sel[0] & 3], slot).c_str(),
+                                       gpr(t.src_gpr, t.src_rel, kLoopIndex).c_str(), kChan[t.src_sel[3] & 3]);
         else call = format("texelFetch(%s, %s%s), %s.%c)", sampler.c_str(), ic.c_str(), args.c_str(), gpr(t.src_gpr, t.src_rel, kLoopIndex).c_str(), kChan[t.src_sel[3] & 3]);
         break;
     }
@@ -923,6 +928,22 @@ void Translator::emit_texture(const TexInstruction& t) {
         else call = format("ivec4(textureSize(%s, %s) / %s, textureQueryLevels(%s))", sampler.c_str(), lod.c_str(), ts.c_str(), sampler.c_str());
         // Queried once: the destination may be the LOD's register.
         line("ivec4 q = " + call + ";");
+        // An upscaled texture's size divides exactly at the whole scales.
+        // At 1.5 the image's levels halve its rounded-up size, which can
+        // give a texel more than the title's level: the title's size is
+        // then level 0's divided, halved down to the level. (Only the texel
+        // dimensions: layers and a 3D texture's depth are not upscaled.)
+        if (!cube) {
+            const std::string size0 = format("textureSize(%s, 0)", sampler.c_str());
+            const std::string fractional = format("if (fract(tex_scale(%uu)) != 0.0) ", slot);
+            if (spatial == 1) {
+                line(fractional + format("q.x = max(1, int(round(float(%s) / tex_scale(%uu))) >> %s);",
+                                         (array ? size0 + ".x" : size0).c_str(), slot, lod.c_str()));
+            } else {
+                line(fractional + format("q.xy = max(ivec2(1), ivec2(round(vec2(%s.xy) / tex_scale(%uu))) >> %s);",
+                                         size0.c_str(), slot, lod.c_str()));
+            }
+        }
         for (int i = 0; i < 4; ++i) {
             const uint8_t sel = t.dst_sel[i];
             if (sel == kSelMask) continue;

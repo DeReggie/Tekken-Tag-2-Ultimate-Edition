@@ -3,14 +3,15 @@
 // The launcher's window: the game (install from the player's .wua, play,
 // update, uninstall) above the characters (Tekken 7's, added through the
 // importer), with the task that runs (one at a time) at the bottom; and its
-// Settings, a page of its own (the game's keyboard keys).
+// Settings, a page of its own (the game's display settings and keyboard keys).
 //
 // launcher.cpp   the window, finding things, refreshing the state, tests
 // game.cpp       the game's section and its tasks
 // characters.cpp the characters' section and its tasks
-// settings.cpp   the Settings page: the game's keyboard keys
+// settings.cpp   the Settings page: the game's display settings and keyboard keys
 // task.cpp       the task panel: progress, Cancel, the log
 
+#include "display.h"
 #include "keymap.h"
 #include "paths.h"
 #include "process.h"
@@ -124,9 +125,20 @@ private:
 
     // ------------------------------------------------ settings.cpp
     GtkWidget* build_settings(); // the page (in the window's stack)
+    void build_display();        // its Display section
     void open_settings();
     void close_settings();
     bool in_settings() const;
+    // display.ini read again (each time Settings opens: it may have been
+    // changed by hand), and shown in the controls, which save nothing then.
+    void load_display();
+    void show_display();
+    // What Automatic and 120 fps give on the desktop's monitors, as far
+    // as the launcher can tell (see automatic_note in display.h).
+    void show_display_facts();
+    // A control changed: the whole file saved at once, or the control put
+    // back with the reason shown.
+    void display_changed();
     void show_keys(); // each input's key, named as the user's keyboard layout names it
     std::string key_label(int usage) const;
     // The keyboard layout the labels name: the keyboard's (GTK 4.18 on), and
@@ -226,6 +238,16 @@ private:
     GtkWidget* shot_window_ = nullptr; // a dialog the test's picture is of
     int frames_ = 0;                   // the window's first frames drawn
     bool settle_pending_ = false;
+
+    display::Settings display_;     // display.ini's settings, as shown
+    bool showing_display_ = false; // the controls are being set from display_ (their handlers save nothing)
+    GtkWidget* fullscreen_switch_ = nullptr;
+    GtkWidget* resolution_list_ = nullptr; // display::kResolutions, in that order
+    GtkWidget* interpolation_switch_ = nullptr;
+    GtkWidget* automatic_note_ = nullptr; // what Automatic draws at
+    GtkWidget* refresh_note_ = nullptr;   // displays below 100 Hz: the game stays at 60 fps
+    GtkWidget* display_error_ = nullptr;
+    GtkWidget* display_note_ = nullptr; // why display.ini cannot be read
 
     Keymap keymap_;
     bool keys_as_shown_ = true; // keyboard.ini holds the keys shown (else a note says why not)

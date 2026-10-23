@@ -15,13 +15,16 @@
 // (detiled) or copied from a render target at the same address when the
 // GPU wrote it last.
 //
-// Upscaling (TTT2_SCALE, default from the display): targets the size of the
-// screen and its halvings get images `scale_` times larger; everything else
-// (shadow maps, the GPU's texture-compression targets, the GamePad screen)
-// keeps the title's size. Passes into upscaled targets scale the viewport
-// and scissor, shaders see the title's pixel coordinates, and textures
-// copied from upscaled targets stay upscaled (shaders scale their texel
-// coordinates and sizes).
+// Upscaling (display.ini's resolution or TTT2_SCALE, else enough to cover
+// the display): targets the size of the screen and its halvings get images
+// `scale_` times larger, 1, 1.5, 2, 3 or 4; everything else (shadow maps,
+// the GPU's texture-compression targets, the GamePad screen) keeps the
+// title's size. Passes into upscaled targets scale the viewport and
+// scissor, shaders see the title's pixel coordinates, and textures copied
+// from upscaled targets stay upscaled (shaders scale their texel
+// coordinates and sizes). At 1.5 a title pixel covers one or two image
+// pixels: sizes round up (scaled()), and edges take the image pixels whose
+// centres fall inside them.
 
 #include "gpu/backend.h"
 #include "gpu/vulkan/context.h"
@@ -33,6 +36,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -46,6 +50,17 @@
 struct shaderc_compiler;
 
 namespace cafe::gpu::vk {
+
+// A size in the title's pixels in image pixels at `scale`, rounded up (at
+// 1.5 an odd size gives half a pixel: a texture copied from a target of a
+// dynamic width can have one), and an image's size in the title's pixels,
+// rounded down. Both are exact at the whole scales.
+inline uint32_t scaled(uint32_t n, float scale) {
+    return static_cast<uint32_t>(std::ceil(static_cast<double>(n) * scale));
+}
+inline uint32_t unscaled(uint32_t pixels, float scale) {
+    return static_cast<uint32_t>(std::floor(static_cast<double>(pixels) / scale));
+}
 
 struct Image {
     VkImage image = VK_NULL_HANDLE;
@@ -66,7 +81,7 @@ struct Target {
     uint32_t tile_mode = 0;
     uint32_t base_reg = 0;  // its address register (address >> 8, the bank/pipe swizzle included)
     bool depth = false;
-    uint32_t scale = 1;     // image size over the title's size
+    float scale = 1;        // image size over the title's size
     bool write_back = false; // copied to guest memory after the GPU writes it (see Renderer::retired)
     bool write_back_queued = false;
     Image image;
@@ -92,7 +107,7 @@ struct Texture {
     uint64_t hash = 0;       // of the guest data last loaded
     bool dirty = true;       // the CPU wrote its memory since it was loaded
     const Target* source = nullptr; // render target the contents came from
-    uint32_t scale = 1;     // image size over the resource's size (copied from upscaled targets)
+    float scale = 1;        // image size over the resource's size (copied from upscaled targets)
     // A replacement (gpu/replacements.h) matched the contents: its index,
     // the generation of replacement contents loaded, whether the image is
     // RGBA8 for them.
@@ -169,7 +184,7 @@ private:
     // Copies the top-left width x height (in the title's pixels) of a target
     // into `dst` (an image `dst_scale` times the title's size); filtered
     // when the scales differ.
-    void copy_target_region(const Target& src, const Image& dst, uint32_t dst_scale, uint32_t dst_layer,
+    void copy_target_region(const Target& src, const Image& dst, float dst_scale, uint32_t dst_layer,
                             uint32_t width, uint32_t height);
     bool upscaled_size(uint32_t width, uint32_t height) const;
     // Write-back: on the console the GPU renders into guest memory, and the
@@ -194,7 +209,7 @@ private:
 
     // ----------------------------------------------- textures (textures.cpp)
     Texture* texture(const uint32_t words[7]);
-    void create_texture_image(Texture& t, uint32_t scale);
+    void create_texture_image(Texture& t, float scale);
     void load_texture(Texture& t);
     void mark_textures_dirty(uint32_t address, uint64_t end);
     bool load_texture_from_targets(Texture& t);
@@ -397,7 +412,7 @@ private:
     bool sequence_saving_ = false;
     void save_sequence_image(uint32_t n);
 
-    uint32_t scale_ = 1; // upscaling factor of screen-sized targets
+    float scale_ = 1; // upscaling factor of screen-sized targets: 1, 1.5, 2, 3 or 4
     Context ctx_;
     GuestMemory guest_;
     UploadRing ring_;

@@ -1,17 +1,20 @@
 // The Settings page (see launcher.h), a page of the window beside the main
-// one: the game's keyboard keys, an input a row in the GamePad's groups.
-// Clicking a row's key and pressing a key on the keyboard gives it that key
-// (taken from the input that had it, which gets the old one: they swap), and
-// keyboard.ini is saved at once; the game reads it again while it runs.
-// Keys are positions (USB HID usages, keymap.h), named as the user's layout
-// names them.
+// one. Its display settings (display.ini, which the game reads when it
+// starts) are saved whole as soon as one is changed. Then the game's
+// keyboard keys, an input a row in the GamePad's groups: clicking a row's
+// key and pressing a key on the keyboard gives it that key (taken from the
+// input that had it, which gets the old one: they swap), and keyboard.ini is
+// saved at once; the game reads it again while it runs. Keys are positions
+// (USB HID usages, keymap.h), named as the user's layout names them.
 
 #include "launcher.h"
 
 #include "widgets.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <iterator>
 
 namespace launcher {
 namespace {
@@ -54,13 +57,91 @@ std::optional<guint> active_layout(GdkDevice* keyboard) {
     return layout >= 0 ? std::optional<guint>(static_cast<guint>(layout)) : std::nullopt;
 }
 
+// Why a file is not what is shown: a warning sign and its text (the box's
+// last child), hidden until there is one.
+GtkWidget* file_note() {
+    GtkWidget* note = ui::box(GTK_ORIENTATION_HORIZONTAL, 10, "check-row");
+    GtkWidget* warning = gtk_image_new_from_icon_name("dialog-warning-symbolic");
+    gtk_widget_add_css_class(warning, "warn");
+    gtk_widget_set_valign(warning, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(note), warning);
+    GtkWidget* text = ui::label("");
+    gtk_widget_set_hexpand(text, TRUE);
+    gtk_box_append(GTK_BOX(note), text);
+    gtk_widget_set_visible(note, FALSE);
+    return note;
+}
+
+// A display setting's row: its name and what it does on the left (lines
+// can be added under them, in `texts`), its control on the right, which is
+// read out by them.
+struct SettingRow {
+    GtkWidget* texts;
+    GtkWidget* about;
+};
+
+SettingRow setting_row(GtkWidget* list, const char* name, const char* about, GtkWidget* control, const char* id) {
+    GtkWidget* row = ui::box(GTK_ORIENTATION_HORIZONTAL, 16, "setting-row");
+    SettingRow r{ui::box(GTK_ORIENTATION_VERTICAL, 2), ui::label(about, "dim small")};
+    gtk_widget_set_hexpand(r.texts, TRUE);
+    gtk_widget_set_valign(r.texts, GTK_ALIGN_CENTER);
+    GtkWidget* title = ui::label(name);
+    gtk_box_append(GTK_BOX(r.texts), title);
+    gtk_box_append(GTK_BOX(r.texts), r.about);
+    gtk_box_append(GTK_BOX(row), r.texts);
+    ui::set_id(control, id);
+    gtk_widget_set_valign(control, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(row), control);
+    gtk_accessible_update_relation(GTK_ACCESSIBLE(control), GTK_ACCESSIBLE_RELATION_LABELLED_BY, title, nullptr,
+                                   GTK_ACCESSIBLE_RELATION_DESCRIBED_BY, r.about, nullptr, -1);
+    gtk_box_append(GTK_BOX(list), row);
+    return r;
+}
+
+// A list of names (a GtkStringList) as wide as its widest name, whichever
+// is chosen, so that its left edge stays put in a row: the button shows the
+// chosen name in a stack of them all, while the popup keeps GTK's own items
+// (with their check mark).
+void keep_width(GtkDropDown* list) {
+    if (GtkListItemFactory* own = gtk_drop_down_get_factory(list)) gtk_drop_down_set_list_factory(list, own);
+    GtkListItemFactory* factory = gtk_signal_list_item_factory_new();
+    g_signal_connect(factory, "setup", G_CALLBACK(+[](GtkSignalListItemFactory*, GObject* item, gpointer list) {
+                         GtkStringList* names = GTK_STRING_LIST(gtk_drop_down_get_model(GTK_DROP_DOWN(list)));
+                         GtkWidget* stack = gtk_stack_new();
+                         for (guint i = 0; i < g_list_model_get_n_items(G_LIST_MODEL(names)); ++i) {
+                             const char* name = gtk_string_list_get_string(names, i);
+                             GtkWidget* label = gtk_label_new(name);
+                             gtk_label_set_xalign(GTK_LABEL(label), 0);
+                             gtk_stack_add_named(GTK_STACK(stack), label, name);
+                         }
+                         gtk_list_item_set_child(GTK_LIST_ITEM(item), stack);
+                     }),
+                     list);
+    g_signal_connect(factory, "bind", G_CALLBACK(+[](GtkSignalListItemFactory*, GObject* item, gpointer) {
+                         gpointer chosen = gtk_list_item_get_item(GTK_LIST_ITEM(item));
+                         if (!GTK_IS_STRING_OBJECT(chosen)) return;
+                         gtk_stack_set_visible_child_name(GTK_STACK(gtk_list_item_get_child(GTK_LIST_ITEM(item))),
+                                                          gtk_string_object_get_string(GTK_STRING_OBJECT(chosen)));
+                     }),
+                     nullptr);
+    gtk_drop_down_set_factory(list, factory);
+    g_object_unref(factory);
+}
+
+guint resolution_index(display::Resolution resolution) {
+    const auto& all = display::kResolutions;
+    return static_cast<guint>(std::find(std::begin(all), std::end(all), resolution) - std::begin(all));
+}
+
 } // namespace
 
 // ---------------------------------------------------------------- the page
 
 GtkWidget* Launcher::build_settings() {
     settings_content_ = ui::box(GTK_ORIENTATION_VERTICAL, 12, "launcher-content");
+    build_display();
     GtkWidget* title = ui::label("Keyboard", "section-title");
+    gtk_widget_set_margin_top(title, 14);
     gtk_box_append(GTK_BOX(settings_content_), title);
     gtk_box_append(GTK_BOX(settings_content_),
                    ui::label("Keys by position on the keyboard; the game uses them as the Wii U GamePad's buttons. "
@@ -71,15 +152,7 @@ GtkWidget* Launcher::build_settings() {
     keys_error_ = ui::label("", "error-text");
     gtk_widget_set_visible(keys_error_, FALSE);
     gtk_box_append(GTK_BOX(card), keys_error_);
-    keys_note_ = ui::box(GTK_ORIENTATION_HORIZONTAL, 10, "check-row");
-    GtkWidget* warning = gtk_image_new_from_icon_name("dialog-warning-symbolic");
-    gtk_widget_add_css_class(warning, "warn");
-    gtk_widget_set_valign(warning, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(keys_note_), warning);
-    GtkWidget* note = ui::label("");
-    gtk_widget_set_hexpand(note, TRUE);
-    gtk_box_append(GTK_BOX(keys_note_), note);
-    gtk_widget_set_visible(keys_note_, FALSE);
+    keys_note_ = file_note();
     gtk_box_append(GTK_BOX(card), keys_note_);
 
     GtkWidget* groups = ui::columns_new(18);
@@ -175,6 +248,8 @@ bool Launcher::in_settings() const {
 
 void Launcher::open_settings() {
     if (install_.state != InstallState::kInstalled || in_settings()) return;
+    load_display();
+    show_display_facts();
     // (Read each time: it may have been changed by hand meanwhile.)
     Keymap::Notes notes;
     keymap_ = Keymap::load(places_.keyboard(), &notes);
@@ -209,7 +284,7 @@ void Launcher::open_settings() {
     gtk_label_set_text(GTK_LABEL(title_), "Settings");
     gtk_widget_set_visible(back_button_, TRUE);
     gtk_widget_set_visible(refresh_button_, FALSE);
-    gtk_widget_grab_focus(key_rows_[0].button);
+    gtk_widget_grab_focus(fullscreen_switch_);
 }
 
 void Launcher::close_settings() {
@@ -220,6 +295,158 @@ void Launcher::close_settings() {
     gtk_widget_set_visible(back_button_, FALSE);
     gtk_widget_set_visible(refresh_button_, TRUE);
     if (GtkWidget* gear = ui::find_id(game_card_, "settings")) gtk_widget_grab_focus(gear);
+}
+
+// ---------------------------------------------------------------- display
+
+void Launcher::build_display() {
+    gtk_box_append(GTK_BOX(settings_content_), ui::label("Display", "section-title"));
+    gtk_box_append(GTK_BOX(settings_content_), ui::label("The game uses these when it starts.", "dim small"));
+    GtkWidget* card = ui::box(GTK_ORIENTATION_VERTICAL, 18, "card");
+    gtk_widget_set_margin_top(card, 4);
+    display_error_ = ui::label("", "error-text");
+    gtk_widget_set_visible(display_error_, FALSE);
+    gtk_box_append(GTK_BOX(card), display_error_);
+    display_note_ = file_note();
+    gtk_box_append(GTK_BOX(card), display_note_);
+    GtkWidget* list = ui::box(GTK_ORIENTATION_VERTICAL, 0, "setting-list");
+
+    fullscreen_switch_ = gtk_switch_new();
+    setting_row(list, "Fullscreen", "Start the game fullscreen. F11 switches it in the game.", fullscreen_switch_,
+                "fullscreen");
+
+    std::vector<std::string> labels;
+    for (const display::Resolution r : display::kResolutions) labels.push_back(resolution_label(r));
+    std::vector<const char*> strings;
+    for (const std::string& l : labels) strings.push_back(l.c_str());
+    strings.push_back(nullptr);
+    resolution_list_ = gtk_drop_down_new_from_strings(strings.data());
+    keep_width(GTK_DROP_DOWN(resolution_list_));
+    const SettingRow resolution =
+        setting_row(list, "Resolution",
+                    "The size the game draws at; the picture is scaled to the window or the screen.",
+                    resolution_list_, "resolution");
+    automatic_note_ = ui::label("", "dim small");
+    gtk_box_append(GTK_BOX(resolution.texts), automatic_note_);
+    gtk_accessible_update_relation(GTK_ACCESSIBLE(resolution_list_), GTK_ACCESSIBLE_RELATION_DESCRIBED_BY,
+                                   resolution.about, automatic_note_, nullptr, -1);
+
+    interpolation_switch_ = gtk_switch_new();
+    const SettingRow fps =
+        setting_row(list, "120 fps",
+                    "A frame between each two of the game's 60 every second: smoother motion on displays of "
+                    "100 Hz and more.",
+                    interpolation_switch_, "interpolation");
+    refresh_note_ = ui::label("", "dim small");
+    gtk_widget_set_visible(refresh_note_, FALSE);
+    gtk_box_append(GTK_BOX(fps.texts), refresh_note_);
+
+    const auto changed = +[](GObject*, GParamSpec*, gpointer data) { static_cast<Launcher*>(data)->display_changed(); };
+    g_signal_connect(fullscreen_switch_, "notify::active", G_CALLBACK(changed), this);
+    g_signal_connect(resolution_list_, "notify::selected", G_CALLBACK(changed), this);
+    g_signal_connect(interpolation_switch_, "notify::active", G_CALLBACK(changed), this);
+    gtk_box_append(GTK_BOX(card), list);
+    gtk_box_append(GTK_BOX(settings_content_), card);
+    show_display();
+    show_display_facts();
+    // Said again when a monitor comes or goes (while the window is there:
+    // the handler goes with it), besides each time Settings opens.
+    GClosure* facts = g_cclosure_new(G_CALLBACK(+[](GListModel*, guint, guint, guint, gpointer data) {
+                                         static_cast<Launcher*>(data)->show_display_facts();
+                                     }),
+                                     this, nullptr);
+    g_object_watch_closure(G_OBJECT(window_), facts);
+    g_signal_connect_closure(gdk_display_get_monitors(gtk_widget_get_display(window_)), "items-changed", facts,
+                             FALSE);
+}
+
+void Launcher::load_display() {
+    const fs::path file = places_.display();
+    const display::Loaded loaded = display::load(file);
+    // (The log's last line sums up what is used; the lines before it are the
+    // lines left out.)
+    for (size_t i = 0; i + 1 < loaded.log.size(); ++i) {
+        std::fprintf(stderr, "ttt2-launcher: %s\n", loaded.log[i].c_str());
+    }
+    if (!loaded.error.empty()) std::fprintf(stderr, "ttt2-launcher: display: %s\n", loaded.error.c_str());
+    display_ = loaded.settings;
+    std::string why;
+    if (!loaded.error.empty()) {
+        why = "display.ini cannot be read (" + unreadable_reason(loaded.error, file) +
+              "): the game uses its defaults. Changing a setting here writes it anew.";
+    }
+    ui::set_text(gtk_widget_get_last_child(display_note_), why);
+    gtk_widget_set_visible(display_note_, !why.empty());
+    gtk_widget_set_visible(display_error_, FALSE);
+    show_display();
+}
+
+void Launcher::show_display() {
+    showing_display_ = true;
+    gtk_switch_set_active(GTK_SWITCH(fullscreen_switch_), display_.fullscreen);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(resolution_list_), resolution_index(display_.resolution));
+    gtk_switch_set_active(GTK_SWITCH(interpolation_switch_), display_.interpolation);
+    showing_display_ = false;
+}
+
+void Launcher::show_display_facts() {
+    // Every monitor's height in pixels (in the desktop's units times its
+    // scale) and refresh rate. GTK 4.14 on gives the scale as a fraction (the
+    // property is looked up, so that an older GTK still starts); before, only
+    // the whole factor is there, which fractional scaling rounds up (2 at
+    // 125 %), so only 1 is sure and any other leaves the height unknown.
+    std::vector<Monitor> facts;
+    GListModel* monitors = gdk_display_get_monitors(gtk_widget_get_display(window_));
+    for (guint i = 0; i < g_list_model_get_n_items(monitors); ++i) {
+        GdkMonitor* monitor = GDK_MONITOR(g_list_model_get_item(monitors, i));
+        GdkRectangle geometry{};
+        gdk_monitor_get_geometry(monitor, &geometry);
+        double scale = 0;
+        if (g_object_class_find_property(G_OBJECT_GET_CLASS(monitor), "scale")) {
+            g_object_get(monitor, "scale", &scale, nullptr);
+        } else if (gdk_monitor_get_scale_factor(monitor) == 1) {
+            scale = 1;
+        }
+        facts.push_back({static_cast<uint32_t>(std::max(0L, std::lround(geometry.height * scale))),
+                         gdk_monitor_get_refresh_rate(monitor)});
+        g_object_unref(monitor);
+    }
+    ui::set_text(automatic_note_, automatic_note(facts));
+    const std::string note = refresh_note(facts);
+    ui::set_text(refresh_note_, note);
+    gtk_widget_set_visible(refresh_note_, !note.empty());
+    GtkWidget* about = gtk_widget_get_prev_sibling(refresh_note_);
+    if (!note.empty()) {
+        gtk_accessible_update_relation(GTK_ACCESSIBLE(interpolation_switch_), GTK_ACCESSIBLE_RELATION_DESCRIBED_BY,
+                                       about, refresh_note_, nullptr, -1);
+    } else {
+        gtk_accessible_update_relation(GTK_ACCESSIBLE(interpolation_switch_), GTK_ACCESSIBLE_RELATION_DESCRIBED_BY,
+                                       about, nullptr, -1);
+    }
+}
+
+void Launcher::display_changed() {
+    display::Settings settings;
+    settings.fullscreen = gtk_switch_get_active(GTK_SWITCH(fullscreen_switch_));
+    const guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(resolution_list_));
+    if (selected < std::size(display::kResolutions)) settings.resolution = display::kResolutions[selected];
+    settings.interpolation = gtk_switch_get_active(GTK_SWITCH(interpolation_switch_));
+    // Nothing to save while the controls are set from display_, nor when
+    // they show it: a control put back from inside its own handler (below)
+    // notifies again once the handler returns (notify does not recurse), when
+    // showing_display_ is clear again.
+    if (showing_display_ || settings == display_) return;
+    std::string error;
+    if (save_display(places_.display(), settings, &error)) {
+        display_ = settings;
+        gtk_widget_set_visible(display_error_, FALSE);
+        gtk_widget_set_visible(display_note_, FALSE); // (the file is what is shown now)
+        return;
+    }
+    // (What is shown is what the game reads.)
+    ui::set_text(display_error_, "The display settings cannot be saved: " + error);
+    gtk_widget_set_visible(display_error_, TRUE);
+    show_display();
 }
 
 // ---------------------------------------------------------------- keys

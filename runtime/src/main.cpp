@@ -38,7 +38,11 @@ void usage(const char* argv0) {
                  "  FOLDER (chosen in a dialog when not given) and adds it to the\n"
                  "  application menu; --update copies this executable into the\n"
                  "  install after a rebuild. Saves go to $TTT2_SAVE_DIR, default\n"
-                 "  ~/.local/share/ttt2/save.\n",
+                 "  ~/.local/share/ttt2/save. Fullscreen, the resolution and 120 fps\n"
+                 "  come from $XDG_CONFIG_HOME/ttt2/display.ini (default\n"
+                 "  ~/.config/ttt2/display.ini; the launcher's Settings write it),\n"
+                 "  read when the game starts. TTT2_FULLSCREEN, TTT2_SCALE and\n"
+                 "  TTT2_FPS win over it.\n",
                  argv0, argv0, argv0);
 }
 

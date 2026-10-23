@@ -41,6 +41,8 @@ struct Places {
     fs::path desktop_entry() const { return data / "applications" / "ttt2.desktop"; }
     // The game's keyboard keys (keymap.h): a setting, kept by an uninstall.
     fs::path keyboard() const { return config / "ttt2" / "keyboard.ini"; }
+    // The game's display settings (display.h): a setting, kept by an uninstall.
+    fs::path display() const { return config / "ttt2" / "display.ini"; }
     fs::path shader_cache() const { return cache / "ttt2"; }
     fs::path build_work() const { return cache / "ttt2" / "build"; } // ttt2-build's default --work
     // Steam's last answer to which DLC the account owns (launcher.py owned),

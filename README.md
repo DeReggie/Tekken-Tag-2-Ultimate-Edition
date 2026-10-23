@@ -31,10 +31,11 @@ and shaders are translated to Vulkan as it runs.
   frame with the camera, objects and character skeletons blended halfway.
   The game's logic, physics and hitboxes stay at 60 Hz. When other programs
   keep the GPU busy, frames go out without their extra frame rather than
-  slowing the game down.
+  slowing the game down. The launcher's Settings can turn it off.
 - **Higher resolutions**: up to 4x the original 720p; by default the
-  smallest scale that covers your display (2x, 2560x1440, on 1080p and
-  1440p displays; 3x on 4K).
+  smallest scale that covers your main display (2x, 2560x1440, on 1080p and
+  1440p displays; 3x on 4K), or the one chosen in the launcher's Settings
+  (1280x720, 1920x1080, 2560x1440, 3840x2160 or 5120x2880).
 - **Even frame pacing** on 120 Hz and 240 Hz displays (with
   `VK_KHR_present_wait2`): the game's clock follows the display's
   refreshes, so every image stays on screen equally long.
@@ -138,8 +139,9 @@ does; then **Play**, **Update** (when the launcher's version differs from
 the program's) and **Uninstall…** (saves and added characters are kept unless you
 tick them; of a save folder you chose with `TTT2_SAVE_DIR`, only the game's
 own saves go). While the game runs, however it was started, Play, Update and
-Uninstall wait for it to end. The gear next to Play opens its **Settings**,
-where the game's keyboard keys can be changed ([Playing](#playing)). Its
+Uninstall wait for it to end. The gear next to Play opens its **Settings**:
+whether the game starts fullscreen, the resolution it draws at, its 120
+frames per second, and its keyboard keys ([Playing](#playing)). Its
 Characters section shows where Steam has Tekken 7, or why it cannot be used, with **Add** per fighter and **Add All**, and Tekken 7's DLC
 fighters in a list that opens, with those your Steam account owns and **Add
 All Owned**; **Remove** takes one out again.
@@ -201,7 +203,8 @@ build/ttt2 --update      # after a rebuild: copies the new program into the inst
 ```
 
 Saves go to `~/.local/share/ttt2/save` and compiled shaders to
-`~/.cache/ttt2`. F11 toggles fullscreen.
+`~/.cache/ttt2`. F11 toggles fullscreen while the game runs (whether it
+starts fullscreen is a setting, below).
 
 | Wii U GamePad | Keyboard |
 | --- | --- |
@@ -228,11 +231,30 @@ keyboard) confirms and the right one goes back, except with a Nintendo
 controller, which confirms with its A as on the Wii U. The icons follow the
 last controller used (the keyboard counts as a neutral one).
 
+The launcher's **Settings** also choose how the game starts: fullscreen or
+in a window, the resolution it draws at (Automatic, the default, is enough
+to cover your main display) and whether it shows 120 frames per second on
+displays of 100 Hz and more (on by default). They are kept in
+`~/.config/ttt2/display.ini` (`$XDG_CONFIG_HOME/ttt2/`), which can be
+edited by hand too:
+
+```ini
+fullscreen = no             # yes or no
+resolution = auto           # auto, 1280x720, 1920x1080, 2560x1440, 3840x2160 or 5120x2880
+interpolation = yes         # yes or no (no: 60 frames per second)
+```
+
+The game reads it when it starts, so a change applies the next time. The
+window opens at the chosen resolution when that fits on the desktop,
+otherwise smaller (the picture is scaled to the window or the screen).
+Uninstalling keeps it, as it keeps `keyboard.ini`. The environment
+variables below win over it.
+
 | Environment variable | Effect |
 | --- | --- |
-| `TTT2_SCALE=1..4` | render scale (default from the display) |
-| `TTT2_FPS=60/120/180/240` | frames shown per second (default 120 on displays of 100 Hz and more) |
-| `TTT2_FULLSCREEN=1` | start fullscreen |
+| `TTT2_SCALE=1/1.5/2/3/4` | render scale: 1280x720 times this (default from `display.ini`, else from the display) |
+| `TTT2_FPS=60/120/180/240` | frames shown per second (default 120 on displays of 100 Hz and more, unless `display.ini` turns it off) |
+| `TTT2_FULLSCREEN=1` | start fullscreen (another value: in a window) |
 | `TTT2_AUDIO=0` | no sound |
 | `TTT2_AUDIO_VOLUME=0..100` | volume in percent (default 100) |
 | `TTT2_SAVE_DIR=<folder>` | where saves go |

@@ -161,7 +161,7 @@ Texture* Renderer::texture(const uint32_t words[7]) {
 }
 
 // (Re)creates a texture's image and view, `scale` times the resource's size.
-void Renderer::create_texture_image(Texture& t, uint32_t scale) {
+void Renderer::create_texture_image(Texture& t, float scale) {
     if (t.image.image != VK_NULL_HANDLE) {
         submit(true); // recorded work may still use the old image
         vkDestroyImageView(ctx_.device, t.view, nullptr);
@@ -171,8 +171,8 @@ void Renderer::create_texture_image(Texture& t, uint32_t scale) {
     const FormatInfo f = color_format(t.rgba ? fmt::k8_8_8_8 : r.format);
     t.scale = scale;
     const uint32_t layers = r.depth;
-    t.image = create_image(f.format, VK_IMAGE_ASPECT_COLOR_BIT, r.width * scale, r.height * scale, layers,
-                           r.last_level + 1,
+    t.image = create_image(f.format, VK_IMAGE_ASPECT_COLOR_BIT, scaled(r.width, scale), scaled(r.height, scale),
+                           layers, r.last_level + 1,
                            VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                            view_type_of(r.dim));
     VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
@@ -199,8 +199,8 @@ void Renderer::copy_depth_to_texture(const Target& src, Texture& t, uint32_t wid
     note_target_read(&src);
     const uint32_t bytes = src.image.format == VK_FORMAT_D16_UNORM ? 2 : 4;
     if (t.scale != src.scale) create_texture_image(t, src.scale);
-    width = std::min({width * src.scale, src.image.width, t.image.width});
-    height = std::min({height * src.scale, src.image.height, t.image.height});
+    width = std::min({scaled(width, src.scale), src.image.width, t.image.width});
+    height = std::min({scaled(height, src.scale), src.image.height, t.image.height});
     // Through a buffer in video memory: depth and colour images do not
     // copy directly. (The barriers order reuse across submissions.)
     const VkDeviceSize size = VkDeviceSize{width} * height * bytes;
@@ -226,11 +226,11 @@ void Renderer::copy_depth_to_texture(const Target& src, Texture& t, uint32_t wid
     profile_mark("depth to texture", src.address, width, height);
 }
 
-static void report_target_texture_once(uint32_t format, uint32_t scale) {
+static void report_target_texture_once(uint32_t format, float scale) {
     static bool reported = false;
     if (!reported) {
-        std::fprintf(stderr, "ttt2: gpu: compressed texture (fmt 0x%03X) over an upscaled render target (x%u)\n", format,
-                     scale);
+        std::fprintf(stderr, "ttt2: gpu: compressed texture (fmt 0x%03X) over an upscaled render target (x%g)\n", format,
+                     static_cast<double>(scale));
     }
     reported = true;
 }
@@ -275,7 +275,7 @@ bool Renderer::load_texture_from_targets(Texture& t) {
     if (t.source == sources[0] && t.loaded >= newest && t.scale == sources[0]->scale) return true;
     // An upscaled target gives an upscaled texture; levels of another scale
     // than level 0 are left out.
-    const uint32_t scale = sources[0]->scale;
+    const float scale = sources[0]->scale;
     if (scale != 1 && f.compressed) {
         report_target_texture_once(r.format, scale);
         return false;
@@ -287,7 +287,12 @@ bool Renderer::load_texture_from_targets(Texture& t) {
     for (uint32_t level = 0; level < levels; ++level) {
         const Target* src = sources[level];
         if (src == nullptr || src->scale != scale) continue;
-        const uint32_t width = std::max(1u, r.width >> level) * scale, height = std::max(1u, r.height >> level) * scale;
+        // The level's size, within the destination's level: at 1.5 an odd
+        // size rounds up, and the image's levels halve its rounded size.
+        const uint32_t width =
+            std::min(scaled(std::max(1u, r.width >> level), scale), std::max(1u, t.image.width >> level));
+        const uint32_t height =
+            std::min(scaled(std::max(1u, r.height >> level), scale), std::max(1u, t.image.height >> level));
         // In source texels, which are the destination's blocks.
         VkImageCopy region{};
         region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
@@ -298,7 +303,7 @@ bool Renderer::load_texture_from_targets(Texture& t) {
                        &region);
     }
     barrier();
-    profile_mark("texture from target", sources[0]->address, r.width * scale, r.height * scale);
+    profile_mark("texture from target", sources[0]->address, scaled(r.width, scale), scaled(r.height, scale));
     t.source = sources[0];
     t.loaded = stamp();
     t.dirty = false;
