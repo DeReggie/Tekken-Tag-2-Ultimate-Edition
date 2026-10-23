@@ -13,7 +13,7 @@
 // While a frame renders, every draw records a key (its shaders, targets,
 // vertex count and first texture) and a copy of the constant data it
 // reads. A replay matches each draw to the previous frame's draw with the
-// same key and the most similar data (begin_replay), and blends word by
+// same key and the nearest data (begin_replay), and blends word by
 // word: values that look like ordinary floats in both frames move
 // linearly, anything else (integers, flags, NaNs) takes this frame's
 // value, and so do small values on a coarse grid in both frames (whole
@@ -125,40 +125,56 @@ static const Renderer::SlotRecord* counterpart(const Renderer::FrameRecord& b_fr
     return nullptr;
 }
 
-// How much a draw's constants changed between two frames: words that
-// differ, and words that changed a lot (more than a quarter of their
-// magnitude), out of the words compared (the first 256 bytes of each block,
-// enough to tell).
+// How much a draw's constants changed between two frames, over the first
+// 256 bytes of each block (enough to tell): words that differ, words that
+// changed a lot (more than a quarter of their magnitude), differing words
+// that are not ordinary floats (integers, flags), and how far the floats
+// moved in all (the sum of their changes).
 Renderer::Difference Renderer::difference(const FrameRecord& a_frame, const DrawRecord& a, const FrameRecord& b_frame,
-                                          const DrawRecord& b) const {
-    Difference d{0, 0, 0};
+                                          const DrawRecord& b) {
+    Difference d{};
     if (a.hash == b.hash) return d;
     for (uint32_t i = 0; i < a.slot_count; ++i) {
         const SlotRecord& sa = a_frame.slots[a.first_slot + i];
         const SlotRecord* sb = counterpart(b_frame, b, sa, i);
         if (sb == nullptr) continue;
-        const uint32_t words = std::min(sa.size, 256u) / 4;
-        d.compared += words;
-        if (sa.hash == sb->hash) continue;
-        const uint8_t* pa = a_frame.data.mapped + sa.offset;
-        const uint8_t* pb = b_frame.data.mapped + sb->offset;
-        for (uint32_t w = 0; w < words; ++w) {
-            uint32_t x, y;
-            std::memcpy(&x, pa + w * 4, 4);
-            std::memcpy(&y, pb + w * 4, 4);
-            if (x == y) continue;
-            ++d.changed;
-            if (sa.big_endian) {
-                x = __builtin_bswap32(x);
-                y = __builtin_bswap32(y);
-            }
-            float fx, fy;
-            std::memcpy(&fx, &x, 4);
-            std::memcpy(&fy, &y, 4);
-            if (!ordinary(x) || !ordinary(y) || std::fabs(fx - fy) > 0.25f * (std::fabs(fx) + std::fabs(fy)) + 1e-3f) {
-                ++d.large;
+        // Most draws share some blocks (the camera's): each pair of blocks
+        // is compared once a frame.
+        auto [it, fresh] = block_differences_.try_emplace((uint64_t{sb->offset} << 32) | sa.offset);
+        Difference& s = it->second;
+        if (fresh) {
+            const uint32_t words = std::min(sa.size, 256u) / 4;
+            s.compared = words;
+            const uint8_t* pa = a_frame.data.mapped + sa.offset;
+            const uint8_t* pb = b_frame.data.mapped + sb->offset;
+            for (uint32_t w = 0; w < words && sa.hash != sb->hash; ++w) {
+                uint32_t x, y;
+                std::memcpy(&x, pa + w * 4, 4);
+                std::memcpy(&y, pb + w * 4, 4);
+                if (x == y) continue;
+                ++s.changed;
+                if (sa.big_endian) {
+                    x = __builtin_bswap32(x);
+                    y = __builtin_bswap32(y);
+                }
+                if (!ordinary(x) || !ordinary(y)) {
+                    ++s.odd;
+                    ++s.large;
+                    continue;
+                }
+                float fx, fy;
+                std::memcpy(&fx, &x, 4);
+                std::memcpy(&fy, &y, 4);
+                const float change = std::fabs(fx - fy);
+                s.distance += change;
+                if (change > 0.25f * (std::fabs(fx) + std::fabs(fy)) + 1e-3f) ++s.large;
             }
         }
+        d.changed += s.changed;
+        d.large += s.large;
+        d.compared += s.compared;
+        d.odd += s.odd;
+        d.distance += s.distance;
     }
     return d;
 }
@@ -296,7 +312,8 @@ void Renderer::replace_constants(uint32_t draw_index, abi::DrawConstants& dc) {
     const FrameRecord& prev = frame_records_[current_record_ ^ 1];
     if (draw_index >= cur.draws.size()) return;
     const DrawRecord& d = cur.draws[draw_index];
-    const int32_t m = replay_blend_ && d.blend && draw_index < match_.size() ? match_[draw_index] : -1;
+    const bool blends = replay_blend_ && d.blend;
+    const int32_t m = blends && draw_index < match_.size() ? match_[draw_index] : -1;
     for (uint32_t i = 0; i < d.slot_count; ++i) {
         const SlotRecord& s = cur.slots[d.first_slot + i];
         const uint8_t* current = cur.data.mapped + s.offset;
@@ -304,6 +321,13 @@ void Renderer::replace_constants(uint32_t draw_index, abi::DrawConstants& dc) {
         if (m >= 0) {
             const SlotRecord* ps = counterpart(prev, prev.draws[m], s, i);
             if (ps != nullptr && ps->hash != s.hash) previous = prev.data.mapped + ps->offset;
+        } else if (blends) {
+            // A draw without a counterpart (new in this frame) stays where
+            // this frame has it, but seen as the rest is: blocks it shares
+            // with draws that pair (the camera's) blend as theirs do.
+            if (const auto it = shared_blocks_.find(s.offset); it != shared_blocks_.end()) {
+                previous = prev.data.mapped + it->second;
+            }
         }
         abi::Buffer* table = constant_table(dc, s.stage, s.kind);
         if (previous == nullptr) {
@@ -402,39 +426,45 @@ void Renderer::begin_replay(uint32_t n) {
     const FrameRecord& cur = frame_records_[current_record_];
     const FrameRecord& prev = frame_records_[current_record_ ^ 1];
     match_.assign(cur.draws.size(), -1);
-    // Draws pair among those with the same key. Many share one (menu and
-    // HUD sprites: the same shaders and texture, a quad each), and they come
-    // and go (a blinking cursor), so pairing them in order would pair
-    // neighbours and draw each halfway to the next. Draws whose constants did
-    // not change pair first, then each other draw with the most similar
-    // unpaired draw near its place among those with its key. A pair whose
-    // constants mostly changed a lot is not the same thing (or a cut) and is
-    // shown as it is.
+    block_differences_.clear();
+    shared_blocks_.clear();
+    // Draws pair among those with the same key (only those that blend: the
+    // 3D scene). Many share one (the patches of the tulip field, scenery
+    // drawn many times over; sprites), and they come and go as the camera
+    // turns, so pairing them in order would pair neighbours and draw each
+    // halfway to the next. Draws whose constants did not change pair first.
+    // The others pair by how far their constants moved, near their place
+    // among those with their key, and only with each other's nearest: a draw
+    // new in this frame has no counterpart, and pairing it with the nearest
+    // other one drew it halfway between the two, and each draw down the line
+    // then took its neighbour's counterpart (flickering tulips on the
+    // Netherlands stage while the camera swung round). A pair whose constants
+    // mostly changed a lot is not the same thing (or a cut) and is shown as
+    // it is.
     struct Group {
-        std::vector<uint32_t> prev;     // previous frame's draws with this key, in order
-        std::vector<uint8_t> paired;    // per entry of prev
-        uint32_t current = 0;           // this frame's draws with this key so far
+        std::vector<uint32_t> prev;  // previous frame's draws with this key, in order
+        std::vector<uint8_t> paired; // per entry of prev
+        std::vector<uint32_t> cur;   // this frame's
     };
     std::unordered_map<uint64_t, Group> groups;
     std::unordered_map<uint64_t, std::deque<uint32_t>> unchanged; // (key ^ constants) -> place in its group
     for (uint32_t j = 0; j < prev.draws.size(); ++j) {
+        if (!prev.draws[j].blend) continue;
         Group& g = groups[prev.draws[j].key];
         unchanged[prev.draws[j].key ^ (prev.draws[j].hash * 0x9E3779B97F4A7C15ull)].push_back(
             static_cast<uint32_t>(g.prev.size()));
         g.prev.push_back(j);
         g.paired.push_back(0);
     }
-    std::vector<uint32_t> place(cur.draws.size(), 0); // among this frame's draws with its key
-    std::vector<Group*> group_of(cur.draws.size(), nullptr);
     // Counted over the draws that blend (the 3D scene): flat ones never do.
     uint32_t scene = 0, matched = 0, rejected = 0;
-    for (const DrawRecord& d : cur.draws) scene += d.blend;
     for (uint32_t i = 0; i < cur.draws.size(); ++i) {
+        if (!cur.draws[i].blend) continue;
+        ++scene;
         const auto it = groups.find(cur.draws[i].key);
         if (it == groups.end()) continue;
         Group& g = it->second;
-        group_of[i] = &g;
-        place[i] = g.current++;
+        g.cur.push_back(i);
         const auto same = unchanged.find(cur.draws[i].key ^ (cur.draws[i].hash * 0x9E3779B97F4A7C15ull));
         if (same == unchanged.end()) continue;
         while (!same->second.empty() && g.paired[same->second.front()]) same->second.pop_front();
@@ -443,37 +473,67 @@ void Renderer::begin_replay(uint32_t n) {
         same->second.pop_front();
         g.paired[k] = 1;
         match_[i] = static_cast<int32_t>(g.prev[k]);
-        matched += cur.draws[i].blend;
+        ++matched;
     }
     constexpr uint32_t kWindow = 16; // places searched either side
-    for (uint32_t i = 0; i < cur.draws.size(); ++i) {
-        Group* g = group_of[i];
-        if (g == nullptr || match_[i] >= 0 || !cur.draws[i].blend) continue;
-        const uint32_t from = place[i] > kWindow ? place[i] - kWindow : 0;
-        const uint32_t to = std::min<uint32_t>(static_cast<uint32_t>(g->prev.size()), place[i] + kWindow + 1);
-        int32_t best = -1;
-        uint64_t best_cost = UINT64_MAX;
-        Difference best_d{};
-        for (uint32_t k = from; k < to; ++k) {
-            if (g->paired[k]) continue;
-            const Difference d = difference(cur, cur.draws[i], prev, prev.draws[g->prev[k]]);
-            // Fewest large changes, then fewest changes, then nearest.
-            const uint32_t distance = k > place[i] ? k - place[i] : place[i] - k;
-            const uint64_t cost = (uint64_t{d.large} << 40) | (uint64_t{d.changed} << 20) | distance;
-            if (cost < best_cost) {
-                best_cost = cost;
-                best = static_cast<int32_t>(k);
-                best_d = d;
+    struct Candidate {
+        Difference d;
+        uint32_t c, k, distance; // places in the group: this frame's draw, the previous frame's, apart
+    };
+    std::vector<Candidate> candidates;
+    std::vector<Difference> nearest_cur, nearest_prev;
+    std::vector<uint8_t> has_candidate, prev_has, done;
+    for (auto& [key, g] : groups) {
+        candidates.clear();
+        nearest_cur.assign(g.cur.size(), Difference{});
+        nearest_prev.assign(g.prev.size(), Difference{});
+        has_candidate.assign(g.cur.size(), 0);
+        prev_has.assign(g.prev.size(), 0);
+        for (uint32_t c = 0; c < g.cur.size(); ++c) {
+            const uint32_t i = g.cur[c];
+            if (match_[i] >= 0) continue;
+            const uint32_t from = c > kWindow ? c - kWindow : 0;
+            const uint32_t to = std::min<uint32_t>(static_cast<uint32_t>(g.prev.size()), c + kWindow + 1);
+            for (uint32_t k = from; k < to; ++k) {
+                if (g.paired[k]) continue;
+                const Difference d = difference(cur, cur.draws[i], prev, prev.draws[g.prev[k]]);
+                if (!has_candidate[c] || d < nearest_cur[c]) nearest_cur[c] = d;
+                if (!prev_has[k] || d < nearest_prev[k]) nearest_prev[k] = d;
+                has_candidate[c] = prev_has[k] = 1;
+                candidates.push_back({d, c, k, k > c ? k - c : c - k});
             }
         }
-        if (best < 0) continue;
-        ++matched;
-        if (best_d.large * 10 > best_d.compared) {
-            ++rejected;
-            continue;
+        if (candidates.empty()) continue;
+        for (const uint8_t h : has_candidate) matched += h;
+        // Nearest pairs first; among equals (a thing drawn twice), in order.
+        std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
+            if (a.d < b.d || b.d < a.d) return a.d < b.d;
+            return a.distance != b.distance ? a.distance < b.distance : a.c < b.c;
+        });
+        done.assign(g.cur.size(), 0);
+        for (const Candidate& p : candidates) {
+            if (done[p.c] || g.paired[p.k]) continue;
+            if (nearest_cur[p.c] < p.d || nearest_prev[p.k] < p.d) continue; // not each other's nearest
+            done[p.c] = 1;
+            if (p.d.large * 10 > p.d.compared) {
+                ++rejected;
+                continue;
+            }
+            g.paired[p.k] = 1;
+            match_[g.cur[p.c]] = static_cast<int32_t>(g.prev[p.k]);
         }
-        g->paired[best] = 1;
-        match_[i] = static_cast<int32_t>(g->prev[best]);
+    }
+    // The blocks the paired draws blend, for draws without a counterpart
+    // that share them.
+    for (uint32_t i = 0; i < cur.draws.size(); ++i) {
+        if (match_[i] < 0) continue;
+        const DrawRecord& d = cur.draws[i];
+        const DrawRecord& p = prev.draws[match_[i]];
+        for (uint32_t s = 0; s < d.slot_count; ++s) {
+            const SlotRecord& cs = cur.slots[d.first_slot + s];
+            const SlotRecord* ps = counterpart(prev, p, cs, s);
+            if (ps != nullptr && ps->hash != cs.hash) shared_blocks_.try_emplace(cs.offset, ps->offset);
+        }
     }
     static const bool test = std::getenv("TTT2_INTERP_TEST") != nullptr; // replay without blending
     replay_blend_ = !test && !cur.overflow && !prev.overflow && scene > 0 && matched * 10 >= scene * 8 &&

@@ -296,10 +296,19 @@ attachment formats and blend state.
   screen in extra frames (black frames with only the HUD and hit sparks,
   the sky half black). Draws match by key (shaders,
   targets, vertex count and first texture): first those whose data did not
-  change, then each with the most similar draw near its place among those
-  with its key, so sprites sharing a key keep their partners when others
-  come and go (a blinking cursor once paired every later menu sprite with
-  its neighbour). Only depth-tested (3D) draws blend: menus and the HUD
+  change, then by how far their floats moved in all (integers and flags
+  that changed count first), near their place among those with their key,
+  and only draws that are each other's nearest pair, nearest pairs first.
+  Things sharing a key come and go: a blinking cursor once paired every
+  later menu sprite with its neighbour, and the Netherlands stage's tulip
+  field (patches of one mesh, a world matrix each) gains and loses patches
+  as the camera swings round; a new patch paired with the most similar
+  other one was drawn halfway between the two, and each patch down the line
+  then took its neighbour's partner (counting changes "large" by a quarter
+  of their size could not tell a patch 3750 units away from a sway value
+  crossing zero). A draw left without a partner is drawn where its frame
+  has it, its blocks shared with paired draws (the camera's) blended as
+  theirs are. Only depth-tested (3D) draws blend: menus and the HUD
   place parts of a widget with vertex data the CPU writes each frame, which
   a replay cannot blend, so they are shown as the frame has them
   (`TTT2_INTERP_2D=1` blends them too). Draws whose data mostly jumps (a

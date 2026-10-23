@@ -277,12 +277,17 @@ public: // record types, shared with interpolate.cpp's helpers
         void clear();
     };
     struct Difference {
-        uint32_t changed, large, compared;
+        uint32_t changed = 0, large = 0, compared = 0, odd = 0;
+        double distance = 0;
+        // Nearer: fewer words that are not floats changed, then the floats
+        // moved less.
+        bool operator<(const Difference& o) const { return odd != o.odd ? odd < o.odd : distance < o.distance; }
     };
 
 private:
     Difference difference(const FrameRecord& a_frame, const DrawRecord& a, const FrameRecord& b_frame,
-                          const DrawRecord& b) const;
+                          const DrawRecord& b);
+    std::unordered_map<uint64_t, Difference> block_differences_; // (previous, current offset) -> difference
     void init_interpolation();
     uint32_t begin_draw_record(const Registers& regs, const Draw& d);
     static constexpr uint32_t kMaxSnapshot = 256u << 10;
@@ -304,6 +309,7 @@ private:
         uint32_t chunk;          // its ring chunk, marked used by each command buffer reading it
     };
     std::unordered_map<uint64_t, Blend> blended_; // (previous, current offset) -> blend
+    std::unordered_map<uint32_t, uint32_t> shared_blocks_; // current offset -> previous, of the draws that pair
     void forget_snapshots(uint32_t address, uint32_t size);
     void note_target_written(const Target* t);
     void note_target_read(const Target* t);
