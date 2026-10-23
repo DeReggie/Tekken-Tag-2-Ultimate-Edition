@@ -5,6 +5,7 @@
 #include "mid_hooks.h"
 #include "program.h"
 #include "rpx.h"
+#include "text.h"
 
 #include <openssl/evp.h>
 
@@ -12,7 +13,6 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
-#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -32,7 +32,7 @@ std::string sha256_file(const fs::path& path) {
     EVP_Digest(data.data(), data.size(), digest, &length, EVP_sha256(), nullptr);
     std::string hex;
     for (unsigned int i = 0; i < length; ++i) {
-        hex += std::format("{:02x}", digest[i]);
+        hex += text::format("{:02x}", digest[i]);
     }
     return hex;
 }
@@ -131,16 +131,16 @@ int run(const Options& options) {
         std::string text = kHeader;
         text += "#include \"cafe/ppc_ops.h\"\n\nnamespace ppc = ::cafe::ppc;\n\n";
         for (const auto& name : defined) {
-            text += std::format("PPC_WEAK_ALIAS({});\n", name);
+            text += text::format("PPC_WEAK_ALIAS({});\n", name);
         }
         text += "\n";
         for (const auto& name : referenced) {
             if (!defined.count(name)) {
-                text += std::format("PPC_FUNC({});\n", name);
+                text += text::format("PPC_FUNC({});\n", name);
             }
         }
         text += "\n" + bodies;
-        shard_names[index] = std::format("shard_{:04}.cpp", index);
+        shard_names[index] = text::format("shard_{:04}.cpp", index);
         changed[index] = write_if_changed(options.output / shard_names[index], text);
     };
     {
@@ -168,17 +168,17 @@ int run(const Options& options) {
     std::string table = kHeader;
     table += "#include \"cafe/generated.h\"\n#include \"cafe/ppc_ops.h\"\n\n";
     for (const uint32_t address : compiled) {
-        table += std::format("PPC_FUNC({});\n", recomp::function_name(address));
+        table += text::format("PPC_FUNC({});\n", recomp::function_name(address));
     }
     table += "\nextern \"C\" const cafe::GuestFunction cafe_guest_functions[] = {\n";
     for (const auto& [address, entry] : program.entries) {
         table += compiled.count(address)
-                     ? std::format("\t{{0x{:08X}u, {}}},\n", address,
-                                   recomp::function_name(address))
-                     : std::format("\t{{0x{:08X}u, nullptr}},\n", address);
+                     ? text::format("\t{{0x{:08X}u, {}}},\n", address,
+                                    recomp::function_name(address))
+                     : text::format("\t{{0x{:08X}u, nullptr}},\n", address);
     }
-    table += std::format("}};\nextern \"C\" const size_t cafe_guest_function_count = {};\n",
-                         program.entries.size());
+    table += text::format("}};\nextern \"C\" const size_t cafe_guest_function_count = {};\n",
+                          program.entries.size());
     write_if_changed(options.output / "function_table.cpp", table);
 
     // Imports: weak defaults that stop with a clear message; the runtime
@@ -190,29 +190,29 @@ int run(const Options& options) {
             continue;
         }
         const std::string& symbol = program.import_symbols.at(import.stub_address);
-        imports += std::format(
+        imports += text::format(
             "extern \"C\" __attribute__((weak)) void {}(::cafe::PPCContext& ctx, uint8_t*) {{\n"
             "\tcafe_unimplemented_import(ctx, \"{}\", \"{}\");\n}}\n",
             symbol, import.module, import.name);
     }
     // Mid-function hooks (mid_hooks.h): weak no-ops the runtime may replace.
     for (const uint32_t address : recomp::kMidHooks) {
-        imports += std::format(
+        imports += text::format(
             "extern \"C\" __attribute__((weak)) void {}(::cafe::PPCContext&, uint8_t*) {{}}\n",
             recomp::mid_hook_name(address));
     }
     imports += "\nextern \"C\" const cafe::GuestImport cafe_guest_imports[] = {\n";
     for (const auto& import : program.image.imports) {
-        imports += std::format(
+        imports += text::format(
             "\t{{\"{}\", \"{}\", 0x{:08X}u, 0x{:08X}u, {}, {}}},\n", import.module, import.name,
             import.stub_address, import.address,
             import.is_data ? "nullptr" : program.import_symbols.at(import.stub_address),
             import.is_data);
     }
-    imports += std::format("}};\nextern \"C\" const size_t cafe_guest_import_count = {};\n",
-                           program.image.imports.size());
+    imports += text::format("}};\nextern \"C\" const size_t cafe_guest_import_count = {};\n",
+                            program.image.imports.size());
     const auto& fi = program.image.file_info;
-    imports += std::format(
+    imports += text::format(
         "\nextern \"C\" const cafe::ProgramInfo cafe_program_info = {{\n"
         "\t\"{}\", 0x{:08X}u, 0x{:08X}u, 0x{:08X}u, 0x{:X}u, 0x{:X}u, {}, {}}};\n",
         digest, program.image.entry_point, fi.sda_base, fi.sda2_base, fi.stack_size,
@@ -229,7 +229,7 @@ int run(const Options& options) {
 
     // Remove shards left over from a previous, larger run.
     for (size_t index = shards.size();; ++index) {
-        const fs::path stale = options.output / std::format("shard_{:04}.cpp", index);
+        const fs::path stale = options.output / text::format("shard_{:04}.cpp", index);
         if (!fs::exists(stale)) {
             break;
         }

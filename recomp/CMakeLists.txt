@@ -12,7 +12,8 @@ add_library(cafe_recomp STATIC
     src/ppc.cpp
     src/function_table.cpp
     src/program.cpp
-    src/codegen.cpp)
+    src/codegen.cpp
+    src/text.cpp)
 target_link_libraries(cafe_recomp PUBLIC cafe_rpx)
 target_compile_options(cafe_recomp PRIVATE -Wall -Wextra -Wpedantic)
 
