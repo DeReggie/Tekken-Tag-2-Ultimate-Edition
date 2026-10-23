@@ -19,7 +19,7 @@
 #
 # The same layout is installed to <prefix>/lib/ttt2/kit.
 
-set(TTT2_LAUNCHER_VERSION 0.1.0)
+set(TTT2_LAUNCHER_VERSION 0.1.1)
 set(TTT2_LAUNCHER_VERSION ${TTT2_LAUNCHER_VERSION} PARENT_SCOPE)
 set(TTT2_KIT_DIR ${CMAKE_BINARY_DIR}/launcher/kit)
 set(TTT2_KIT_DIR ${TTT2_KIT_DIR} PARENT_SCOPE)
