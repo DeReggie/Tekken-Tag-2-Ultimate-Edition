@@ -176,12 +176,13 @@ launcher/appimage/make_appimage.sh Ultimate_Launcher-x86_64.AppImage build-appim
 ```
 
 It builds in a folder of its own (here `build-appimage`; Git ignores it and
-the AppImage), needs `mksquashfs`,
+the AppImage), needs LLD and `mksquashfs`,
 and downloads the AppImage runtime once (`--runtime-cache DIR` says where).
-For now the AppImage uses the system's GTK 4 and C++ libraries, and its kit
-needs the glibc and libstdc++ of the system it was made on: it runs on the
-distribution it was built on (and newer releases of it), not yet on any
-distribution.
+The AppImage uses the system's GTK 4 (4.10 or newer) and needs glibc 2.38
+and GCC 13's libstdc++ or newer (Ubuntu 24.04, Debian 13, Fedora 39 and
+newer releases, and rolling distributions), on any x86-64 processor. The
+game program it builds needs SDL 3.2 or newer from the system, which
+Ubuntu 24.04 does not have yet.
 
 The AppImage updates itself. When it starts it asks GitHub for this
 repository's newest release; when that is newer, a notice at the top of the

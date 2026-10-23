@@ -27,6 +27,7 @@
 #include <iostream>
 #include <memory>
 #include <stdexcept>
+#include <string_view>
 
 namespace cafe::install {
 namespace {
@@ -239,7 +240,9 @@ std::optional<std::string> ask(const std::string& question, const std::string& s
     }
     if (line.empty()) return suggestion;
     if (line == "~") return home().string();
-    if (line.starts_with("~/")) return (home() / line.substr(2)).string();
+    // (string_view's starts_with is always inline; std::string's, called,
+    // would make the program need GCC 16's libstdc++, which exports it.)
+    if (std::string_view(line).starts_with("~/")) return (home() / line.substr(2)).string();
     return line;
 }
 
@@ -591,7 +594,7 @@ int run(const std::vector<std::string>& args) {
             if (arg == "--install") continue;
             if (arg == "--update") updating = true;
             else if (arg == "--no-launcher") launcher = false;
-            else if (arg.starts_with("--")) fail("unknown option " + arg);
+            else if (std::string_view(arg).starts_with("--")) fail("unknown option " + arg);
             else positional.push_back(arg);
         }
         return updating ? update(positional) : install(positional, launcher);

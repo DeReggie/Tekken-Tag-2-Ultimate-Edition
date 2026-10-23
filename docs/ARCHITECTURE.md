@@ -1039,16 +1039,27 @@ icon and `.DirIcon` at the AppDir's root, and packs it as zstd squashfs
 behind the AppImage type 2 runtime (downloaded once to `--runtime-cache DIR`,
 `$TTT2_APPIMAGE_CACHE` or `BUILD_DIR/appimage-cache`, and checked to be an
 x86-64 ELF program; the runtime reads a file back before the image is put
-in place). It is about 2.5 MB. This AppImage is tied to the distribution it
-was made on: it uses the system's GTK 4, GLib and C++ runtime, and the kit
-needs the build machine's glibc and libstdc++ anyway.
+in place). Its programs are linked with LLD: GNU ld copies the ISA level the
+system's `Scrt1.o` is marked with into every program, and on a system built
+for its own processor (CachyOS's znver4 packages) that is x86-64-v4, which
+glibc refuses to start on a processor without AVX-512 ("CPU ISA level is
+lower than required", a Steam Deck's Zen 2); LLD writes none, and the script
+refuses an AppDir with any file marked above the baseline. The kit's
+programs link libstdc++ statically (where the compiler has it as an archive;
+cafe-recomp's `std::format` calls need GCC 16's), the launcher is held to
+the API of GTK 4.10 and the GLib it needs (2.76), and the script refuses
+any of the programs, and the game program as the kit links it
+(`kit_check`), that needs a newer glibc or libstdc++ than Ubuntu 24.04 has
+(2.39, GCC 14's). Now the launcher needs glibc 2.38 and GCC 13's libstdc++,
+and the game program glibc 2.38 and GCC 13.2's (`kit.ini`'s `needs`); the
+kit's programs need libcrypto 3, zstd and zlib, which such distributions
+all have. (GCC 16's libstdc++ exports std::string's C++20 members, so a
+call to one that is not inlined makes a program need it: `install.cpp`
+calls string_view's.) It is about 4 MB.
 
-Still to do for an AppImage for any distribution: build the kit on the
-oldest distribution it is for (this one needs glibc 2.38 and GCC 16's libstdc++, as `kit.ini`'s
-`needs` says); bundle or link
-statically what ttt2-build and cafe-recomp need (libcrypto, libzstd, libz);
-ship SDL 3.2 and shaderc, which many distributions lack, in the kit for the
-game program (link those, copy them to `<install>/lib/` with a mark that
+Still to do for an AppImage for any distribution: ship SDL 3 (Ubuntu 24.04
+has none; any 3.2 or newer will do) and shaderc in the kit for the game
+program (link those, copy them to `<install>/lib/` with a mark that
 uninstall then deletes it by, as it leaves any `lib/` alone now, and add an
 `$ORIGIN/lib` rpath); bundle GTK 4 and GLib, and once AppRun sets
 `LD_LIBRARY_PATH` or GTK and GIO variables for them, restore those for the

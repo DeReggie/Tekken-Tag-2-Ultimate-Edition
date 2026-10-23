@@ -101,10 +101,14 @@ else()
     set(source_importer "")
     set(source_icon "")
 endif()
-# Only what GTK 4.10 has, so that it runs on the distributions that ship it.
+# Only what GTK 4.10 and the GLib it needs (2.76) have, so that it runs on the
+# distributions that ship them (newer GLib headers' type macros otherwise
+# call 2.80's g_once_init_enter_pointer).
 target_compile_definitions(ttt2-launcher PRIVATE
     GDK_VERSION_MIN_REQUIRED=GDK_VERSION_4_10
     GDK_VERSION_MAX_ALLOWED=GDK_VERSION_4_10
+    GLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_76
+    GLIB_VERSION_MAX_ALLOWED=GLIB_VERSION_2_76
     TTT2_LAUNCHER_APP_ID="${TTT2_LAUNCHER_APP_ID}"
     TTT2_LAUNCHER_VERSION="${TTT2_LAUNCHER_VERSION}"
     TTT2_LAUNCHER_RESOURCE_PATH="${TTT2_LAUNCHER_RESOURCE_PATH}"

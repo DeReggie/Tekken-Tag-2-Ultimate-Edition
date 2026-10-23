@@ -13,12 +13,21 @@
 # --runtime-cache DIR (else $TTT2_APPIMAGE_CACHE, else BUILD_DIR/appimage-cache):
 #             where the runtime is downloaded to, once
 #
-# Needs CMake 3.24+, Ninja, Clang, mksquashfs (with zstd), and curl or wget
-# for the first download; rsvg-convert for a PNG .DirIcon (else the SVG).
+# Needs CMake 3.24+, Ninja, Clang, LLD, readelf, mksquashfs (with zstd), and
+# curl or wget for the first download; rsvg-convert for a PNG .DirIcon (else
+# the SVG).
 #
-# The AppImage uses the system's GTK 4, GLib and C++ runtime, and its kit
-# needs this system's glibc and libstdc++: for now it runs on the
-# distribution it was made on. AppRun changes nothing of the environment, as
+# The programs are linked with LLD: GNU ld copies the x86 ISA level that the
+# system's startup files are marked with (Scrt1.o) into every program, and
+# on a system built for its own processor (CachyOS's znver4 and x86-64-v4
+# packages) that is x86-64-v4, which glibc then refuses to start on any
+# processor without AVX-512 ("CPU ISA level is lower than required"). LLD
+# writes no ISA level; the image is checked for one before it is packed.
+#
+# The AppImage uses the system's GTK 4, GLib and C++ runtime; the kit's
+# programs carry their own libstdc++ (launcher/builder). It is checked to
+# need no newer glibc or libstdc++ than Ubuntu 24.04 has, also for the game
+# program the kit links (see below). AppRun changes nothing of the environment, as
 # the programs the launcher starts (the compiler, Python, gamescope, Proton,
 # the game) must not load anything of the AppImage.
 
@@ -75,7 +84,7 @@ case $repo$build in
     *[[:space:]]*) die "the source and build folders' paths must not have spaces" ;;
 esac
 
-for tool in cmake ninja clang clang++ mksquashfs; do
+for tool in cmake ninja clang clang++ ld.lld readelf mksquashfs; do
     command -v "$tool" >/dev/null || die "$tool is not installed"
 done
 
@@ -98,7 +107,7 @@ fi
 prefix_maps="-ffile-prefix-map=$repo/= -ffile-prefix-map=$build/="
 cmake --fresh -S "$repo" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-    "-DCMAKE_C_FLAGS=$prefix_maps" "-DCMAKE_CXX_FLAGS=$prefix_maps" \
+    "-DCMAKE_C_FLAGS=$prefix_maps" "-DCMAKE_CXX_FLAGS=$prefix_maps" -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld \
     -DTTT2_LAUNCHER_BUILD_TREE_PATHS=OFF -DTTT2_GENERATED_DIR= -DTTT2_RPX=
 grep -qx 'GTK4_FOUND:INTERNAL=1' "$build/CMakeCache.txt" || die "GTK 4.10 or newer (its development files) is needed"
 cmake --build "$build" --target ttt2-launcher ttt2_kit
@@ -136,6 +145,30 @@ strip=$(sed -n 's/^CMAKE_STRIP:FILEPATH=//p' "$build/CMakeCache.txt")
 if [ -n "$strip" ] && [ -x "$strip" ]; then
     "$strip" "$appdir/usr/lib/ttt2/kit/bin/ttt2-build" "$appdir/usr/lib/ttt2/kit/bin/cafe-recomp"
 fi
+
+# Any x86-64 processor must start them (ttt2-build itself tells a player
+# whose processor cannot run the game): no file may be marked as needing
+# more than the baseline (see LLD above).
+marked=$(cd "$appdir" && find . -type f -print | while IFS= read -r file; do
+    if readelf -n "$file" 2>/dev/null | grep -q 'x86 ISA needed:.*x86-64-v[234]'; then echo "$file"; fi
+done)
+[ -z "$marked" ] || die "these need a newer processor than any x86-64 (their ISA level): $marked"
+
+# Nor may they, or the game program as the kit links it (kit_check), need a
+# newer glibc or libstdc++ than the oldest distributions it is for have
+# (Ubuntu 24.04: glibc 2.39, GCC 14's libstdc++).
+newest() { # FILE NAME: the newest NAME_ version FILE needs
+    readelf -V "$1" | sed -n "s/.*Name: $2_\([0-9.]*\).*/\1/p" | sort -V | tail -n 1
+}
+for program in "$appdir/usr/bin/ttt2-launcher" "$appdir/usr/lib/ttt2/kit/bin/ttt2-build" \
+    "$appdir/usr/lib/ttt2/kit/bin/cafe-recomp" "$build/launcher/builder/kit_check"; do
+    for limit in GLIBC_2.39 GLIBCXX_3.4.33; do
+        need=$(newest "$program" "${limit%_*}")
+        if [ -n "$need" ] && [ "$(printf '%s\n' "$need" "${limit##*_}" | sort -V | tail -n 1)" != "${limit##*_}" ]; then
+            die "${program##*/} needs ${limit%_*}_$need: the oldest distributions it is for have $limit"
+        fi
+    done
+done
 
 cat >"$appdir/AppRun" <<'EOF'
 #!/bin/sh
