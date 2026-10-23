@@ -84,6 +84,16 @@ def read_index(path):
     return out
 
 
+def pak_names(pak_dir):
+    """The pak files' names in a folder (none when there is no such folder), the base paks first, then the patches.
+    (A listing, not a glob: a Steam library's path may hold [ ] * ?.)"""
+    try:
+        names = sorted(n for n in os.listdir(pak_dir) if n.endswith('.pak'))
+    except OSError:
+        return []
+    return sorted(names, key=lambda n: (n.endswith('_P.pak'), n))
+
+
 class Paks:
     """Every pak of the game: path -> the entry that counts (patch paks win). Lookups take pak paths
     ('TekkenGame/Content/...uasset') or object paths ('/Game/...'), in any case."""
@@ -91,8 +101,7 @@ class Paks:
     def __init__(self, pak_dir, saved=None):
         """saved: the folder of the encrypted files as the game reads them (pak paths below it), if any."""
         self.saved = saved
-        names = sorted(n for n in os.listdir(pak_dir) if n.endswith('.pak'))
-        names.sort(key=lambda n: (n.endswith('_P.pak'), n))     # base paks first, then the patches
+        names = pak_names(pak_dir)
         if not names:
             raise FileNotFoundError(pak_dir)
         self.index = {}

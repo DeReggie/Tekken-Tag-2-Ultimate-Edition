@@ -44,8 +44,9 @@ and shaders are translated to Vulkan as it runs.
   use: PlayStation controllers get PlayStation-style icons, any other
   neutral ones that show each face button by its place on the pad. The
   game's texts show the icons where they named the Wii U's buttons, and the
-  title screen's logo no longer says "Wii U Edition". All of it is made by
-  the port from the Wii U game's own files.
+  title screen's logo says "Ultimate Edition" where it said "Wii U
+  Edition", in the same brush lettering. All of it is made by the port
+  from the Wii U game's own files.
 - **Installs like any other program**: `ttt2 --install` copies the game into
   a folder you choose and adds it to the application menu.
 - **Made to be modified**: every function of the game is a C++ function that
@@ -88,12 +89,14 @@ refuse a game whose executable is not the one they were built from.
 - To build: Git, CMake 3.20+, Ninja, Clang (or GCC 15+), Python 3, and the
   development files of SDL 3.2 or newer, shaderc, the Vulkan loader, Vulkan
   headers recent enough to define `VK_KHR_present_wait2` (mid-2025 or
-  newer), OpenSSL 3, zstd and zlib.
+  newer), OpenSSL 3, zstd and zlib; for the launcher also GTK 4.10 or newer
+  (without it the launcher is left out) and MinGW (optional: the Tekken 7
+  helper is then built in).
 
 On Arch Linux:
 
 ```bash
-sudo pacman -S --needed base-devel git cmake ninja clang python zstd zlib openssl vulkan-headers vulkan-icd-loader sdl3 shaderc
+sudo pacman -S --needed base-devel git cmake ninja clang python zstd zlib openssl vulkan-headers vulkan-icd-loader sdl3 shaderc gtk4 mingw-w64-gcc
 ```
 
 Other distributions package the same libraries under similar names; older
@@ -124,6 +127,57 @@ Recompiling takes a few seconds; compiling the generated code takes a few
 minutes. `local/`, `generated/`, `third_party/` and `build*/` are ignored by
 Git, so nothing derived from the game ends up in a commit; keep captures and
 dumps from the debugging options under `local/` too.
+
+## The launcher
+
+`ttt2-launcher` (**Tekken Tag 2 Ultimate Edition**) does the installing and
+the adding of fighters in a window, without a terminal. **Install…** asks for
+your `.wua` and a folder, checks the PC, builds the game program for it from
+the archive and installs the game with its menu entry, as `ttt2 --install`
+does; then **Play**, **Update** (when the launcher's version differs from
+the program's) and **Uninstall…** (saves and added characters are kept unless you
+tick them; of a save folder you chose with `TTT2_SAVE_DIR`, only the game's
+own saves go). While the game runs, however it was started, Play, Update and
+Uninstall wait for it to end. The gear next to Play opens its **Settings**,
+where the game's keyboard keys can be changed ([Playing](#playing)). Its
+Characters section shows where Steam has Tekken 7, or why it cannot be used, with **Add** per fighter and **Add All**, and Tekken 7's DLC
+fighters in a list that opens, with those your Steam account owns and **Add
+All Owned**; **Remove** takes one out again.
+
+```bash
+cmake --build build --target ttt2-launcher ttt2_kit
+build/launcher/ttt2-launcher
+```
+
+Nothing of the game is in the launcher: the game program is built on your PC
+by the launcher's kit (`build/launcher/kit`: `ttt2-build`, `cafe-recomp` and
+the runtime) with your C++ compiler, in a few minutes. It needs Clang (or
+GCC 15+) and the SDL 3, shaderc, Vulkan, OpenSSL 3, zstd and zlib libraries
+(not their development files); the launcher checks the processor, the
+compiler and free space first and shows the command that installs what is
+missing. On image-based systems, whose package manager cannot add to the
+system (SteamOS, Fedora Atomic and Bazzite, openSUSE MicroOS and Aeon,
+NixOS), it says instead that the compiler and the importer's tools must come
+from a toolbox or distrobox container, or from the system's own way of
+adding software. `build/launcher/kit/bin/ttt2-build install GAME FOLDER`
+does the same in a terminal; `ttt2-build check` alone only checks that this
+PC can build the game program (the compiler, the libraries, and that the
+program links with them and starts).
+
+To make an AppImage of the launcher (the launcher, its kit and the character
+importer; nothing of the game):
+
+```bash
+launcher/appimage/make_appimage.sh Tekken_Tag_2_Ultimate_Edition-x86_64.AppImage build-appimage
+```
+
+It builds in a folder of its own (here `build-appimage`; Git ignores it and
+the AppImage), needs `mksquashfs`,
+and downloads the AppImage runtime once (`--runtime-cache DIR` says where).
+For now the AppImage uses the system's GTK 4 and C++ libraries, and its kit
+needs the glibc and libstdc++ of the system it was made on: it runs on the
+distribution it was built on (and newer releases of it), not yet on any
+distribution.
 
 ## Playing
 
@@ -159,13 +213,20 @@ Saves go to `~/.local/share/ttt2/save` and compiled shaders to
 | HOME | H |
 | Left stick | I / J / K / L |
 
-Keys go by position, as on a US QWERTY keyboard. Gamepads work through SDL
-by button position, as on the Wii U: the right face button is A, the bottom
-one B, the top one X and the left one Y, and fights use them that way. In
-menus the bottom button (B, Z on the keyboard) confirms and the right one
-goes back, except with a Nintendo controller, which confirms with its A as on
-the Wii U. The icons follow the last controller used (the keyboard counts as
-a neutral one).
+Keys go by position, as on a US QWERTY keyboard. These are the defaults:
+the launcher's **Settings** (the gear next to Play) change them, at once,
+also while the game runs. They are kept in `~/.config/ttt2/keyboard.ini`
+(`$XDG_CONFIG_HOME/ttt2/`), one `input = key` per line, which can be edited
+by hand too ([its format](docs/ARCHITECTURE.md#running-the-port)); F11,
+Escape and the Windows keys cannot be given to a button, and the game prints
+what it read when it starts.
+
+Gamepads work through SDL by button position, as on the Wii U: the right
+face button is A, the bottom one B, the top one X and the left one Y, and
+fights use them that way. In menus the bottom button (B, by default Z on the
+keyboard) confirms and the right one goes back, except with a Nintendo
+controller, which confirms with its A as on the Wii U. The icons follow the
+last controller used (the keyboard counts as a neutral one).
 
 | Environment variable | Effect |
 | --- | --- |
@@ -176,7 +237,7 @@ a neutral one).
 | `TTT2_AUDIO_VOLUME=0..100` | volume in percent (default 100) |
 | `TTT2_SAVE_DIR=<folder>` | where saves go |
 | `TTT2_CONTROLLER=playstation/nintendo/xbox` | icons and menu buttons for this kind of controller, whichever is used |
-| `TTT2_CHARACTERS=<folder>` | where character packs are (default `~/.local/share/ttt2/characters`) |
+| `TTT2_CHARACTERS=<folder>` | where character packs are (default `$XDG_DATA_HOME/ttt2/characters`, else `~/.local/share/ttt2/characters`) |
 
 Debugging variables are listed in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#running-the-port).
@@ -196,8 +257,10 @@ copies of both games** and writes character packs on your computer. You need:
 
 - Tekken 7 for PC (Steam), installed and started from Steam at least once
   (the importer finds it, its Proton and its prefix through Steam), and Steam
-  running;
-- the game installed with `ttt2 --install` (the importer reads its folder);
+  running: the Steam of your distribution's packages or Valve's installer
+  (Steam from Flatpak or Snap is found, but not supported yet);
+- the game installed with the launcher or `ttt2 --install` (the importer
+  reads its folder);
 - gamescope, `pactl` (PipeWire or PulseAudio), MinGW
   (`x86_64-w64-mingw32-gcc`, to build a small helper the first time) and
   Python 3 with numpy and Pillow.
@@ -212,6 +275,9 @@ background, with no window and no sound (gamescope's headless mode and a
 silent audio output of its own), the game's own loader loads the fighters
 while it sits on its start-up screens, and it is closed again. Nothing is
 pressed and no menu is used, so your key bindings and settings do not matter.
+Stopping the importer (Ctrl+C, or Cancel in the launcher) closes the hidden
+Tekken 7 too and leaves no half-written pack; a Tekken 7 you start yourself
+is left alone.
 Only fighters your Steam account owns are imported (Steam must be running; it
 tells which DLC you own): a fighter whose DLC you have not bought is skipped,
 whichever movesets are already saved. Tekken 7 also keeps Geese's and
@@ -228,13 +294,19 @@ The fighters' names for the importer: `kazumi`, `chloe`, `eliza`, `claudio`,
 `akuma`, `gigas`, `josie`, `katarina`, `master_raven`, `shaheen`,
 `fahkumram`, `leroy`, `lidia`, `kunimitsu2`, `negan`, `geese`, `noctis` (one or several; each
 takes about a minute, and what they share is made once at the end). The packs
-go to `~/.local/share/ttt2/characters/` (a folder per fighter, and `shared/`,
-the title's pictures, colours and name calls the added fighters share;
-`$TTT2_CHARACTERS` picks another folder). Delete a fighter's folder and import
-any other fighter again to remove them. **The packs hold Namco's assets: keep
-them to yourself and never upload or share them.** The importer refuses to
-write them inside this repository, and `.gitignore` keeps the games' file
-types out of commits.
+go to `~/.local/share/ttt2/characters/` (or `$XDG_DATA_HOME/ttt2/characters/`:
+a folder per fighter, and `shared/`, the title's pictures, colours and name
+calls the added fighters share; `$TTT2_CHARACTERS` picks another folder).
+`--remove NAME...` removes fighters again; the others keep their cells.
+Each pack names the pack format it was made in. The game loads only packs of
+its own format and skips older and newer ones (it says so on its console):
+add an older pack's fighter again (the launcher offers it), and it comes back
+in its own cell. A pack with no format line counts as format 1, unless it has a
+`keys/` folder of its own: those are the earliest packs (made before
+`shared/` existed), which must be added again.
+**The packs hold Namco's assets: keep them to yourself and never upload or
+share them.** The importer refuses to write them inside this repository, and
+`.gitignore` keeps the games' file types out of commits.
 
 Each has their own model with both players' colours (skin tones matched to
 Tekken Tag Tournament 2's own fighters), moves, voice, command list, and their
@@ -252,6 +324,38 @@ the weapons they take in hand only for some moves (Kunimitsu II's blades,
 Master Raven's drawn sword, Leroy's folding staff, Negan's knife), the weapons
 of Noctis's Rage Art, Katarina's and Leroy's sunglasses, and Gigas's back
 tubes.
+
+### Bound moves
+
+Tekken 7 has no tag, so the importer adds what Tekken Tag Tournament 2's tag
+system needs: they tag out (and have tag throws) while walking, dashing,
+stepping back, crouching or crouch walking, as Tekken Tag Tournament 2's own
+fighters do; press Tag during a bound move's startup (before it hits) for a
+Tag Assault, and their juggles give the Tag Crash input on landing (2+Tag
+with the partner in Rage). Many of Tekken Tag Tournament 2's bounds are
+slams in Tekken 7 that bounce on every air hit; those bound once per juggle,
+as Tekken Tag Tournament 2's own do (right column). Inputs in Tekken 7's
+notation (WR while rising, SS sidestep, BT back turned, FC full crouch):
+
+| Fighter | Bound moves | Slams in Tekken 7, bounds here |
+|---|---|---|
+| Kazumi | f+4; b+2; 3,1; u/f+3,4,3; b,f+2,1,4; WR 4,4 | d/f+1,2; d/b+1+2; f+3+4,3; u/f+3,4,1 |
+| Lucky Chloe | 1+2; 1,2,1+2; f+2,1+2; BT 1+2; d/f+3,3; b+3; FC d/f+2; d/f+2,4,3,1; 10-hit string | 1,2,2; f+2,2; BT 3,3+4; d/f+3,2; f,f,f+3; b+2 |
+| Eliza | 4; f,f,f+1; b+3,1; d,d/b,b+1; Moon Glide 1,4 / 3,4 | u/f+4,2; b+1,2 |
+| Claudio | f+2,2; 4,3; 2,1,2; f+3; b+1; b+4,1; WR 1,2 | b+1+2; b+4,3,2; b+3,3; f,F+2,2; jump 2 |
+| Akuma | f+4; 4,3; Hyakkishu (f,d,d/f+3 or 4) 3 | Hyakkishu 2; f,f,f+3+4 |
+| Gigas | f+2,f+1; d/f+2,1; d/b+3,2; Golem Set Up 4,1; SS 2 | f+2,1,1; d+2; b+1+2; WR 4,2; d/f+4,1+2 |
+| Josie | 3,3; b+1,1; f+2,3,4; f,F+4; 1,2,d+4,4; 2,d+4,4; 3+4; f,n,d,d/f+1,3 | jump f+3; d+2; d/f+4,1; b+3+4,f,1+2 |
+| Katarina | 2,2; 3,4 (also WR); d/f+2,4; f,F+4; Harrier d/f+2,3; f,F+2,4 | f+4,2; f+4,u/f+3; f,F+3; d+1; u/f+3+4; b+4,3+4; f,f,f+3+4; 1+2,1,3; 3,3,3,3,3 |
+| Master Raven | b+4,4; d/f+2,3; b+2,4,2; BT f+2,4,2; 2,4; f+1+2; 4,3,3; WR 3+4; BT b+3; BT f+4,3 | b+1; b+4,b+4; BT 3,4,4; jump f+3+4 |
+| Shaheen | 4,3; f+2,4,4; f+4; d/f+3; Stealth Step 4,1 | 4,4; b+1; f,f,f+3+4; Stealth Step 3 |
+| Fahkumram | 3,4,4; f+3,2,4,4; WR 2,4,4; 4,3,1; 1,2,4,3,1; 2,4,3,1; d+3,4,3,1; f,F+4; b+3; d/f+1,4 | b,f+3+4; d/f+2,1; d/f+4,3,3 |
+| Leroy | 1,2,3; f+4,4; b+3; b+4; Hermit 2,1; Hermit f+1 | Hermit b+1; d+1+2 |
+| Lidia | 1,2,3; 1,2,4,4; 4,3; f+4,3,4; d/f+4,3; d/f+4,4; d/f+3+4; d+3,4; b+4,4,4; b+3+4,3; u/f+4; SS 4; Cat Foot 3; 10-hit string | f+3+4,4; f+4,3,1; d+1+2 |
+| Kunimitsu II | 1,1,1; 3,4; Katon 4,2; f+2,3; Setsunagake 1,2,1; f,n,d,d/f+2; f+3,2; f+3,1,2; f+3+4; b+2; WR 2,4 | d,d/f,f+2; f,F+4,2; d/f+1,2,2; d+1+2; 1,1,4; Setsunagake 1,2,4; f+3,1,2,4 |
+| Negan | d/b+1+2 (also held); d/f+1,1,2; b+1,2; SS 2; Intimidation 1,2 / 1+2 | f+1,2,1+2; 2,2,2,2; b+2,2; b+1+2; d/f+3+4,1,2; Intimidation 2,3 |
+| Geese Howard | 4; d/f+2; b+4,4; WR 3; f,d,d/f+1 / +2 | d,d/b,b+2,3 (and its EX version) |
+| Noctis | 1,2,1+2; 2,2,f+2; 1+2; f+4,2; d/f+1,4; d/f+4,2,4; d/f+1+2; d+2,2; u/f+4; u+4; f,F+1+2; WR 2,2 | u+2; u/f+2; jump 1+2; b+2+3; b+1+4; d+4,1,1+2; d/f+4,2; f,f,f+1+2 |
 
 ## How it works
 

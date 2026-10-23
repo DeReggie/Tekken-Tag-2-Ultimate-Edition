@@ -590,6 +590,18 @@ void Renderer::cpu_wrote(uint32_t address, uint32_t size) {
     });
 }
 
+const Image& Renderer::null_texture() {
+    if (null_texture_.image == VK_NULL_HANDLE) {
+        null_texture_ = create_image(VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, 1, 1,
+                                     VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_VIEW_TYPE_2D);
+        const VkClearColorValue zero{};
+        const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdClearColorImage(cmd(), null_texture_.image, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &range);
+        barrier();
+    }
+    return null_texture_;
+}
+
 // ---------------------------------------------------------------- samplers
 
 VkSampler Renderer::sampler(const uint32_t words[3], const float border[4], bool compare) {

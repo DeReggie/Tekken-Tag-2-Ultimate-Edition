@@ -2,6 +2,7 @@
 
 #include "cafe/input.h"
 #include "cafe/runtime.h"
+#include "host/keymap.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
@@ -13,6 +14,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -42,23 +44,37 @@ void update_window_refresh() {
     if (hz > 0.0f) g_window_refresh = hz;
 }
 
-// Keyboard layout: arrows for the D-pad; X/Z/S/A for A/B/X/Y (the GamePad's
-// diamond); Q/W for L/R, 1/2 for ZL/ZR; Enter Plus, Backspace Minus, H Home;
-// I/J/K/L the left stick.
-struct Key {
-    SDL_Scancode scancode;
-    uint32_t button;
+// The keyboard's keys (host/keymap.h): the player's from keyboard.ini, read
+// again when the launcher's Settings change it, so new keys apply at once.
+// Main thread only.
+keymap::Keys g_keymap = keymap::default_keys();
+std::optional<keymap::Watcher> g_keymap_file;
+
+// The keymap's numbers are SDL's scancodes: the defaults are these keys.
+static_assert(keymap::kKeyCount == SDL_SCANCODE_COUNT);
+constexpr SDL_Scancode kDefaultKeys[] = {
+    SDL_SCANCODE_UP,     SDL_SCANCODE_DOWN,      SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT, // D-pad
+    SDL_SCANCODE_S,      SDL_SCANCODE_Z,         SDL_SCANCODE_A,    SDL_SCANCODE_X,     // X, B, Y, A
+    SDL_SCANCODE_Q,      SDL_SCANCODE_W,         SDL_SCANCODE_1,    SDL_SCANCODE_2,     // L, R, ZL, ZR
+    SDL_SCANCODE_I,      SDL_SCANCODE_K,         SDL_SCANCODE_J,    SDL_SCANCODE_L,     // left stick
+    SDL_SCANCODE_RETURN, SDL_SCANCODE_BACKSPACE, SDL_SCANCODE_H,                        // +, -, HOME
 };
-constexpr Key kKeys[] = {
-    {SDL_SCANCODE_UP, os::vpad::kUp},        {SDL_SCANCODE_DOWN, os::vpad::kDown},
-    {SDL_SCANCODE_LEFT, os::vpad::kLeft},    {SDL_SCANCODE_RIGHT, os::vpad::kRight},
-    {SDL_SCANCODE_X, os::vpad::kA},          {SDL_SCANCODE_Z, os::vpad::kB},
-    {SDL_SCANCODE_S, os::vpad::kX},          {SDL_SCANCODE_A, os::vpad::kY},
-    {SDL_SCANCODE_Q, os::vpad::kL},          {SDL_SCANCODE_W, os::vpad::kR},
-    {SDL_SCANCODE_1, os::vpad::kZL},         {SDL_SCANCODE_2, os::vpad::kZR},
-    {SDL_SCANCODE_RETURN, os::vpad::kPlus},  {SDL_SCANCODE_BACKSPACE, os::vpad::kMinus},
-    {SDL_SCANCODE_H, os::vpad::kHome},
-};
+static_assert([] {
+    for (size_t i = 0; i < keymap::kInputCount; ++i) {
+        if (keymap::kInputs[i].default_key != kDefaultKeys[i]) return false;
+    }
+    return std::size(kDefaultKeys) == keymap::kInputCount;
+}());
+static_assert(keymap::kReserved ==
+              std::array<uint16_t, 4>{SDL_SCANCODE_F11, SDL_SCANCODE_ESCAPE, SDL_SCANCODE_LGUI, SDL_SCANCODE_RGUI});
+
+void reload_keymap() {
+    if (!g_keymap_file) return;
+    const std::optional<keymap::Loaded> loaded = g_keymap_file->reload();
+    if (!loaded) return;
+    for (const std::string& line : loaded->log) std::fprintf(stderr, "ttt2: %s\n", line.c_str());
+    g_keymap = loaded->keys;
+}
 
 // Gamepads by button position: the Wii U's A is on the right, B at the bottom.
 struct PadButton {
@@ -162,14 +178,12 @@ float axis(SDL_Gamepad* pad, SDL_GamepadAxis a) {
 
 void update_input() {
     os::GamepadState state{};
-    const auto& keys = g_keys;
-    for (const Key& k : kKeys) {
-        if (keys[k.scancode]) state.buttons |= k.button;
+    for (size_t i = 0; i < keymap::kInputCount; ++i) {
+        if (!g_keys[g_keymap[i]]) continue;
+        state.buttons |= keymap::kInputs[i].button;
+        state.left_x += keymap::kInputs[i].stick_x;
+        state.left_y += keymap::kInputs[i].stick_y;
     }
-    if (keys[SDL_SCANCODE_J]) state.left_x -= 1.0f;
-    if (keys[SDL_SCANCODE_L]) state.left_x += 1.0f;
-    if (keys[SDL_SCANCODE_I]) state.left_y += 1.0f;
-    if (keys[SDL_SCANCODE_K]) state.left_y -= 1.0f;
 
     int count = 0;
     SDL_JoystickID* ids = SDL_GetGamepads(&count);
@@ -229,6 +243,10 @@ bool open_window(const char* title) {
     }
     update_size();
     update_window_refresh();
+    g_keymap_file.emplace(keymap::file_path(), [](const std::string& name) {
+        return static_cast<uint16_t>(SDL_GetScancodeFromName(name.c_str()));
+    });
+    reload_keymap();
     return true;
 }
 
@@ -259,7 +277,13 @@ void on_controller_change(std::function<void(Controller)> callback) {
 
 bool run_event_loop(const std::function<bool()>& finished) {
     using namespace std::chrono_literals;
+    auto keymap_check = std::chrono::steady_clock::now();
     while (!finished()) {
+        // A stat about once a second; the file is read only when it changed.
+        if (const auto now = std::chrono::steady_clock::now(); now - keymap_check >= 1s) {
+            keymap_check = now;
+            reload_keymap();
+        }
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             note_controller(event);
@@ -272,7 +296,9 @@ bool run_event_loop(const std::function<bool()>& finished) {
             case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
             case SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED: update_window_refresh(); break;
             case SDL_EVENT_KEY_DOWN:
-                if (event.key.scancode == SDL_SCANCODE_F11 && !controller_keyboard(event.key.which)) {
+                // (F11 held repeats its press: the first one toggles, once.)
+                if (event.key.scancode == SDL_SCANCODE_F11 && !event.key.repeat &&
+                    !controller_keyboard(event.key.which)) {
                     const bool full = (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) != 0;
                     SDL_SetWindowFullscreen(g_window, !full);
                 }

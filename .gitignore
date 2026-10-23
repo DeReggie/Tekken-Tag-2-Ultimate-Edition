@@ -4,6 +4,8 @@
 /generated/
 __pycache__/
 *.pyc
+# launcher/appimage/make_appimage.sh's output
+*.AppImage
 
 # The game and anything taken or generated from it stay out of the repository.
 *.wua

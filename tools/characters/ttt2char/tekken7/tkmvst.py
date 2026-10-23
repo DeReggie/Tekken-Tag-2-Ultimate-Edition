@@ -13,6 +13,7 @@
     Table: 19 x {u64 offset into the moveset block, u64 count}. A move's anim is an offset into the animation block.
 """
 import lzma
+import os
 import struct
 
 from .. import InputError
@@ -68,3 +69,16 @@ def read(path):
     m.anim_size = dict(zip(offs, [b - a for a, b in zip(offs, offs[1:] + [len(m.animbuf)])]))
     m.movelist = d[ab[7]:ab[8]]           # the displayable command list (MVLT), if TKMovesets2 saved it
     return m
+
+
+def saved_movesets(folder):
+    """{Tekken 7 roster id: path} of the .tkmvst files in `folder` (none if it does not exist), from their headers."""
+    found = {}
+    names = sorted(n for n in os.listdir(folder) if n.endswith('.tkmvst')) if folder and os.path.isdir(folder) else []
+    for path in (os.path.join(folder, n) for n in names):     # (a listing: the folder's path may hold [ ] * ?)
+        with open(path, 'rb') as f:
+            head = f.read(0xF0)
+        if len(head) < 0xF0 or head[:4] != b'TKM2' or not head[0x90:0xB0].startswith(b'Tekken 7'):
+            continue
+        found.setdefault(struct.unpack_from('<I', head, 0x80)[0], path)
+    return found

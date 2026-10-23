@@ -405,11 +405,13 @@ void Renderer::copy_write_backs() {
         }
     }
     write_back_targets_.clear();
+    // For the host, and before the next submission's commands: its first
+    // draw may render into a target these copies read.
     VkMemoryBarrier2 mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
     mb.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     mb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    mb.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
-    mb.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+    mb.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    mb.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT | VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
     VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     di.memoryBarrierCount = 1;
     di.pMemoryBarriers = &mb;

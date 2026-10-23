@@ -108,6 +108,7 @@ class MemDump(unittest.TestCase):
             path = os.path.join(tmp, 'T7_Test.tkmvst')
             memdump.write_tkmvst(path, blocks, 77, 'Test')
             m = tkmvst.read(path)
+            self.assertEqual(os.listdir(tmp), ['T7_Test.tkmvst'])          # (written as .part, then put in place)
         self.assertEqual((m.character_id, m.character_name), (77, 'Test'))
         self.assertEqual(m.aliases, list(range(100, 156)))
         self.assertEqual({t: len(m.tables[t]) for t in TABLE_ORDER}, counts)

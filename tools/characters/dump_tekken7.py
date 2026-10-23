@@ -21,9 +21,10 @@ DEFAULT_OUT = os.path.join(os.path.expanduser('~/.local/share'), 'ttt2', 'tekken
 
 def main():
     sys.path.insert(0, HERE)
-    from ttt2char import InputError, importer
+    from ttt2char import InputError, importer, signals
     from ttt2char.tekken7 import autodump
     from ttt2char.tekken7.pak import Paks
+    signals.stop_on_signals()               # (SIGTERM closes the hidden Tekken 7 as Ctrl+C does)
     parser = argparse.ArgumentParser(description='Save Tekken 7 movesets in the background, for import_character.py.')
     parser.add_argument('fighter', nargs='*', help='fighters (the importer\'s names); none with --all')
     parser.add_argument('--all', action='store_true', help='every fighter the importer knows')

@@ -17,6 +17,7 @@ animation block, a header string an offset from the header, a table's place an o
 
 Written for this project from the files and the game's memory (no third-party code).
 """
+import os
 import struct
 import time
 import zlib
@@ -169,6 +170,7 @@ def write_tkmvst(path, blocks, character_id, name):
     for at, text in ((0x90, 'Tekken 7'), (0xB0, name), (0xD0, name)):
         head[at:at + 31] = text.encode('latin1')[:31].ljust(31, b'\0')
     struct.pack_into('<8Q', head, block_list, *offsets)
-    with open(path, 'wb') as f:
+    with open(path + '.part', 'wb') as f:       # (a dump stopped halfway leaves no moveset that looks saved)
         f.write(head)
         f.write(data)
+    os.replace(path + '.part', path)

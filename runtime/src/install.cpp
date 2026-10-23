@@ -68,6 +68,29 @@ std::string gigabytes(uint64_t bytes) {
     return text;
 }
 
+// With TTT2_INSTALL_PROGRESS=1 (the launcher's ttt2-build runs it so), also
+// lines for a program on stdout: "@folder <path>", "@progress <done>
+// <total>" in bytes, "@error <text>". The text for people stays on stderr.
+bool machine_output() {
+    static const bool on = [] {
+        const char* v = std::getenv("TTT2_INSTALL_PROGRESS");
+        return v && std::strcmp(v, "1") == 0;
+    }();
+    return on;
+}
+
+void machine_line(const std::string& text) {
+    if (!machine_output()) return;
+    std::string line = text;
+    std::replace(line.begin(), line.end(), '\n', ' ');
+    std::fprintf(stdout, "%s\n", line.c_str());
+    std::fflush(stdout);
+}
+
+void machine_progress(uint64_t done, uint64_t total) {
+    machine_line("@progress " + std::to_string(done) + " " + std::to_string(total));
+}
+
 // ---------------------------------------------------------------- source
 
 struct Entry {
@@ -286,11 +309,15 @@ class Progress {
 public:
     explicit Progress(uint64_t total) : total_(total), tty_(isatty(STDERR_FILENO)) {}
 
-    void kept(uint64_t bytes) { done_ += bytes; }
+    void kept(uint64_t bytes) {
+        done_ += bytes;
+        tell_machine();
+    }
 
     void copied(uint64_t bytes) {
         done_ += bytes;
         copied_ += bytes;
+        tell_machine();
         const auto now = Clock::now();
         if (now - printed_ < std::chrono::milliseconds(tty_ ? 250 : 10000)) return;
         printed_ = now;
@@ -304,6 +331,7 @@ public:
     }
 
     void finish() {
+        machine_progress(done_, total_);
         const double seconds = std::chrono::duration<double>(Clock::now() - start_).count();
         if (copied_ == 0) std::fprintf(stderr, "ttt2: the game's files are all in place\n");
         else std::fprintf(stderr, "%sttt2: copied %s in %.0f s%s\n", tty_ ? "\r" : "", gigabytes(copied_).c_str(), seconds,
@@ -312,9 +340,19 @@ public:
 
 private:
     using Clock = std::chrono::steady_clock;
+
+    // At most ten lines a second.
+    void tell_machine() {
+        if (!machine_output()) return;
+        const auto now = Clock::now();
+        if (now - told_ < std::chrono::milliseconds(100)) return;
+        told_ = now;
+        machine_progress(done_, total_);
+    }
+
     uint64_t total_, done_ = 0, copied_ = 0;
     bool tty_;
-    Clock::time_point start_ = Clock::now(), printed_ = start_;
+    Clock::time_point start_ = Clock::now(), printed_ = start_, told_ = start_ - std::chrono::seconds(1);
 };
 
 void write_all(int fd, const uint8_t* data, uint64_t size, const fs::path& path) {
@@ -481,6 +519,7 @@ int install(const std::vector<std::string>& positional, bool launcher) {
         fail(game.string() + " is not the game this port was made from: TEKKEN TAG 2 Wii U EDITION, EU, version 16");
     }
     const fs::path folder = install_folder(positional.size() >= 2 ? fs::path(positional[1]) : choose_folder());
+    machine_line("@folder " + folder.string());
 
     // Space for what is not there yet, and the executable.
     std::error_code ec;
@@ -534,7 +573,10 @@ int update(const std::vector<std::string>& positional) {
     std::optional<fs::path> folder = positional.empty() ? recorded_folder() : std::optional(full_path(positional[0]));
     std::error_code ec;
     if (!folder || !fs::exists(*folder / kMarker, ec)) fail("no complete install to update: run ttt2 --install first");
+    machine_line("@folder " + folder->string());
     install_executable(*folder);
+    const uint64_t size = fs::file_size(*folder / kName, ec);
+    machine_progress(size, size);
     std::fprintf(stderr, "ttt2: updated the executable in %s\n", folder->c_str());
     return 0;
 }
@@ -555,6 +597,7 @@ int run(const std::vector<std::string>& args) {
         return updating ? update(positional) : install(positional, launcher);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "%sttt2: install: %s\n", isatty(STDERR_FILENO) ? "\n" : "", e.what());
+        machine_line(std::string("@error ") + e.what());
         return 1;
     }
 }

@@ -3,7 +3,9 @@
 The base is the donor's moveset and motion pack: its generic moves, the tag system, the embedded MOTAs, the hand,
 face and camera animations. The Tekken 7 fighter's own moves (in its moveset but neither the donor's nor Tekken 7
 Heihachi's) are converted and appended; the generic "hub" moves that lead into them (standing, crouching, ...) get
-the Tekken 7 fighter's cancel lists, converted, plus the donor's cancels into TTT2-only moves (tag out, ...).
+the Tekken 7 fighter's cancel lists, converted, plus the donor's cancels into TTT2-only moves (tag out, ...). Tekken 7
+has no tag: what TTT2's tag system needs in the converted moves themselves (the bound moves' Tag Assault twins, the
+landing reactions' Tag Crash rows, the bound test of Tekken 7's air slams) is made after the donor's (tagsystem.py).
 
 Converting a move: requirement and property ids through the derived id maps (idmaps.py), hit location codes
 likewise, the bitfield bit-reversed (TTT2 bit 31 - i = Tekken 7 bit i), move ids by name, animations by reference:
@@ -23,6 +25,7 @@ from ..movesets import REACTION_MOVE_FIELDS, TABLE_ORDER, TTT2
 from ..ttt2 import animation, motbin, motion
 from . import arcs
 from . import idmaps as M
+from . import tagsystem
 
 T7_END, TT_END = M.END_REQ['t7'], M.END_REQ['ttt2']
 SEQ0 = 0x800D                       # a cancel direction from here on names an input sequence
@@ -31,12 +34,23 @@ SEQ0 = 0x800D                       # a cancel direction from here on names an i
 # Tekken 7 requirement ids that are always false in TTT2 (the mode or system does not exist there)
 REQ_FALSE = {157: 'rage', 636: 'assist button', 811: 'basic combo', 558: 'story battle', 559: 'story battle no.',
              560: 'customization', 563: 'game mode', 634: 'treasure battle', 765: 'arcade cutscene',
-             830: 'power crush absorption', 809: 'assist combo value', 810: 'assist combo', 807: 'assist combo'}
+             830: 'power crush absorption', 809: 'assist combo value', 810: 'assist combo', 807: 'assist combo',
+             806: 'Tekken 7-only state (CPU or mode)'}
+# 806 must be false for a player: Tekken 7's generic moves gate a 120-frame lock on it at frame 2 of every side step
+# ([806][0x8077 120][352][0x80a6 1]: moveset variable 1 = 120, which TTT2's down-tap side step needs at 0, its
+# requirement 262; down taps crouched for 2 s after any side step) and an end of every side walk at frame 32. The
+# alignment once paired it with TTT2's requirement 0 (true): its row `[806] -> sWALK_02L` sat where TTT2 has the
+# neutral row `0x20 [0] -> sWALK_02L` (idmaps.align now compares directions).
 CHAR_IS, CHAR_IS_NOT = {217, 219, 223}, {218}     # "player / opponent is character <roster id>" requirements
 # Tekken 7's screw state does not exist in TTT2: its requirement and properties become TTT2's bound. The alignment
 # has no evidence for these ids; the pairs are format facts as the community's moveset tools record them (README:
 # Acknowledgements)
 REQ_OVERRIDE = {615: 467}
+# Tekken 7's "opponent airborne" (TTT2's 466 through the id maps). Where TTT2 bounds, Tekken 7 often slams instead:
+# [614 -> slam][614 -> air][default] in Tekken 7, [467 -> bound][466 -> air][default] in TTT2 for the same three moves
+# of Heihachi's (df+1,2 among them); the reaction map makes the slam the donor's bound reaction, so such an entry gets
+# TTT2's 467 test too (convert/tagsystem.py gated_slam)
+T7_AIR = 614
 # Direction tests: TTT2's requirement function (sub_0404FF30) has four sets of four, front first, back last, at 81..96
 # (*(r24), *(r24 + 4), the quadrant of an angle (sub_05C5D9B4), the hit's direction *(r20)) and 97 (TTT2 only);
 # Tekken 7 has the same four sets at 84..99 (100 = TTT2's 98). The alignment anchors only 87 -> 84 and 100 -> 98, so
@@ -222,6 +236,8 @@ class Converter:
             self.known_sounds |= self.donor_sound[pid]
         self.voice = True               # the fighter has its own voice banks (convert/voice.py)
         self.shouts = OWN_VOICE[2] + 1  # its shouts' count (the importer sets it from voice.build)
+        self.tag_states = None          # TTT2's movement (tag-out) states by move name (tagsystem.TagStates)
+        self._reachable = self.donor_states = None
         self.opt_anims = {}             # Tekken 7 tiger animation index -> its index in motion pack part 3
         self.part3 = None               # the motion pack's part 3 (animations of extra bones), else the donor's
         # animations already in TTT2: the common motions and the donor's own pack
@@ -253,6 +269,11 @@ class Converter:
     def add(self, table, row):
         self.T[table].append(row)
         return len(self.T[table]) - 1
+
+    def move_name(self, i):
+        """The name of move i of the new moveset."""
+        off = self.T['moves'][i]['name']
+        return self.strings[off:self.strings.index(b'\0', off)].decode('latin1')
 
     # --- ids --------------------------------------------------------------------------------------------
     def map_req(self, c):
@@ -307,14 +328,60 @@ class Converter:
         if r and r in self.dn:
             self.stats['target remapped (Tekken 7-only move -> the TTT2 move in its place)'] += 1
             return self.dn[r]
-        if self.alloc_ok and self.cls[mid] == 'T' and not DROP_T_RE.search(n):
+        # a Tekken 7 generic move: converted when a reaction needs it, or a movement state (Master Raven's crouch
+        # walk forward cWALK_00F, which TTT2 calls Ju_cWALKF)
+        if self.cls[mid] == 'T' and not DROP_T_RE.search(n) and (self.alloc_ok or self.is_state(mid)):
             idx = len(self.T['moves'])
             self.newidx[mid] = idx
             self.T['moves'].append(self.conv_move(mid))
             self.queue.append(mid)
-            self.stats['Tekken 7 generic moves converted (needed by reactions)'] += 1
+            self.stats['Tekken 7 generic moves converted (needed by reactions)' if self.alloc_ok else
+                       'Tekken 7 generic moves converted (movement states)'] += 1
             return idx
         return None
+
+    def reachable(self):
+        """The Tekken 7 moves a fighter gets into without a button: from its alias slots (stance, landings, ...)
+        through cancels on directions alone and transitions."""
+        if self._reachable is None:
+            k = self.k
+            nm = len(k.tables['moves'])
+            seen, todo = set(), [k.resolve_alias(0x8000 + s_) for s_ in range(56)]
+            groups = {}
+            while todo:
+                i = todo.pop()
+                if i is None or i >= nm or i in seen:
+                    continue
+                seen.add(i)
+                mv = k.tables['moves'][i]
+                todo.append(k.resolve_alias(mv['transition']))
+                for c in M.cancels(k, mv['cancel']):
+                    if c['direction'] == M.GROUP:
+                        if c['move_id'] not in groups:
+                            groups[c['move_id']] = [x for x in M.cancels(k, c['move_id'], 'group_cancels', M.GROUP_END)
+                                                    if x['direction'] != M.GROUP_END]
+                        rows = groups[c['move_id']]
+                    else:
+                        rows = [c] if c['direction'] != M.LIST_END else []
+                    todo += [k.resolve_alias(x['move_id']) for x in rows if x['button'] == 0]
+            self._reachable = seen
+        return self._reachable
+
+    def is_state(self, i):
+        """Tekken 7 move i is a movement state TTT2 lets a fighter tag out of (by TTT2's own movesets' move names,
+        tagsystem.TagStates) that the fighter gets into without a button."""
+        return self.tag_states is not None and self.tag_states(self.k.move_name(i)) and i in self.reachable()
+
+    def state_counterpart(self, i):
+        """The donor's move whose TTT2-only rows (tag out, tag throws, ...) the fighter's movement state i gets: its
+        tag-out move of the same state_name, else its stance (every one of the donor's tag-out states has the same)."""
+        if not self.is_state(i):
+            return None
+        if self.donor_states is None:
+            self.donor_states = {}
+            for j in sorted(tagsystem.tag_out_moves(self.d)):
+                self.donor_states.setdefault(tagsystem.state_name(self.d.move_name(j)), j)
+        return self.donor_states.get(tagsystem.state_name(self.k.move_name(i)), self.d.resolve_alias(0x8001))
 
     # --- lists ------------------------------------------------------------------------------------------
     def conv_reqs(self, i):
@@ -900,11 +967,19 @@ class Converter:
             last = not M.reqs(self.k, h['req'])
             r, ok = self.conv_reqs(h['req'])
             if ok:
-                if any(c == 615 for c, p in M.reqs(self.k, h['req'])):   # screw -> the donor's bound reactions
+                rl = [c for c, p in M.reqs(self.k, h['req'])]
+                if 615 in rl:                                   # screw -> the donor's bound reactions
                     rx = self.bound_reaction
                 else:
                     rx = self.conv_reaction(h['reactions']) if h['reactions'] is not None else None
-                out.append(dict(req=r, damage=h['damage'], reactions=rx))
+                entry = dict(req=r, damage=h['damage'], reactions=rx)
+                if rl == [T7_AIR] and tagsystem.same_reaction(self.T, rx, self.bound_reaction):   # an air slam
+                    alone = j + 1 >= len(t) or [c for c, p in M.reqs(self.k, t[j + 1]['req'])] != [T7_AIR]
+                    out += tagsystem.gated_slam(self.T, entry, out, self.bound_req, self.bound_reaction,
+                                                self.after_bound_reaction, alone)
+                    self.stats['Tekken 7 air slams -> bounds (467)'] += 1
+                else:
+                    out.append(entry)
             else:
                 self.stats['hit condition entry dropped'] += 1
             if last:
@@ -964,6 +1039,8 @@ class Converter:
         bc = collections.Counter(h['reactions'] for h in d.tables['hit_conditions']
                                  if h['reactions'] is not None and any(c == 467 for c, p in M.reqs(d, h['req'])))
         self.bound_reaction = bc.most_common(1)[0][0]
+        # ... their requirement list and what an air hit plays after them (the Tekken 7 air slams: conv_hitconds)
+        self.bound_req, self.after_bound_reaction = tagsystem.bound_shape(d.tables)
         nd = len(d.tables['moves'])
         keep = [i for i, c in enumerate(self.cls) if c == 'K' and not self.drop_moves.search(k.move_name(i))
                 and i not in self.delta_move]
@@ -987,14 +1064,20 @@ class Converter:
         # second pass: the links (every new index is known now)
         for i in keep:
             self.link_move(i, counterpart)
-        self.alloc_ok += 1
-        while self.queue:
-            self.link_move(self.queue.pop(0), counterpart)
-        self.alloc_ok -= 1
-        self.bake_arcs()
+        self.link_queued(counterpart)
         self.rebuild_hubs()
+        self.own_transitions()
+        self.link_queued(counterpart)          # Tekken 7 generic movement states the last two reached
+        self.bake_arcs()
         self.dismiss_when_hit()
         self.hold_thrown()
+        # TTT2's tag system on the converted moves (convert/tagsystem.py; the slams were gated while linking): the
+        # Tag Crash rows of the landing reactions, then the Tag Assault twins of the bound moves
+        self.stats['Tag Crash: moves given the landing tag rows'] += tagsystem.add_landing_rows(
+            self.T, tagsystem.landing_template(d.tables, d.aliases), nd, self.aliases)
+        made = tagsystem.add_tag_assault(self.T, tagsystem.assault_template(d.tables, d.aliases), nd, self.move_name,
+                                         self.string)
+        self.stats['Tag Assault: bound moves given a tag twin and its exit'] += len(made)
         # every move belongs to the new motion row
         for n, row in enumerate(self.T['moves']):
             combined = (self.newid << 16) + n - (self.newid - 1)
@@ -1004,13 +1087,25 @@ class Converter:
             self.T['pushback_extras'].append({'value': 0})
         return self
 
+    def link_queued(self, counterpart):
+        """Link the Tekken 7 generic moves target() converted on the way (their links may convert more)."""
+        self.alloc_ok += 1
+        while self.queue:
+            self.link_move(self.queue.pop(0), counterpart)
+        self.alloc_ok -= 1
+
     def link_move(self, i, counterpart):
         k, d = self.k, self.d
         mv = k.tables['moves'][i]
         row = self.T['moves'][self.newidx[i]]
-        if i in counterpart:
+        # the fighter's own walks, dashes, crouch starts ... (Ka_sWALKB, sWALK_00B) are counterparts of the donor's
+        # (Tekken 7 has no tag: without the donor's rows, no tag out while walking back or crouching)
+        cp = counterpart[i] if i in counterpart else self.state_counterpart(i)
+        if cp is not None:
+            if i not in counterpart:
+                self.stats['own movement states given the donor\'s tag rows'] += 1
             cl = self.merge_donor_extras(self.conv_cancel_list(mv['cancel']),
-                                         M.cancels(d, d.tables['moves'][counterpart[i]]['cancel']))
+                                         M.cancels(d, d.tables['moves'][cp]['cancel']))
             row['cancel'] = len(self.T['cancels'])
             self.T['cancels'] += cl
         else:
@@ -1047,10 +1142,42 @@ class Converter:
                          for x in dc) or any(x['direction'] == M.GROUP for x in dc)
             if not k_hub and not d_spec:
                 continue
-            cl = self.merge_donor_extras(self.conv_cancel_list(mv['cancel']), dc)
+            # a TTT2-only hub (the partner's tag-in dispatcher: Tekken 7 has no tag, its list is one row TTT2 never
+            # takes) keeps the donor's list, without its rows into donor-specific moves
+            cl = None if k_hub else tagsystem.kept_hub(
+                dc, lambda m: m < nd and d.move_name(m) in self.ttt2_only_generic,
+                lambda m: m < nd and d.move_name(m) in donor_specific)
+            if cl is not None:
+                self.stats['hub moves keeping the donor\'s list (tag system)'] += 1
+            else:
+                cl = self.merge_donor_extras(self.conv_cancel_list(mv['cancel']), dc)
             self.T['moves'][dj]['cancel'] = len(self.T['cancels'])
             self.T['cancels'] += cl
             self.stats['hub moves rebuilt'] += 1
+
+    def own_transitions(self):
+        """Generic moves keep the donor's move row, its transition too: where that ends in the donor's own movement
+        state (st2cr_00B -> Ju_cWALKB, cr2st_00F -> Ju_sWALKF: the donor's walk, its list with the donor's attacks),
+        the fighter's Tekken 7 transition when that is a movement state (Kz_cWALKB, Ka_sWALKF)."""
+        k, d = self.k, self.d
+        nd = len(d.tables['moves'])
+        donor_specific = {n for n in self.dn if n not in self.kn and n not in self.ttt2_only_generic}
+        for i, c in enumerate(self.cls):
+            if c != 'G':
+                continue
+            row = self.T['moves'][self.dn[k.move_name(i)]]
+            now = row['transition']
+            if now >= 0x8000:                   # an alias slot: the new moveset's (the stance is the fighter's)
+                now = self.aliases[now - 0x8000] if now < 0x8000 + 56 else None
+            if now is None or now >= nd or d.move_name(now) not in donor_specific:
+                continue
+            t7 = k.resolve_alias(k.tables['moves'][i]['transition'])
+            if t7 is None or t7 >= len(k.tables['moves']) or not self.is_state(t7):
+                continue
+            t = self.target(k.tables['moves'][i]['transition'])
+            if t is not None and t != row['transition']:
+                row['transition'] = t
+                self.stats['generic moves going on to the fighter\'s movement state, not the donor\'s'] += 1
 
     def merge_donor_extras(self, cl, dc):
         """Insert the donor's cancels into TTT2-only generic moves (the tag system, ...) at their aligned place:

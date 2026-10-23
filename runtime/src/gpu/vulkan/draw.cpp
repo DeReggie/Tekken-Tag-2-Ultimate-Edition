@@ -543,10 +543,17 @@ void Renderer::draw(const Registers& regs, const Draw& d) {
             float border[4];
             for (int i = 0; i < 4; ++i) border[i] = std::bit_cast<float>(r(border_base + slot * 16 + i * 4));
             const bool valid = (words[6] >> 30) == (resource::kTypeValidTexture >> 30);
-            const Texture* t = valid ? texture(words) : nullptr;
+            if (!valid) {
+                // Nothing bound (the shader samples it on a path it does not
+                // take, or the title relies on it): the GPU reads zeros, and
+                // the shader declared a 2D float texture. (Fallen Garden's
+                // water has such a slot; skipping the draw left no water.)
+                out[slot] = {null_texture().view, sampler(sampler_words, border, (s->info.shadow_mask >> slot) & 1), false};
+                continue;
+            }
+            const Texture* t = texture(words);
             if (t == nullptr) {
-                if (!valid) report_once("draw skipped: no texture bound to a sampled slot, resource words[6]", words[6]);
-                else report_once("draw skipped: texture could not be created, format", words[1] >> 26);
+                report_once("draw skipped: texture could not be created, format", words[1] >> 26);
                 return false;
             }
             out[slot] = {t->view, sampler(sampler_words, border, (s->info.shadow_mask >> slot) & 1), t->scale > 1};
@@ -743,6 +750,14 @@ void Renderer::draw(const Registers& regs, const Draw& d) {
             out[d.count] = index(0);
             break;
         }
+    }
+
+    // Stream-out data a run of stream-out draws wrote, read by the draws
+    // after it (skinned vertices, text): a barrier first, outside the pass.
+    const bool writes_stream_out = stream_out && !replaying_;
+    if (stream_out_pending_ && !writes_stream_out) {
+        if (rendering_) end_rendering();
+        else barrier();
     }
 
     // The rendering pass.
@@ -969,6 +984,7 @@ void Renderer::draw(const Registers& regs, const Draw& d) {
     } else {
         vkCmdDraw(c, d.count, instances, 0, 0);
     }
+    if (writes_stream_out) stream_out_pending_ = true;
     if (profiling_) {
         profile_mark("draw", colors[0] ? colors[0]->address : depth ? depth->address : 0,
                      (colors[0] ? colors[0]->pitch * colors[0]->scale : 0) << 16 | (colors[0] ? colors[0]->height * colors[0]->scale : 0),

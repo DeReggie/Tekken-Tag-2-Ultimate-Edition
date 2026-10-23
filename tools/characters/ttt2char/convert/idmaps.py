@@ -100,9 +100,12 @@ def align(a, b, ev):
     na = {a.move_name(i): i for i in range(len(A['moves']))}
     nb = {b.move_name(i): i for i in range(len(B['moves']))}
 
+    # a row: its input and target. Directions below 0x8000 count too: a Tekken 7-only automatic row
+    # `0 [806] -> sWALK_02L` in front of the neutral row `0x20 [0] -> sWALK_02L` both games have once paired with
+    # TTT2's, which made 806 "always true" (convert/moveset.py REQ_FALSE)
     def sig(m):
-        return lambda c: (target(m, c['move_id']) if c['direction'] < 0x8000 or c['direction'] in (0x8001, 0x8002)
-                          else '', c['button'])
+        return lambda c: ((c['direction'], target(m, c['move_id'])) if c['direction'] < 0x8000 else
+                          target(m, c['move_id']) if c['direction'] in (0x8001, 0x8002) else '', c['button'])
     sig_a, sig_b = sig(a), sig(b)
     for i, j in ((na[n], nb[n]) for n in na if n in nb):
         x, y = A['moves'][i], B['moves'][j]

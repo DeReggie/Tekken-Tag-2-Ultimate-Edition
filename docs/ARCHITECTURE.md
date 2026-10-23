@@ -211,7 +211,10 @@ descriptors and extended dynamic state; one pipeline per shader pair,
 attachment formats and blend state.
 
 - Guest memory (MEM2, MEM1) is imported with VK_EXT_external_memory_host,
-  so the GPU reads the title's buffers in place.
+  so the GPU reads the title's buffers in place. Stream-out writes it
+  from vertex shaders (skinned fighters, text); the first draw after a run
+  of stream-out draws ends the rendering pass for a barrier, which a pass
+  cannot hold, so the draws reading the output see all of it.
 - Submission is asynchronous: command buffers (8 in turn) and upload
   memory (8 chunks of a 256 MiB host buffer) are tracked on a timeline
   semaphore and reused once the GPU has finished with them. The command
@@ -224,7 +227,10 @@ attachment formats and blend state.
   targets). A texture is an image per resource: copied from a render
   target at its address if the GPU wrote that last, otherwise detiled from
   guest memory and reloaded when the CPU writes it and its hash changes.
-  Depth buffers sampled as textures are copied through a buffer.
+  Depth buffers sampled as textures are copied through a buffer. A slot a
+  shader samples with nothing bound reads zeros (a 1x1 image), as on the
+  GPU: Fallen Garden's and Heaven Garden's water draws have one, and
+  skipping them left those stages without water.
 - Write-back: the title reads some render targets with the CPU, as the
   console's GPU renders into guest memory. Its exposure averages the scene
   down to one element of a 64x64 target and reads it two frames later
@@ -267,11 +273,17 @@ attachment formats and blend state.
   bone matrices, fetched by the vertex shaders) is copied into a
   GPU-visible record that the real draw reads too, and a replay blends it
   with the previous frame's matching draw, value by value where both are
-  ordinary floats, except values that are whole numbers or 64ths in both
-  frames: indices kept as floats and sprite-sheet cells step to this
-  frame's value (blending the school stage crowd's flipbook cell drew the
-  halves of neighbouring cells: legs above, bodies sunk into the ground;
-  Norway's fire drew blobs in the sky). Draws match by key (shaders,
+  ordinary floats, except values that are small whole numbers (up to 4096)
+  or 64ths (up to 64) in both frames: indices kept as floats and
+  sprite-sheet cells step to this frame's value (blending the school stage
+  crowd's flipbook cell drew the halves of neighbouring cells: legs above,
+  bodies sunk into the ground; Norway's fire drew blobs in the sky). The
+  limits matter: floats in the tens of thousands are coarse enough that
+  moving values land on 64ths every few frames, and on infinite stages the
+  camera's matrix holds such values, changing by hundreds a frame when it
+  turns; stepping one of them while the rest moved threw the scene off
+  screen in extra frames (black frames with only the HUD and hit sparks,
+  the sky half black). Draws match by key (shaders,
   targets, vertex count and first texture): first those whose data did not
   change, then each with the most similar draw near its place among those
   with its key, so sprites sharing a key keep their partners when others
@@ -422,10 +434,25 @@ tables reach the title through the archive overlays.
 
 **Title screen** (`title/title_screen.*`). The logo is a video ending on the
 still in the title screen's texture set (data007 76C7E3CF). The new logo is
-that still without "Wii U Edition": rows below the "TAG TOURNAMENT 2" banner
-fade to black (the kanji tucked behind it), the subtitle's stroke that curls
-up beside the banner is removed (thin bright parts connected to the
-subtitle), and the logo moves 54 rows down. Video frames (BT.601
+that still subtitled "ULTIMATE EDITION" in the brush lettering of its "Wii U
+EDITION". The old subtitle goes: rows below the "TAG TOURNAMENT 2" banner
+fade to black (the kanji tucked behind it) and its stroke that curls up
+beside the banner is removed (thin bright parts connected to the subtitle).
+The lettering is black ink inside a rough white shape that runs round each
+word; the port finds the white (bright, near grey, connected to the
+subtitle), the shape it goes round (closed and filled), and in it the ink
+(dark) and windows onto the logo behind (the rest, where wide enough to
+have an inside). "ULTIMATE" is put together from the ink at EDITION's size:
+T, I and E are EDITION's own strokes (ends cut from a neighbour rounded
+off), U is WiiU's, smaller; L is an I upside down with E's bottom arm, M
+the W upside down, and A the W's right arm with its mirror image and E's
+middle arm across. Its white is the ink closed over small gaps (a disc of
+four texels), holes filled, then widened by four texels give or take two
+of smooth noise, for a brushy edge. EDITION and the underline are pasted
+back from the Wii U still (the shape's large solid parts and what lies
+close to them, so that highlight specks of the logo touching it stay
+behind), the line centred where the old one was: EDITION moves right, and
+the underline grows by repeating a stretch of itself. Video frames (BT.601
 limited-range planes passed to the renderer's plane filter) that fit
 a * Wii U still + b (least squares over the logo, b from the black around
 it, the fit explaining over half the variance) become a * new still + b plus
@@ -438,7 +465,8 @@ EDITION" before "& (C) 2012 …") and are centred again.
 ## Added fighters
 
 `runtime/src/title/roster.*` adds fighters from character packs (folders in
-`$TTT2_CHARACTERS`, else `~/.local/share/ttt2/characters`), made on the
+`$TTT2_CHARACTERS`, else `$XDG_DATA_HOME/ttt2/characters`, else
+`~/.local/share/ttt2/characters`), made on the
 player's machine from their own games by `tools/characters/`. This repository
 holds no part of any fighter.
 
@@ -486,7 +514,7 @@ the grilles over the top row's ends are hidden where a cell sits.
 (`vfs::set_archive_entries`) under keys of its own code (the CRCs of
 `<code>.xml` and so on, and of `<code>/parts/<kind>` for its part packs);
 whatever the pack leaves out is copied from the donor, a TTT2 fighter the
-pack names. A pack: `character.ini` (code, donor, sex, slot, chr_tones),
+pack names. A pack: `character.ini` (format, code, donor, sex, slot, chr_tones),
 `<code>.xml/.nud/.nut/.bon` (item database, model, textures, skeleton),
 `<code>.moveset/.motion`, optionally `<code>.mop/.havok.xml/.mvl`, its sound
 banks, costume parts in `parts/<kind>/<index>` and its own pictures in
@@ -495,7 +523,20 @@ big portraits' container, the HUD's pictures, the colour palettes and grid,
 the select screen's name calls) are made by the importer for all installed
 packs together, each fighter at its number, in the folder `shared/keys/`
 (`<key>.bin` a changed copy, `<key>.add` textures appended to a container; a
-copy of a sound bank stays raw, in the original's archive). Each frame the
+copy of a sound bank stays raw, in the original's archive). The port loads
+only packs whose `format` is its own (`kPackFormat`, the importer's
+`pack.PACK_FORMAT`) and never a pack's own `keys/`: the earliest packs carried
+title entries made for them alone there, whose texture pages, joined before
+`shared/`'s, moved every added fighter's pictures one place. A pack without a
+`format` line is format 1, or 0 when it has such a `keys/` folder; both sides
+read numbers (`format`, `slot`) as ASCII digits only, else as none. An older
+or a newer pack is skipped with a warning and keeps its number for its
+re-import, `shared/` is made for current packs only, and `launcher.py status`
+reports such a fighter as `outdated` (or `newer`, which the importer does not
+replace). Numbers go to packs as the port gives them (`pack.placed`): a pack
+without a code of three lower-case letters or a donor has none, named slots
+count below 128, and of two packs of one code the first by number is
+loaded. Each frame the
 game skins the vertices of the models on screen (both fighters, some stages'
 animals) into one of four stream-out buffers (80 bytes a vertex: position,
 normal, tangents and a per-vertex state its skinning shader carries from
@@ -714,6 +755,15 @@ has row indices, string and animation offsets instead, and the command
 list's offsets are turned back. The first 15 fighters and Heihachi load in
 one run and match TKMovesets2's files exactly: every table, name, animation
 and the command list (Geese's and Noctis's load the same way).
+Everything a session starts has a tag of its own in its environment (Wine
+starts its processes detached, so they are no children of gamescope). Its
+end, also on SIGTERM (the launcher's Cancel; the importer turns SIGTERM and
+SIGHUP into an exit that runs it), ends those, and runs `wineserver -k` only
+when nothing else uses the prefix: a Tekken 7 the player starts from Steam
+meanwhile goes on (Steam's start waits for the session's Wine to end). One
+session runs at a time per prefix (a lock in `$XDG_RUNTIME_DIR`), and what a
+killed importer left running is ended by the next. The helper's build and
+the run's logs are in `$XDG_CACHE_HOME/ttt2/tekken7`.
 
 Some packages and sound banks Tekken 7 also keeps encrypted inside its paks
 (Geese Howard's and Noctis's costumes, Noctis's voice bank: about 2,300
@@ -798,6 +848,156 @@ carries the colour grid and both palettes). The pack holds Namco's assets:
 the importer refuses to write it inside this repository, and `.gitignore`
 keeps the games' file types out.
 
+## The launcher
+
+`launcher/` is what players start: `ttt2-launcher`, shown as "Tekken Tag 2
+Ultimate Edition" (to be shipped as an AppImage). Nothing derived from the
+game may be shipped, so the game program is built on the player's PC from
+their own `.wua`, by the tools this build uses and the system's C++
+compiler.
+
+- **The kit** (`launcher/builder`, target `ttt2_kit`: `<build>/launcher/kit`,
+  installed as `<prefix>/lib/ttt2/kit`): `bin/ttt2-build`, `bin/cafe-recomp`,
+  the headers the generated code includes, the runtime and `main.cpp` as
+  `lib/libttt2_runtime.a` (the objects the ttt2 target links; they must be
+  position-independent) with the archives it uses, `lib/generated_stub.o`,
+  `kit.ini`, `VERSION` (the launcher's version and the commit) and
+  `t7helper.exe` when MinGW is there. `kit.ini` holds the generated code's
+  compile flags (the ttt2 build's own, `TTT2_GENERATED_OPTIONS`) and the
+  link: the runtime archive whole (its imports must replace the generated
+  weak defaults and its export registrations stay), then the other
+  archives, then the system's libraries by soname, found on the player's PC
+  through the loader's cache, so no development packages are needed (else
+  in `LD_LIBRARY_PATH`, `LIBRARY_PATH` or the compiler's library path, with
+  a run path to their folder). `needs` is the newest glibc and libstdc++
+  versions the kit's programs need, for the messages. The stub
+  (`kit_stub.cmake`) defines empty what the runtime uses of the generated
+  code (the tables of `cafe/generated.h`, no entries, and the `sub_*`
+  functions it calls or hooks, by name only): the kit build links it with
+  `kit.ini`'s lines and starts it before it writes them.
+- **`ttt2-build check|install|update`** checks the game's
+  `code/Tekken.rpx` (the v16 hash; the update over the base game, as
+  `wua.cpp` reads it), the processor (x86-64-v3), that cafe-recomp starts,
+  a compiler (`--compiler`, `$CXX`, else `clang++`, `clang++-N`, `g++`,
+  `g++-N`; one that says it is a compiler tried already is skipped, so each
+  of ccache's links counts; each tried on a file that needs guaranteed tail
+  calls and links C++ with libstdc++), the libraries, then the stub linked
+  as the program will be and started with `--help`, so a C or C++ library
+  older than the kit's or a missing library is named before the build, and
+  memory and free space (the install folder's also for the work folder's
+  copy of the program, when they share a file system). `check` without
+  GAME runs only these checks of the PC. The hints name the distribution's
+  install command, or on an image-based system (the launcher's rule) where
+  it must come from instead. Then it extracts the RPX, runs cafe-recomp
+  (0.54 GB of C++; the RPX goes once translated), compiles the files
+  largest first, as many at a time as processors and memory allow (up to
+  1.1 GB per file with Clang, 1.3 GB with GCC), links, and runs the new
+  program's `--install GAME FOLDER` or `--update FOLDER`. About 2.5 minutes
+  with Clang on 12 threads, 5 with GCC. It works in
+  `$XDG_CACHE_HOME/ttt2/build/run-XXXXXX`, deleted afterwards (one left by
+  a killed build is deleted by the next); SIGTERM stops the compilers and
+  cleans up. `<folder>/.ttt2-build` names the kit version and the compiler:
+  the launcher offers Update when its kit's version differs.
+- **Progress**, one line each on stdout (anything else is log text):
+  `@step <id> <text>` (check, extract, recompile, compile, link, copy,
+  finish), `@progress <done> <total>` (compile: files; copy: bytes),
+  `@folder <path>`, `@error <text>`, `@done`. With `TTT2_INSTALL_PROGRESS=1`
+  (ttt2-build sets it) `ttt2 --install`/`--update` print `@folder`,
+  `@progress` (at most ten a second) and `@error`.
+- **The importer's side** (`tools/characters/launcher.py`): `status` is one
+  JSON object, in about 0.1 s and without numpy, with what adding fighters
+  needs (numpy and Pillow, gamescope, pactl, the helper, Steam, Tekken 7's
+  folder or why it cannot be used, the packs folder, and per fighter its
+  DLC's app id, whether it is added, whether its pack is outdated (an older
+  importer's: the game skips it) or newer (a newer importer's: skipped too,
+  and never replaced by this importer) and whether its moveset is saved);
+  `owned` asks Steam through the hidden helper which DLC fighters the
+  account owns (Steam is never started). `import_character.py --progress`
+  adds `@step dump|fighter|shared`, `@added`, `@removed`, `@skipped`,
+  `@error` and `@done` lines, and `--remove` deletes packs again (numpy only
+  when what the packs left share is made again; not at all when only packs
+  the game does not load go, as `shared/` never held them). A pack is made
+  whole in a hidden folder beside its place (`.<code>.part`, `character.ini`
+  last) that then replaces the fighter's earlier pack folder whole (nothing
+  of an older pack stays), so a Cancel leaves no half pack; a pack folder
+  that is a link is replaced where it leads only when that is empty or that
+  fighter's pack, and an earlier pack left as `.<code>.old` by a write killed
+  between its two renames is put back before anything is placed.
+  `--no-shared` still remakes `shared/` for a fighter that was not in it. Steam from Flatpak or Snap is reported
+  (`steam.sandbox`) with Tekken 7's folder, as not supported yet.
+- **The window** (`launcher/app`, plain GTK 4.10, no libadwaita; its logic
+  without GTK in `launcher/core`, tested by `launcher_core_test`) finds the
+  kit, the importer and Python beside it (`../lib/ttt2/kit`,
+  `../share/ttt2/characters`, `../lib/ttt2/python/bin/python3`), else in
+  the build and source trees it was built from (unless built with
+  `TTT2_LAUNCHER_BUILD_TREE_PATHS=OFF`, as for the AppImage, whose program
+  names no folder of the build machine), else `python3` in PATH, and
+  passes the kit's `t7helper.exe` to the importer as `TTT2_T7HELPER`. It
+  checks the processor, the compiler and free space before an install, to
+  name what is missing with the distribution's install command (on an
+  image-based system, by the builder's rule and words, where it must come
+  from instead), and runs one task at a time through GSubprocess, reading
+  its lines as they come, each in a process group of its own that gets
+  SIGTERM if the launcher dies. Cancel sends SIGTERM to the program alone
+  (it stops what it started in order: the importer closes the hidden
+  Tekken 7), kills what is left of the group once it has ended, and the
+  whole group with SIGKILL when it has not ended within 45 s. The game runs
+  in a session of its own; it counts as running when any `/proc/<pid>/exe`
+  is the install's program (also "(deleted)"), whoever started it, and
+  Play, Update and Uninstall wait for it. Steam's last answer of the DLC
+  owned is kept in `$XDG_CACHE_HOME/ttt2/dlc-owned.json`, shown at once
+  and asked again in the background. The install's state is install.cpp's;
+  `$XDG_CONFIG_HOME/ttt2/installing` is the launcher's note of an install
+  it started that has not finished (the folder and the `.wua`, for
+  Resume; the folder's bytes as `@folder` gives them). Uninstall deletes
+  only what an install makes (the program, `icon.png`, `game/`, the
+  markers, and of `.part` files only the program's and `.ttt2-build`'s)
+  through file descriptors, never following a link or crossing into
+  another file system and never while the game runs, then the folder if it
+  is empty (and the link to it, when it is reached through one), the menu
+  entry and the record when they are that folder's, and the shader caches;
+  when asked, the saves the game wrote (`common/` and the 8-digit user
+  folders, nothing else of a `TTT2_SAVE_DIR` folder) and the character
+  packs (with the importer's hidden `.<code>.part` and `.<code>.old`
+  folders). A character whose pack is outdated shows "Older version", Remove
+  and Add Again (Add All and Add All Owned add them again too, and a line
+  above the list counts them); a newer version's shows "Newer version" and
+  Remove only.
+
+**The AppImage**: `launcher/appimage/make_appimage.sh OUTPUT BUILD_DIR`
+configures BUILD_DIR afresh (a folder of its own: it refuses another build
+folder) for Release with Clang and Ninja, with
+`TTT2_LAUNCHER_BUILD_TREE_PATHS=OFF`, without `TTT2_GENERATED_DIR` and
+`TTT2_RPX`, and with `-ffile-prefix-map` so that the source paths the
+runtime's messages name are relative; it builds `ttt2-launcher` and
+`ttt2_kit`, installs them with `cmake --install --prefix AppDir/usr --strip`,
+refuses an AppDir holding anything but the launcher, the kit, the importer's
+scripts, the desktop entry and the icon (nothing of the game, no tests, no
+Python caches), adds `AppRun` (it only starts `usr/bin/ttt2-launcher`: no
+`LD_LIBRARY_PATH`, as the compiler, Python, gamescope, Proton and the game
+it starts must not load anything of the AppImage), the desktop entry, the
+icon and `.DirIcon` at the AppDir's root, and packs it as zstd squashfs
+behind the AppImage type 2 runtime (downloaded once to `--runtime-cache DIR`,
+`$TTT2_APPIMAGE_CACHE` or `BUILD_DIR/appimage-cache`, and checked to be an
+x86-64 ELF program; the runtime reads a file back before the image is put
+in place). It is about 2.5 MB. This AppImage is tied to the distribution it
+was made on: it uses the system's GTK 4, GLib and C++ runtime, and the kit
+needs the build machine's glibc and libstdc++ anyway.
+
+Still to do for an AppImage for any distribution: build the kit on the
+oldest distribution it is for (this one needs glibc 2.38 and GCC 16's libstdc++, as `kit.ini`'s
+`needs` says); bundle or link
+statically what ttt2-build and cafe-recomp need (libcrypto, libzstd, libz);
+ship SDL 3.2 and shaderc, which many distributions lack, in the kit for the
+game program (link those, copy them to `<install>/lib/` with a mark that
+uninstall then deletes it by, as it leaves any `lib/` alone now, and add an
+`$ORIGIN/lib` rpath); bundle GTK 4 and GLib, and once AppRun sets
+`LD_LIBRARY_PATH` or GTK and GIO variables for them, restore those for the
+programs the launcher starts, as the compiler, Python and the game must not
+load the AppImage's libraries (and ttt2-build would give the game a run path into
+the AppImage for a library it found through `LD_LIBRARY_PATH`). The
+player's compiler cannot be bundled.
+
 ## Running the port
 
 `build/ttt2 "<path>/TEKKEN TAG 2 Wii U EDITION (EU).wua"` reads the
@@ -834,9 +1034,42 @@ anything not implemented stops with the function's name and a guest
 backtrace. Iterating on the runtime rebuilds and relinks in ~2 s.
 
 The window shows the TV image (F11 toggles fullscreen, `TTT2_FULLSCREEN=1`
-starts in it). Keyboard: arrows
-D-pad, X/Z/S/A the A/B/X/Y buttons, Q/W L/R, 1/2 ZL/ZR, Enter +, Backspace
-−, H Home, I/J/K/L the left stick; SDL gamepads map by button position.
+starts in it). Keyboard, by default: arrows D-pad, X/Z/S/A the A/B/X/Y
+buttons, Q/W L/R, 1/2 ZL/ZR, Enter +, Backspace −, H Home, I/J/K/L the left
+stick; SDL gamepads map by button position. Keys are SDL scancodes (USB HID
+usages: a key's place on the keyboard, whatever its layout prints on it),
+taken from `$XDG_CONFIG_HOME/ttt2/keyboard.ini` (`~/.config` when the
+variable is unset or not absolute) by `runtime/src/host/keymap.cpp`. The
+launcher's Settings write that file whole (a temporary file renamed over
+it); by hand it is one `input = key` per line, the inputs `dpad_up`,
+`dpad_down`, `dpad_left`, `dpad_right`, `face_top`, `face_bottom`,
+`face_left`, `face_right` (X, B, Y and A, by place), `l`, `r`, `zl`, `zr`,
+`stick_up`, `stick_down`, `stick_left`, `stick_right`, `plus`, `minus` and
+`home`. A key is a decimal scancode (4 to 511) or SDL's name for one
+(`SDL_GetScancodeFromName`, in any case: `Z`, `Return`, `Left Shift`, `Menu`).
+Digits are always a scancode: the digit keys only as numbers (the 1 key is
+30, the 5 key 34), and `5` is the B key. `#` starts a comment at the start
+of a line or after a space (also a tab, `\r`, `\v` or `\f`, which count as
+spaces), so SDL's `#` and `Keypad #` must be given as numbers, 50 and 204. Unknown inputs, bad keys and the
+reserved F11, Escape and GUI keys are left out with a warning, keeping that
+input's default; of an input given twice the later line counts, and one key
+on two inputs presses both. The window's loop stats the file about once a
+second and reads it again when it changed (another inode, size or time), so
+keys changed in the launcher apply while the game runs; each read logs
+`ttt2: keyboard: <n> of 19 keys from <file>` (or `keyboard: defaults (no
+<file>)`); only a regular file of at most 64 KiB is read. Keys typed by a
+Steam controller's keyboard device are ignored (Steam types Enter for its A,
+which would be +), and F11 held toggles fullscreen once. The launcher reads
+the file as the game does (it knows all of SDL's key names, and shows a key
+it cannot take from the keyboard by SDL's name or its number); where the
+file gives one key to two inputs, which it cannot show, its Settings page
+says so, gives each input a key of its own and saves that when a key is
+chosen or Restore Defaults pressed. There a key is taken when pressed, but
+Ctrl, Shift and Alt alone only once let go (with another key they are a
+shortcut, which stops choosing), and the keys' labels follow the keyboard's
+layout (GTK 4.18's, else that of the last key pressed that every layout
+defines). Saving writes through a link to where it leads, keeping that
+file's mode.
 `TTT2_GPU=null` runs headless without a window. Sound plays on the
 default output device; `TTT2_AUDIO=0` disables it and
 `TTT2_AUDIO_VOLUME=<percent>` scales it.
@@ -897,6 +1130,21 @@ ignores. Renderer debugging:
 | `TTT2_TRACE_TEXTURES=1` | every texture loaded from memory once, with the MD5 a replacement names |
 | `TTT2_TRACE_PRESENTATION=1` | how long the icons, texts and logo took to prepare |
 | `TTT2_CONTROLLER=playstation/nintendo/xbox` | icons and menu buttons for this kind of controller |
+
+The launcher (`launcher/app`, `ttt2-launcher`) runs by itself for tests,
+through the same code as its buttons (only the file pickers and the
+confirmations are left out); `--screenshot FILE` saves its window once it
+has loaded, then quits:
+
+| Variable | Effect |
+| --- | --- |
+| `TTT2_LAUNCHER_TEST_ACTIONS="install:<GAME>:<FOLDER>;add:kazumi;quit"` | actions one after another, each once the one before has ended: `install:<GAME>:<FOLDER>`, `update`, `add:<name>[,<name>...]`, `add-all-base`, `add-all-owned`, `remove:<name>`, `uninstall:keep`, `uninstall:all`, `play` (ends once the game has run 3 s), `quit`, and `expand-dlc`, `expand-log`, `show-uninstall`, `wait:<seconds>`, `focus:<id>` (the keyboard focus on `play`, `uninstall`, `fighter:<name>`, `add-all`, `dlc` ...) and `refresh` (logs the id focused afterwards); for Settings `settings` (opens it through the gear), `back`, `bind:<input>:<XKB keycode>[+<XKB keycode>...]` (that input's key clicked unless it waits for one already, then those keys pressed one after another and let go the other way round through the window's key handler, e.g. `bind:face_bottom:39` gives it S, `bind:zl:64` Left Alt, `bind:zl:64+23` is Alt+Tab, which stops choosing; a refused key, Esc and a shortcut log `failed` with the reason) and `reset-keys` (Restore Defaults); each logs `@test <action> ok\|failed <why>` to stderr |
+| `TTT2_LAUNCHER_TEST_SHOTS=<dir>` | the window as `<dir>/NN-<action>.png` after each action (`00-start.png` first, `NN-<action>-running.png` half-way through its task) |
+| `TTT2_LAUNCHER_TEST_PAGE=1` | also all of the window's content, scrolled into view or not, as `...-page.png` |
+| `TTT2_LAUNCHER_TEST_SCALE=2`, `TTT2_LAUNCHER_TEST_SIZE=<w>x<h>` | pictures at twice the scale; the window's size |
+| `TTT2_LAUNCHER_TEST_CANCEL=<0..1>` | press Cancel once a task's progress is that far (`-1`: at its first step), saving `NN-<action>-stopping.png` |
+| `TTT2_LAUNCHER_TEST_CANCEL_FILE=<file>` | press Cancel once that file exists (a script watching the task makes it, e.g. once the hidden Tekken 7 runs), saving `NN-<action>-stopping.png` |
+| `TTT2_KIT`, `TTT2_IMPORTER`, `TTT2_PYTHON` | the builder's kit, the importer (`tools/characters`) and Python the launcher uses (default: installed beside it, else the build and source trees it was built from unless `TTT2_LAUNCHER_BUILD_TREE_PATHS=OFF`, and `python3`) |
 
 ## Verification
 

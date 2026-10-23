@@ -358,7 +358,7 @@ class Places(unittest.TestCase):
             def install(code, slot=None):
                 os.makedirs(os.path.join(folder, code))
                 with open(os.path.join(folder, code, 'character.ini'), 'w') as f:
-                    f.write('code = %s\n' % code + ('slot = %d\n' % slot if slot is not None else ''))
+                    f.write('code = %s\ndonor = jun\n' % code + ('slot = %d\n' % slot if slot is not None else ''))
             self.assertEqual(pack.choose_slot(folder, 'aaa'), 0)
             install('bbb', 1)
             self.assertEqual((pack.choose_slot(folder, 'aaa'), pack.choose_slot(folder, 'bbb')), (0, 1))

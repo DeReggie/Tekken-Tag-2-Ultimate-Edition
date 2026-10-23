@@ -16,10 +16,10 @@
 // same key and the most similar data (begin_replay), and blends word by
 // word: values that look like ordinary floats in both frames move
 // linearly, anything else (integers, flags, NaNs) takes this frame's
-// value, and so do values on a coarse grid in both frames (whole numbers
-// and multiples of 1/64: indices kept as floats, and the cell of a sprite
-// sheet a flipbook shows, such as the school stage's crowd), which step
-// from one to the next rather than move. Each block is read in the byte
+// value, and so do small values on a coarse grid in both frames (whole
+// numbers and multiples of 1/64: indices kept as floats, and the cell of a
+// sprite sheet a flipbook shows, such as the school stage's crowd), which
+// step from one to the next rather than move. Each block is read in the byte
 // order in which its values look like floats. Only depth-tested draws, the
 // 3D scene, blend. When too few draws match (a new scene), the extra
 // frames show this frame as it is.
@@ -71,10 +71,18 @@ bool big_endian(const uint8_t* data, uint32_t size) {
     return be > le;
 }
 
-// On the grid of whole numbers and their 64ths (below 2^16, where floats
-// are finer than that).
+// On the grid of whole numbers (up to 4096) or their 64ths (up to 64): only
+// where a moving value lands on it by chance about once in 4096 frames or
+// less, so that both frames do once in 16 million. Farther out floats are
+// coarse and moving values land there often: a camera far from the origin
+// (an infinite stage) has a matrix column in the tens of thousands that
+// changes by hundreds a frame when it turns, and stepping one of its values
+// while the rest moved threw the scene off screen (black extra frames, a
+// black half of the sky).
 bool on_grid(float x) {
-    return std::fabs(x) < 65536.0f && x * 64.0f == std::trunc(x * 64.0f);
+    const float a = std::fabs(x);
+    if (a <= 4096.0f && x == std::trunc(x)) return true;
+    return a <= 64.0f && x * 64.0f == std::trunc(x * 64.0f);
 }
 
 void blend(uint8_t* out, const uint8_t* previous, const uint8_t* current, uint32_t size, float t, bool swapped) {
@@ -302,14 +310,16 @@ void Renderer::replace_constants(uint32_t draw_index, abi::DrawConstants& dc) {
         }
         // Draws sharing data (the parts of a character) share its blend.
         const uint64_t pair = (uint64_t{static_cast<uint32_t>(previous - prev.data.mapped)} << 32) | s.offset;
-        auto [it, fresh] = blended_.try_emplace(pair, 0);
+        auto [it, fresh] = blended_.try_emplace(pair, Blend{0, 0});
         if (fresh) {
             VkDeviceSize offset = 0;
             uint8_t* out = upload(s.size, 256, offset);
             blend(out, previous, current, s.size, replay_t_, s.big_endian);
-            it->second = ring_.address() + offset;
+            it->second = {ring_.address() + offset, ring_.chunk()};
         }
-        table[s.index] = descriptor(it->second, s.size, s.stride);
+        // (A submit since the upload left its chunk to the older command buffer.)
+        chunks_touched_ |= 1u << it->second.chunk;
+        table[s.index] = descriptor(it->second.address, s.size, s.stride);
     }
 }
 

@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -137,8 +138,8 @@ constexpr uint32_t kChrBankIds = 0x105F2C7C;   // u8 se_Chr bank ids (sub_07A5CA
 constexpr uint32_t kDwiBankIds = 0x105F2C40;   // u8 se_Dwi bank ids by fighter (sub_07A5CAA4)
 // A fighter's two name calls come from sub_079E5D64(id, kind) (-1 above 58):
 // kind 0 its se_Chr bank's, kind 1 the select screen's from the shared bank
-// se_Slt_StartChar, whose link tone `sel_syvo_name_<code>` plays the call. A
-// pack adds the fighter's to a changed copy of that bank (keys/).
+// se_Slt_StartChar, whose link tone `sel_syvo_name_<code>` plays the call. The
+// importer adds every fighter's to a changed copy of that bank (shared/keys/).
 constexpr const char* kSelectBank = "se_Slt_StartChar.nus3bank";
 
 // The archives whose entries are stored raw (no scrambling, no NRCZ): the
@@ -302,8 +303,21 @@ std::optional<uint32_t> part_key(const std::string& path, const std::string& cod
 
 // ------------------------------------------------------------------ packs
 
+// The pack format this port loads (character.ini `format`; the importer's
+// pack.PACK_FORMAT). A pack of another format is not loaded: its files were
+// made for another design. Its place stays its own, for its re-import. A
+// pack without a `format` line is of format 1, unless it has a `keys/`
+// folder: the earliest packs carried their own changed copies of the
+// title's entries there (made for one fighter alone, before shared/), which
+// would stack with shared/'s and move every added fighter's pictures one
+// place; they are format 0.
+constexpr int kPackFormat = 1;
+// Added fighters' places: 0 to 127 (the importer's pack.MAX_FIGHTERS).
+constexpr int kMaxFighters = 128;
+
 struct Pack {
     fs::path directory;
+    int format = 0;    // character.ini `format` (0: an older importer's, see kPackFormat)
     std::string code;  // three lower-case letters
     std::string donor; // a fighter's code
     bool female = true;
@@ -326,21 +340,38 @@ std::string trim(const std::string& s) {
     return s.substr(first, s.find_last_not_of(" \t\r") - first + 1);
 }
 
+// A character.ini number (format, slot): ASCII digits only, below 2^31, else
+// none, as the importer reads it (pack.number).
+std::optional<int> ini_number(const std::string& value) {
+    int number = 0;
+    const char* end = value.data() + value.size();
+    const auto [stop, error] = std::from_chars(value.data(), end, number);
+    if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos || error != std::errc{} ||
+        stop != end) {
+        return std::nullopt;
+    }
+    return number;
+}
+
 std::optional<Pack> read_pack(const fs::path& directory) {
     std::ifstream in(directory / "character.ini");
     if (!in) return std::nullopt;
     Pack pack;
     pack.directory = directory;
+    bool has_format = false;
     std::string line;
     while (std::getline(in, line)) {
         line = line.substr(0, line.find('#'));
         const size_t equals = line.find('=');
         if (equals == std::string::npos) continue;
         const std::string key = trim(line.substr(0, equals)), value = trim(line.substr(equals + 1));
-        if (key == "code") pack.code = value;
+        if (key == "format") {
+            pack.format = ini_number(value).value_or(0);
+            has_format = true;
+        } else if (key == "code") pack.code = value;
         else if (key == "donor") pack.donor = value;
         else if (key == "sex") pack.female = value != "male";
-        else if (key == "slot") pack.slot = std::atoi(value.c_str());
+        else if (key == "slot") pack.slot = ini_number(value).value_or(-1);
         else if (key == "chr_tones") pack.chr_tones = static_cast<uint32_t>(std::strtoul(value.c_str(), nullptr, 10));
         else if (key == "voice_extra") {
             std::istringstream tones(value);
@@ -377,6 +408,8 @@ std::optional<Pack> read_pack(const fs::path& directory) {
                      (directory / "character.ini").c_str());
         return std::nullopt;
     }
+    std::error_code ec;
+    if (!has_format) pack.format = fs::is_directory(directory / "keys", ec) ? 0 : 1;
     return pack;
 }
 
@@ -597,9 +630,12 @@ bool add_entries(const Pack& pack, uint32_t donor_row, size_t slot) {
         bank_files.push_back(name);
         ++own;
     }
-    // Costume parts, pictures, changed copies of the title's entries (`keys/`:
-    // a pack made for one added fighter; packs made together share theirs in
-    // `shared/`), and anything else.
+    // Costume parts, pictures, effects and anything else. Changed copies of
+    // the title's own entries come from `shared/` only (add_shared, made for
+    // all the packs together): a `keys/` folder in a pack (an early
+    // importer's, made for one fighter alone) is never read, since its
+    // texture pages would be joined to the title's containers before
+    // shared/'s and move every added fighter's pictures one place.
     std::error_code ec;
     for (const auto& item : fs::recursive_directory_iterator(pack.directory, ec)) {
         if (!item.is_regular_file()) continue;
@@ -607,19 +643,10 @@ bool add_entries(const Pack& pack, uint32_t donor_row, size_t slot) {
         const bool known = name == "character.ini" ||
                            std::any_of(files.begin(), files.end(), [&](const File& f) { return f.name == name; }) ||
                            std::find(bank_files.begin(), bank_files.end(), name) != bank_files.end();
-        if (known) continue;
+        if (known || name.compare(0, 5, "keys/") == 0) continue;
         auto contents = read_file(item.path());
         if (!contents) continue;
         ++own;
-        if (const auto replaced = named_key(name)) {
-            if (!add_title_copy(located, name, *replaced, *contents, entries, raw)) {
-                std::fprintf(stderr, "ttt2: warning: %s: %s does not fit the title's entry; left out\n",
-                             pack.directory.c_str(), name.c_str());
-            } else if (*replaced == key_of(kSelectBank)) {
-                voice.name_tone = tone_index(*contents, "sel_syvo_name_" + pack.code);
-            }
-            continue;
-        }
         const bool own = name.compare(0, 4, "art/") == 0 || name.compare(0, 4, "alo/") == 0;
         const std::string entry = own ? pack.code + "/" + name : name;
         const uint32_t key = part_key(name, pack.code).value_or(key_of(entry));
@@ -1022,8 +1049,7 @@ void prepare_art(const Pack& pack, size_t slot, const fs::path& shared) {
     std::memcpy(art.profile.data(), guest_pointer(kProfiles), kProfileSize);
     const uint32_t label = __builtin_bswap32(guest_string("face_" + pack.code));
     std::memcpy(art.profile.data(), &label, 4);
-    art.hud = fs::is_regular_file(shared / "keys" / "7c476bde.add", ec) ||
-              fs::is_regular_file(pack.directory / "keys" / "7c476bde.add", ec);
+    art.hud = fs::is_regular_file(shared / "keys" / "7c476bde.add", ec);
 }
 
 // ------------------------------------------------------------------ costume chooser
@@ -1137,29 +1163,35 @@ void prepare_roster() {
     if (!fs::is_directory(directory, ec)) return;
     std::vector<fs::path> candidates;
     for (const auto& item : fs::directory_iterator(directory, ec)) {
+        // (a name starting with a dot: the importer's pack being written, or the one it replaces)
+        if (item.path().filename().string().compare(0, 1, ".") == 0) continue;
         if (item.is_directory() && fs::is_regular_file(item.path() / "character.ini", ec)) {
             candidates.push_back(item.path());
         }
     }
     std::sort(candidates.begin(), candidates.end());
     // Numbers: the one a pack names (the importer's choice, which the shared pictures follow), else the first free.
+    // Packs of another format keep theirs (the importer's pack.places_of counts them too), unloaded.
     std::vector<Pack> packs;
     for (const fs::path& candidate : candidates) {
         if (auto pack = read_pack(candidate)) packs.push_back(std::move(*pack));
     }
     std::vector<const Pack*> at;
     for (const Pack& pack : packs) {
-        if (pack.slot < 0 || pack.slot >= 256) continue;
+        if (pack.slot < 0 || pack.slot >= kMaxFighters) continue;
         if (at.size() <= static_cast<size_t>(pack.slot)) at.resize(pack.slot + 1, nullptr);
         if (!at[pack.slot]) at[pack.slot] = &pack;
     }
     for (const Pack& pack : packs) {
         if (std::find(at.begin(), at.end(), &pack) != at.end()) continue;
         const auto free = std::find(at.begin(), at.end(), nullptr);
-        if (free == at.end()) {
+        if (free != at.end()) {
+            *free = &pack;
+        } else if (at.size() < static_cast<size_t>(kMaxFighters)) {
             at.push_back(&pack);
         } else {
-            *free = &pack;
+            std::fprintf(stderr, "ttt2: warning: %s: all %d places of added fighters are taken; skipped\n",
+                         pack.directory.c_str(), kMaxFighters);
         }
     }
     g_added.assign(at.size(), Added{});
@@ -1169,6 +1201,20 @@ void prepare_roster() {
     for (size_t k = 0; k < at.size(); ++k) {
         if (!at[k]) continue;
         const Pack& pack = *at[k];
+        if (pack.format < kPackFormat) {
+            std::fprintf(stderr,
+                         "ttt2: warning: %s was made by an older importer (pack format %d, this game loads %d): add "
+                         "it again (the launcher offers it); skipped\n",
+                         pack.directory.c_str(), pack.format, kPackFormat);
+            continue;
+        }
+        if (pack.format > kPackFormat) {
+            std::fprintf(stderr,
+                         "ttt2: warning: %s was made by a newer importer (pack format %d, this game loads %d): "
+                         "update the game; skipped\n",
+                         pack.directory.c_str(), pack.format, kPackFormat);
+            continue;
+        }
         const auto donor = fighter_id(pack.donor);
         const auto donor_row = donor ? motion_row(*donor) : std::nullopt;
         if (!donor || *donor >= 59 || !donor_row) {

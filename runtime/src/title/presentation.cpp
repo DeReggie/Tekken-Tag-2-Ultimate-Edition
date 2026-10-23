@@ -273,29 +273,28 @@ void prepare_copyright(const std::vector<ntp3::Texture>& set) {
 
 // The logo is a video: the title screen's ends on the still of the Wii U
 // logo (the first texture of the set), after fading in from white and
-// light sweeping over it. Each frame of it becomes the logo without the
-// subtitle (title_screen::logo) with the same fade and light. The frame is
-// fitted as a * Wii U still + b (a by least squares over the logo, b from
-// the black around it); what the fit leaves (the light, and coding noise)
-// goes onto a * new still + b, the noise dropped and the rest blurred where
-// the stills differ, so that it does not draw the subtitle; then the logo
-// moves down. Frames that do not fit (other videos) stay as they are.
+// light sweeping over it. Each frame of it becomes the logo subtitled
+// "ULTIMATE EDITION" (title_screen::logo) with the same fade and light.
+// The frame is fitted as a * Wii U still + b (a by least squares over the
+// logo, b from the black around it); what the fit leaves (the light, and
+// coding noise) goes onto a * new still + b, the noise dropped and the
+// rest blurred where the stills differ, so that it does not draw the old
+// subtitle. Frames that do not fit (other videos) stay as they are.
 // Video frames are BT.601 limited-range planes: luma 1280x720, then the
 // blue and red chroma planes, half size, 640 texels on a 768 pitch.
 // Chroma moves by a * (new still - Wii U still).
 struct Logo {
-    static constexpr uint32_t kWidth = 1280, kHeight = 720, kShift = title_screen::kLogoShift;
+    static constexpr uint32_t kWidth = 1280, kHeight = 720;
     static constexpr uint32_t kBlueOffset = kWidth * kHeight, kRedOffset = kBlueOffset + 768 * (kHeight / 2);
     static constexpr float kNoise = 10.0f; // coding noise, in luma steps
     static constexpr int kBlur = 5;        // radius of the two box blurs
-    std::vector<float> from, to;           // luma of the stills (Wii U, new before the move)
+    std::vector<float> from, to;           // luma of the stills (Wii U, new)
     std::vector<uint8_t> differ;           // the stills differ within three texels
     std::vector<int16_t> blue, red;        // chroma: new still - Wii U still
     std::vector<uint32_t> samples, background; // texels to fit with; those black in the Wii U still
     double mean = 0, variance = 0;         // of the Wii U still's luma at the samples
     uint32_t x0 = 0, y0 = 0, x1 = 0, y1 = 0; // the logo's part of the frame
     std::vector<float> rest, blurred, scratch;
-    std::vector<uint8_t> copy;
     std::array<std::pair<uint32_t, float>, 4> recent{}; // luma plane address, a
     size_t next = 0;
 };
@@ -325,15 +324,6 @@ void box_blur(std::vector<float>& image, uint32_t width, uint32_t height, int ra
     };
     pass(height, width, 1, width); // rows
     pass(width, height, width, 1); // columns
-}
-
-// Moves rows [top, bottom) of a plane down by `shift`, from `source` (a
-// copy of the plane); the rows they leave take the ones above.
-void move_down(uint8_t* plane, const std::vector<uint8_t>& source, uint32_t width, uint32_t height, uint32_t top,
-               uint32_t bottom, uint32_t shift) {
-    for (uint32_t y = std::max(top, shift); y < std::min(height, bottom + shift); ++y) {
-        std::memcpy(plane + size_t{y} * width, source.data() + size_t{y - shift} * width, width);
-    }
 }
 
 void filter_logo(uint32_t address, uint32_t width, uint32_t height, uint8_t* texels) {
@@ -378,8 +368,6 @@ void filter_logo(uint32_t address, uint32_t width, uint32_t height, uint8_t* tex
                 texels[i] = static_cast<uint8_t>(std::clamp(std::lround(v), 0L, 255L));
             }
         }
-        l.copy.assign(texels, texels + size_t{width} * height);
-        move_down(texels, l.copy, width, height, l.y0, l.y1, Logo::kShift);
         return;
     }
     if (width != Logo::kWidth / 2 || height != Logo::kHeight / 2) return;
@@ -395,15 +383,13 @@ void filter_logo(uint32_t address, uint32_t width, uint32_t height, uint8_t* tex
                 texels[i] = static_cast<uint8_t>(std::clamp(std::lround(texels[i] + weight * (*delta)[i]), 0L, 255L));
             }
         }
-        l.copy.assign(texels, texels + size_t{width} * height);
-        move_down(texels, l.copy, width, height, l.y0 / 2, l.y1 / 2, Logo::kShift / 2);
         return;
     }
 }
 
 void prepare_logo(const ntp3::Texture& still) {
     const auto from = ntp3::decode(still);
-    const auto to = from ? title_screen::logo(*from, false) : std::nullopt;
+    const auto to = from ? title_screen::logo(*from) : std::nullopt;
     if (!to) return;
     constexpr uint32_t W = Logo::kWidth, H = Logo::kHeight;
     Logo& l = g_logo;

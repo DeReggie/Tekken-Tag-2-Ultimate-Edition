@@ -201,6 +201,9 @@ private:
     void copy_depth_to_texture(const Target& src, Texture& t, uint32_t width, uint32_t height);
     VkSampler sampler(const uint32_t words[3], const float border[4], bool compare);
     Buffer depth_staging_; // video memory for depth -> texture copies
+    // A 1x1 2D image of zeros, for texture slots with nothing bound.
+    const Image& null_texture();
+    Image null_texture_;
 
     // ---------------------------------------------------- draws (draw.cpp)
     const ShaderModule* shader(latte::Stage stage, uint32_t address, uint32_t size, uint32_t fetch_address,
@@ -281,7 +284,11 @@ private:
     uint64_t record_value_[2] = {}; // last submission reading each record
     int current_record_ = 0;
     std::vector<int32_t> match_;     // this frame's draw -> previous frame's, -1 none
-    std::unordered_map<uint64_t, VkDeviceAddress> blended_; // (previous, current offset) -> blend in the ring
+    struct Blend {
+        VkDeviceAddress address; // in the ring
+        uint32_t chunk;          // its ring chunk, marked used by each command buffer reading it
+    };
+    std::unordered_map<uint64_t, Blend> blended_; // (previous, current offset) -> blend
     void forget_snapshots(uint32_t address, uint32_t size);
     void note_target_written(const Target* t);
     void note_target_read(const Target* t);
@@ -414,6 +421,9 @@ private:
 
     // Current dynamic rendering pass.
     bool rendering_ = false;
+    // A draw wrote stream-out data (guest memory, from the vertex shader)
+    // since the last barrier: draws reading it need one, outside a pass.
+    bool stream_out_pending_ = false;
     std::array<const Target*, 8> pass_colors_{};
     const Target* pass_depth_ = nullptr;
     uint32_t pass_width_ = 0, pass_height_ = 0;

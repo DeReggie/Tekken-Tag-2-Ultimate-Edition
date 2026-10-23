@@ -101,6 +101,25 @@ target_link_libraries(title_test PRIVATE cafe_title)
 target_compile_options(title_test PRIVATE -Wall -Wextra)
 add_test(NAME title_test COMMAND title_test)
 
+# The keyboard's keys from keyboard.ini and its reloading (files in a
+# scratch folder of the build tree; SDL only for its key names).
+find_package(SDL3 REQUIRED CONFIG)
+add_executable(keymap_test keymap_test.cpp ${CMAKE_SOURCE_DIR}/runtime/src/host/keymap.cpp)
+target_include_directories(keymap_test PRIVATE ${CMAKE_SOURCE_DIR}/runtime/src ${CMAKE_SOURCE_DIR}/runtime/include)
+target_compile_features(keymap_test PRIVATE cxx_std_20)
+target_link_libraries(keymap_test PRIVATE SDL3::SDL3)
+target_compile_options(keymap_test PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME keymap_test COMMAND keymap_test ${CMAKE_CURRENT_BINARY_DIR}/keymap_test.d)
+
+# keyboard.ini as the launcher writes it, read by the game's parser: their
+# inputs, defaults and reserved keys stay the same.
+add_executable(keyboard_file_test keyboard_file_test.cpp ${CMAKE_SOURCE_DIR}/runtime/src/host/keymap.cpp)
+target_include_directories(keyboard_file_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/runtime/src ${CMAKE_SOURCE_DIR}/runtime/include)
+target_link_libraries(keyboard_file_test PRIVATE ttt2_launcher_core SDL3::SDL3)
+target_compile_options(keyboard_file_test PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME keyboard_file_test COMMAND keyboard_file_test)
+
 # Guest polling loops must see other threads' stores (no Dolphin needed).
 add_executable(memory_model_test memory_model_test.cpp)
 target_include_directories(memory_model_test PRIVATE ${CMAKE_SOURCE_DIR}/runtime/include)

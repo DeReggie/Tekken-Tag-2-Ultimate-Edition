@@ -23,7 +23,9 @@
 namespace cafe::install {
 
 // ttt2 --install [GAME [FOLDER]] [--no-launcher], ttt2 --update; `args`
-// excludes the program name. Returns the process exit code.
+// excludes the program name. Returns the process exit code. With
+// TTT2_INSTALL_PROGRESS=1 it also prints "@folder <path>", "@progress <done>
+// <total>" (bytes) and "@error <text>" lines on stdout for the launcher.
 int run(const std::vector<std::string>& args);
 
 // The installed game's title folder: next to this executable, else where

@@ -169,6 +169,7 @@ void Renderer::wait_for(uint64_t value) {
 void Renderer::sync() { submit(true); }
 
 void Renderer::barrier() {
+    stream_out_pending_ = false;
     VkMemoryBarrier2 mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
     mb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     mb.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;

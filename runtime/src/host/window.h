@@ -1,8 +1,9 @@
 #pragma once
 
 // The game window: SDL3 on the process's main thread, which owns the event
-// loop; keyboard and gamepads feed the Wii U GamePad state. The renderer
-// presents into it from the GPU thread through a Vulkan surface.
+// loop; keyboard (keys from keyboard.ini, host/keymap.h) and gamepads feed
+// the Wii U GamePad state. The renderer presents into it from the GPU
+// thread through a Vulkan surface.
 
 #include <vulkan/vulkan.h>
 

@@ -1,7 +1,8 @@
 // The title's file formats and the pictures made from them, on synthetic
 // data (no game files needed): archive scrambling, packing and rebuilding,
 // texture decoding, the font's glyph table and icon sets, the text banks'
-// button names, the copyright line without "Wii U Edition".
+// button names, the copyright line without "Wii U Edition", and a still
+// without the logo's subtitle getting none.
 
 #include "title/archive.h"
 #include "title/draw.h"
@@ -417,6 +418,14 @@ void test_copyright_line() {
     check(!title_screen::copyright_line(blank(700, 32)), "copyright line: none for a line without the words");
 }
 
+// ------------------------------------------------------------------ the logo
+
+void test_logo() {
+    // Only the Wii U still has the strokes the new subtitle is made from.
+    check(!title_screen::logo(blank(1280, 720)), "logo: none for a still without the subtitle");
+    check(!title_screen::logo(blank(640, 360)), "logo: none for another size");
+}
+
 } // namespace
 
 int main() {
@@ -428,6 +437,7 @@ int main() {
     test_draw();
     test_text();
     test_copyright_line();
+    test_logo();
     if (g_failures == 0) std::printf("title_test: all passed\n");
     return g_failures == 0 ? 0 : 1;
 }

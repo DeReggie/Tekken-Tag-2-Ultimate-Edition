@@ -95,6 +95,36 @@ def to_ttt2(v):
     return [-v[1], v[2], v[0]]
 
 
+def frotation(pitch, yaw, roll):
+    """The engine's rotation matrix of a rotator (degrees; roll about X, then pitch about Y, then yaw about Z) for
+    row vectors in its axes: v' = v @ M."""
+    sp, cp = math.sin(math.radians(pitch)), math.cos(math.radians(pitch))
+    sy, cy = math.sin(math.radians(yaw)), math.cos(math.radians(yaw))
+    sr, cr = math.sin(math.radians(roll)), math.cos(math.radians(roll))
+    return np.array([[cp * cy, cp * sy, sp],
+                     [sr * sp * cy - cr * sy, sr * sp * sy + cr * cy, -sr * cp],
+                     [-(cr * sp * cy + sr * sy), cy * sr - cr * sp * sy, cr * cp]])
+
+
+def emitter_frame(req):
+    """(rotation, origin) of an emitter in its system (Required EmitterRotation, a rotator, and EmitterOrigin, cm):
+    the engine places spawn offsets and start velocities in it (origin + offset @ rotation); meshes keep their own
+    orientation (Geese's AirBullet windline_06: rotation yaw 180, its mesh already pointing forward)."""
+    r = (req.get('EmitterRotation') if req is not None else None) or {}
+    o = (req.get('EmitterOrigin') if req is not None else None) or {}
+    if isinstance(o, dict):
+        o = [o.get('x', 0.0), o.get('y', 0.0), o.get('z', 0.0)]
+    rot = None
+    if any(abs(float(r.get(k) or 0.0)) > 1e-6 for k in ('pitch', 'yaw', 'roll')):
+        rot = frotation(float(r.get('pitch') or 0.0), float(r.get('yaw') or 0.0), float(r.get('roll') or 0.0))
+    return rot, [float(x or 0.0) for x in o]
+
+
+def in_frame(v, rot):
+    """A vector of an emitter's frame in its system's (emitter_frame's rotation; None: the same)."""
+    return list(np.asarray(v, float) @ rot) if rot is not None else list(v)
+
+
 def turns_to_ttt2(v):
     """A Cascade mesh rotation (turns: roll about X, pitch about Y, yaw about Z; the engine's pitch lifts the nose,
     its yaw and roll turn clockwise) -> TTT2's angles about x, y, z (radians, right-handed in its frame: measured
@@ -309,6 +339,30 @@ def _scroll(mat):
         return float(v.get('r') or 0.0), float(v.get('g') or 0.0)
     s = mat['scalars']
     return float(s.get('Diffuse TexScrol(U)') or 0.0), float(s.get('Diffuse TexScrol(V)') or 0.0)
+
+
+def _particle_scroll(em, mat, life_s):
+    """The texture scroll (UV per second) of a material the particle scrolls: Tekken 7's effect shaders offset the
+    texture by BaseTexScroll x the particle's dynamic parameter 'Scroll', a curve over its life, with no time term
+    (Geese's Reppuu Ken wave: 0.3 -> 0 runs the fire from the crest back along the tail) -> the curve's change over
+    the life as a speed (a flat curve: none). None: no such parameter, or BaseTexScroll is not the scroll."""
+    v = mat['vectors'].get('BaseTexScroll')
+    if not v:
+        return None
+    for m in em.all('ParameterDynamic'):
+        for p in m.get('DynamicParams') or []:
+            if p.get('ParamName') != 'Scroll' or p.get('bUseEmitterTime') or \
+                    (p.get('ValueMethod') or 'EDPV_UserSet') != 'EDPV_UserSet':
+                continue
+            table = (p.get('ParamValue') or {}).get('Table') or {}
+            values = [float(x) for x in table.get('Values') or []]
+            stride = max(1, int(table.get('EntryStride') or 1))     # (a range: low and high an entry)
+            entries = [sum(values[i:i + stride]) / stride for i in range(0, len(values) - stride + 1, stride)]
+            if not entries:
+                continue
+            change = (entries[-1] - entries[0]) / max(1.0 / FPS, life_s)
+            return float(v.get('r') or 0.0) * change, float(v.get('g') or 0.0) * change
+    return None
 
 
 def _shape(img):
@@ -595,7 +649,9 @@ class Converter:
         mesh = None
         mat_ref = req.get('Material')
         plane = None
+        pre = None
         if td is not None and td.cls == 'TypeDataMesh' and td.get('Mesh'):
+            pre = td.dist('RollPitchYawRange', 3, [0.0, 0.0, 0.0])
             mesh = short_ref(td.get('Mesh'))
             if ITEM_MESHES in mesh:          # the fighter's own item (Noctis's summoned weapons): its model draws it
                 raise Invisible()
@@ -646,7 +702,8 @@ class Converter:
         shape = None
         if mesh is not None:
             shape = self._model_shape(em)
-            model = self._mesh_nud(mesh, tex[1], MODEL_ADD if additive else MODEL_ALPHA, shape[0])
+            model = self._mesh_nud(mesh, tex[1], MODEL_ADD if additive else MODEL_ALPHA, shape[0],
+                                   tuple(pre.mean()) if pre is not None else (0.0, 0.0, 0.0))
             if model is None:
                 return []
         sp, pa = base['spawner'], base['particle']
@@ -664,10 +721,11 @@ class Converter:
         # life
         _set(sp, '>HH', alo.LIFE, _u16(life_f), _u16(life_d.spread()[0] * FPS if life_d else 0))
         self._size(em, sp, model is not None, life_f, plane, shape)
-        self._rotation(em, sp, model is not None)
-        self._motion(em, sp, pa, life_f)
-        self._location(em, pa)
-        self._texture(sp, tex, src.scroll, req, life_f)
+        self._rotation(em, sp, model is not None, pre if model is not None else None)
+        frame = emitter_frame(req)
+        self._motion(em, sp, pa, life_f, frame[0])
+        self._location(em, pa, frame)
+        self._texture(sp, tex, _particle_scroll(em, mat, life_s) or src.scroll, req, life_f)
         # timing: one emitter for the rate, one per burst
         out = []
         spawn = em.module('Spawn')
@@ -801,7 +859,11 @@ class Converter:
         _set(sp, '>f', 36, share(alpha.spread()[0], peak_a))
         return self.textures.lit(src, peak, peak_a, additive)
 
-    def _rotation(self, em, sp, is_model):
+    def _rotation(self, em, sp, is_model, pre=None):
+        """Start rotation and spin. pre: a mesh particle's TypeDataMesh RollPitchYawRange (degrees), its mean baked
+        into the model (_mesh_nud): its random half range adds to the start rotation's, and under a baked yaw of 180
+        degrees the mesh rotation's pitch and roll turn the other way (the engine adds both rotators up, then rolls,
+        pitches and yaws; the model is yawed first)."""
         rot = [0.0, 0.0, 0.0]
         rot_r = [0.0, 0.0, 0.0]
         spin = [0.0, 0.0, 0.0]
@@ -825,19 +887,25 @@ class Converter:
                 d = mrr.dist('StartRotationRate', 3, [0.0, 0.0, 0.0])
                 spin = [x / FPS for x in turns_to_ttt2(d.mean())]
                 spin_r = [abs(x) / FPS for x in turns_to_ttt2(d.spread())]
+            if pre is not None:
+                roll, pitch, yaw = pre.mean()
+                if abs(roll) < 1e-3 and abs(pitch) < 1e-3 and abs(abs(yaw) - 180.0) < 1e-3:
+                    rot[0], rot[2], spin[0], spin[2] = -rot[0], -rot[2], -spin[0], -spin[2]
+                rot_r = [a + abs(b) for a, b in zip(rot_r, turns_to_ttt2([x / 360.0 for x in pre.spread()]))]
         _set(sp, '>12f', 164, *(rot + rot_r + spin + spin_r))
         _set(sp, '>6f', 212, 0, 0, 0, 0, 0, 0)
 
-    def _motion(self, em, sp, pa, life_f):
+    def _motion(self, em, sp, pa, life_f, rot=None):
         """Velocity in the emitter frame, keyed over the particle's age: start velocity x velocity over life,
         drag, constant acceleration (world z up -> y), and the path of LocationDirect (a position keyed over the
-        life: its rate of change)."""
+        life: its rate of change). rot: the emitter's rotation in its system (emitter_frame), which turns the start
+        velocities and the path."""
         v0 = [0.0, 0.0, 0.0]
         vr = [0.0, 0.0, 0.0]
         for m in em.all('Velocity') + em.all('Velocity_Seeded'):
             d = m.dist('StartVelocity', 3, [0.0, 0.0, 0.0])
-            v0 = [a + b for a, b in zip(v0, to_ttt2(d.mean()))]
-            vr = [a + abs(b) for a, b in zip(vr, to_ttt2(d.spread()))]
+            v0 = [a + b for a, b in zip(v0, to_ttt2(in_frame(d.mean(), rot)))]
+            vr = [a + abs(b) for a, b in zip(vr, to_ttt2(in_frame(d.spread(), rot)))]
         cone = em.module('VelocityCone')
         if cone is not None:                    # a cone around the emitter's axis (Cascade: X? here: forward)
             vel = cone.dist('Velocity', 1, 0.0).mean()[0]
@@ -868,7 +936,8 @@ class Converter:
             along = [0.0, 0.0, 0.0]
             if path is not None and len(path.samples) > 1:      # cm per life fraction -> cm per second
                 h = 0.5 / (steps - 1)
-                a, b = to_ttt2(path.mean(max(0.0, t - h))), to_ttt2(path.mean(min(1.0, t + h)))
+                a = to_ttt2(in_frame(path.mean(max(0.0, t - h)), rot))
+                b = to_ttt2(in_frame(path.mean(min(1.0, t + h)), rot))
                 along = [(y - x) / ((min(1.0, t + h) - max(0.0, t - h)) * life_s) for x, y in zip(a, b)]
             for k in range(3):
                 v = (v0[k] * mult[k] * damp + acc[k] * age_s + along[k]) * CM / FPS
@@ -880,26 +949,30 @@ class Converter:
         for o in (4, 16, 28, 40):
             alo._set_keys(pa['tracks'][o], [[0, 0.0]])
 
-    def _location(self, em, pa):
-        mean = [0.0, 0.0, 0.0]
+    def _location(self, em, pa, frame=(None, (0.0, 0.0, 0.0))):
+        """Spawn offset and its random half range: the location modules' offsets turned by the emitter's rotation,
+        plus its origin (emitter_frame). (The character-bone module's offset is left as it is: unverified.)"""
+        rot, origin = frame
+        mean = [0.0 + x for x in to_ttt2(origin)]           # (0.0 + -0.0: no negative zeros from a zero origin)
         spread = [0.0, 0.0, 0.0]
         for cls, prop in (('Location', 'StartLocation'), ('Location_Seeded', 'StartLocation'),
                           ('PM_CharacterBone', 'LocationOffset'), ('LocationDirect', 'Location')):
+            r = None if cls == 'PM_CharacterBone' else rot
             for m in em.all(cls):
                 d = m.dist(prop, 3, [0.0, 0.0, 0.0])
-                mean = [a + b for a, b in zip(mean, to_ttt2(d.mean()))]
-                spread = [a + abs(b) for a, b in zip(spread, to_ttt2(d.spread()))]
+                mean = [a + b for a, b in zip(mean, to_ttt2(in_frame(d.mean(), r)))]
+                spread = [a + abs(b) for a, b in zip(spread, to_ttt2(in_frame(d.spread(), r)))]
         sph = em.module('LocationPrimitiveSphere')
         cyl = em.module('LocationPrimitiveCylinder') or em.module('LocationPrimitiveCylinder_Seeded')
         if sph is not None:                     # a sphere: as a box of its size around its centre
             r = sph.dist('StartRadius', 1, 0.0).mean()[0]
-            c = to_ttt2(sph.dist('StartLocation', 3, [0.0, 0.0, 0.0]).mean())
+            c = to_ttt2(in_frame(sph.dist('StartLocation', 3, [0.0, 0.0, 0.0]).mean(), rot))
             mean = [a + b for a, b in zip(mean, c)]
             spread = [a + r * 0.7 for a in spread]
         if cyl is not None:
             r = cyl.dist('StartRadius', 1, 0.0).mean()[0]
             h = cyl.dist('StartHeight', 1, 0.0).mean()[0]
-            c = to_ttt2(cyl.dist('StartLocation', 3, [0.0, 0.0, 0.0]).mean())
+            c = to_ttt2(in_frame(cyl.dist('StartLocation', 3, [0.0, 0.0, 0.0]).mean(), rot))
             mean = [a + b for a, b in zip(mean, c)]
             axis = cyl.get('HeightAxis') or 'PMLPC_HEIGHTAXIS_Z'
             ext = [r, r, r]
@@ -953,21 +1026,26 @@ class Converter:
                 self._meshes[path] = None
         return self._meshes[path]
 
-    def _mesh_nud(self, path, tex_id, blend=MODEL_ADD, proportions=(1.0, 1.0, 1.0)):
+    def _mesh_nud(self, path, tex_id, blend=MODEL_ADD, proportions=(1.0, 1.0, 1.0), pre=(0.0, 0.0, 0.0)):
         """The effect model of a Tekken 7 mesh (positions in mm in the emitter frame, each Tekken 7 axis stretched
-        by `proportions`) -> its file name. One model a mesh, blend and proportions: a model particle draws the
-        texture of its emitter's texture slot (tex_id only fills the model's material) blended as the material
-        says."""
-        key = (path, blend, tuple(proportions))
+        by `proportions`, then turned by `pre`: the emitter's TypeDataMesh RollPitchYawRange, (roll, pitch, yaw)
+        degrees; Geese's wave meshes are modelled crest backward and yawed 180) -> its file name. One model a mesh,
+        blend, proportions and turn: a model particle draws the texture of its emitter's texture slot (tex_id only
+        fills the model's material) blended as the material says."""
+        pre = tuple(float('%.4g' % x) for x in pre)
+        key = (path, blend, tuple(proportions)) + ((pre,) if any(pre) else ())
         if key in self._mesh_names:
             return self._mesh_names[key]
         sm = self._static_mesh(path)
         if sm is None or not len(sm.indices):
             return None
         p = sm.positions * np.asarray(proportions, np.float32)
-        pos = np.stack([-p[:, 1], p[:, 2], p[:, 0]], 1) * CM
         n = sm.normals / np.asarray(proportions, np.float32)               # (normals of the stretched mesh)
         n = n / np.maximum(1e-6, np.linalg.norm(n, axis=1, keepdims=True))
+        if any(pre):
+            turn = frotation(pre[1], pre[2], pre[0]).astype(np.float32)
+            p, n = p @ turn, n @ turn
+        pos = np.stack([-p[:, 1], p[:, 2], p[:, 0]], 1) * CM
         nrm = np.stack([-n[:, 1], n[:, 2], n[:, 0]], 1)
         m = copy.deepcopy(self.nud_template)
         mesh = m['meshes'][0]
