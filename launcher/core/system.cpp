@@ -247,6 +247,7 @@ std::string install_command(const Distro& distro, const std::vector<Package>& pa
         {Package::kGamescope, {"gamescope", "gamescope", "gamescope", "gamescope"}},
         {Package::kPactl, {"libpulse", "pulseaudio-utils", "pulseaudio-utils", "pulseaudio-utils"}},
         {Package::kMingw, {"mingw-w64-gcc", "gcc-mingw-w64-x86-64", "mingw64-gcc", "mingw64-cross-gcc"}},
+        {Package::kCurl, {"curl", "curl", "curl", "curl"}},
     };
     static const char* const kCommands[] = {"sudo pacman -S --needed", "sudo apt install", "sudo dnf install",
                                             "sudo zypper install"};

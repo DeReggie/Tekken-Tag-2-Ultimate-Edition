@@ -284,6 +284,7 @@ void Launcher::open_settings() {
     gtk_label_set_text(GTK_LABEL(title_), "Settings");
     gtk_widget_set_visible(back_button_, TRUE);
     gtk_widget_set_visible(refresh_button_, FALSE);
+    gtk_widget_set_visible(update_button_, FALSE);
     gtk_widget_grab_focus(fullscreen_switch_);
 }
 
@@ -294,6 +295,7 @@ void Launcher::close_settings() {
     gtk_label_set_text(GTK_LABEL(title_), "Tekken Tag 2 Ultimate Edition");
     gtk_widget_set_visible(back_button_, FALSE);
     gtk_widget_set_visible(refresh_button_, TRUE);
+    gtk_widget_set_visible(update_button_, appimage_.has_value());
     if (GtkWidget* gear = ui::find_id(game_card_, "settings")) gtk_widget_grab_focus(gear);
 }
 

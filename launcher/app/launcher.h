@@ -10,12 +10,15 @@
 // characters.cpp the characters' section and its tasks
 // settings.cpp   the Settings page: the game's display settings and keyboard keys
 // task.cpp       the task panel: progress, Cancel, the log
+// self_update.cpp the launcher's own update: the AppImage it runs from replaced
+//                by the newest release's, which then opens
 
 #include "display.h"
 #include "keymap.h"
 #include "paths.h"
 #include "process.h"
 #include "protocol.h"
+#include "release.h"
 #include "status.h"
 #include "test_actions.h"
 #include "uninstall.h"
@@ -173,8 +176,34 @@ private:
     static void on_key_released(GtkEventControllerKey* keys, guint keyval, guint keycode, GdkModifierType state,
                                 gpointer self);
 
+    // ------------------------------------------------ self_update.cpp
+    // The header bar's Update button: GitHub asked for the newest release;
+    // when it is newer, its AppImage downloaded beside this one, checked
+    // (its size and digest, and that it runs and is that version), renamed
+    // over this one, and opened as this launcher closes.
+    void update_launcher();
+    void release_answer(int code, const std::string& out, const std::string& err);
+    void download_release();
+    void release_downloaded(int code, const std::string& err);
+    void release_started(int code, const std::string& out);
+    // A step of the update: `argv` as the task's process, its standard error
+    // (and output, with `log_out`) in the log; `then` once it ends, unless it
+    // was cancelled (the update ends then).
+    void update_step(const std::vector<std::string>& argv, bool log_out,
+                     std::function<void(int code, const std::string& out, const std::string& err)> then);
+    // The update's end (its download deleted), as a task's result.
+    void update_failed(const std::string& title, const std::string& why, bool cancelled = false);
+    // At the start, and again when the window comes back to the front once
+    // a few hours have passed: GitHub asked in the background whether a newer
+    // release is out. When one is, a notice at the top of the main page says
+    // so (with Update and What's New) and the header bar's Update stands out.
+    void check_release();
+    void release_known(const ReleaseAnswer& answer);
+    void show_update_notice();
+    void open_release_page();
+
     // ------------------------------------------------ task.cpp
-    enum class Kind { kInstall, kUpdate, kImport, kRemove, kUninstall };
+    enum class Kind { kInstall, kUpdate, kImport, kRemove, kUninstall, kLauncherUpdate };
     struct Task {
         Kind kind;
         std::string title;
@@ -189,6 +218,8 @@ private:
         bool shot_running = false;      // the test picture half-way is taken
     };
     void build_task_panel(GtkWidget* parent);
+    // A command as the log shows it.
+    static std::string command_text(const std::vector<std::string>& argv);
     bool start_task(Kind kind, std::string title, const std::vector<std::string>& argv,
                     const Process::Environment& environment, std::function<void(Task&, int)> ended);
     void begin_task(Kind kind, std::string title);
@@ -204,6 +235,19 @@ private:
     GtkApplication* app_;
     Options options_;
     Places places_ = Places::from_environment();
+    std::optional<fs::path> appimage_; // the AppImage the launcher runs from (what its update replaces)
+    struct LauncherUpdate {
+        Downloader downloader;
+        Release release;
+        fs::path file;          // the download, beside the AppImage
+        guint watch = 0;        // shows how much is downloaded
+        guint timeout = 0;      // the new launcher's --version takes too long
+        bool timed_out = false;
+    };
+    std::optional<LauncherUpdate> update_;
+    std::optional<Release> newer_; // the newer release GitHub named last
+    bool release_checking_ = false;
+    std::chrono::steady_clock::time_point release_time_{}; // when GitHub was asked last
     fs::path kit_, importer_, python_;
     std::string kit_version_;
 
@@ -276,6 +320,12 @@ private:
     GtkWidget* title_ = nullptr; // the header bar's
     GtkWidget* back_button_ = nullptr;
     GtkWidget* refresh_button_ = nullptr;
+    GtkWidget* update_button_ = nullptr; // (only in the AppImage)
+    GtkWidget* update_notice_ = nullptr; // a newer version is out
+    GtkWidget* update_notice_title_ = nullptr;
+    GtkWidget* update_notice_detail_ = nullptr;
+    GtkWidget* update_notice_page_ = nullptr;
+    GtkWidget* update_notice_button_ = nullptr;
     GtkWidget* banner_icon_ = nullptr;
     GtkWidget* game_card_ = nullptr;
     GtkWidget* characters_card_ = nullptr;

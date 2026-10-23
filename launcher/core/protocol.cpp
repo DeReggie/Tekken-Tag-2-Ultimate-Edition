@@ -112,7 +112,12 @@ bool Progress::feed(const Line& line) {
     switch (line.kind) {
     case Line::Kind::kStep:
         if (kind_ == Kind::kBuild) build_step(line);
-        else import_step(line);
+        else if (kind_ == Kind::kImport) import_step(line);
+        else {
+            step_ = line.text.empty() ? line.word : line.text;
+            detail_.clear();
+            fraction_ = -1;
+        }
         return true;
     case Line::Kind::kProgress:
         if (line.total == 0) return false;
@@ -129,6 +134,12 @@ bool Progress::feed(const Line& line) {
             } else {
                 detail_ = thousands(line.done) + " of " + thousands(line.total);
             }
+        } else if (kind_ == Kind::kDownload) {
+            fraction_ = static_cast<double>(std::min(line.done, line.total)) / static_cast<double>(line.total);
+            char text[64];
+            std::snprintf(text, sizeof text, "%.1f of %.1f MB", static_cast<double>(line.done) / 1e6,
+                          static_cast<double>(line.total) / 1e6);
+            detail_ = text;
         } else {
             fraction_ = static_cast<double>(std::min(line.done, line.total)) / static_cast<double>(line.total);
             detail_ = thousands(line.done) + " of " + thousands(line.total);

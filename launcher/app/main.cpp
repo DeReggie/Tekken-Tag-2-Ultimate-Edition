@@ -1,10 +1,12 @@
 // ttt2-launcher [GAME.wua] [--screenshot FILE]: the players' launcher (see
 // launcher.h). One window per user; starting it again shows that window
-// (with the archive given, chosen in it).
+// (with the archive given, chosen in it). ttt2-launcher --version: its
+// version, which an update checks the new launcher by (self_update.cpp).
 
 #include "launcher.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 
@@ -33,10 +35,11 @@ void open(GtkApplication* app, GFile** files, int count, const char*, gpointer d
 }
 
 void usage() {
-    std::printf("usage: ttt2-launcher [GAME.wua] [--screenshot FILE]\n"
+    std::printf("usage: ttt2-launcher [GAME.wua] [--screenshot FILE] | --version\n"
                 "  Installs Tekken Tag Tournament 2 from your own .wua (the game program is built on this PC),\n"
                 "  starts it, and adds Tekken 7's characters from your own Tekken 7.\n"
-                "  --screenshot FILE  saves the window as a PNG once it has loaded, then quits (for tests)\n");
+                "  --screenshot FILE  saves the window as a PNG once it has loaded, then quits (for tests)\n"
+                "  --version          prints its version (\"ttt2-launcher " TTT2_LAUNCHER_VERSION "\")\n");
 }
 
 } // namespace
@@ -49,6 +52,9 @@ int main(int argc, char** argv) {
             a.options.screenshot = argv[++i];
         } else if (std::strcmp(argv[i], "--help") == 0 || std::strcmp(argv[i], "-h") == 0) {
             usage();
+            return 0;
+        } else if (std::strcmp(argv[i], "--version") == 0) {
+            std::printf("ttt2-launcher %s\n", TTT2_LAUNCHER_VERSION);
             return 0;
         } else if (argv[i][0] == '-') {
             std::fprintf(stderr, "ttt2-launcher: unknown option %s\n", argv[i]);
@@ -66,6 +72,14 @@ int main(int argc, char** argv) {
     if (std::string error; actions && *actions && !launcher::parse_test_actions(actions, &error)) {
         std::fprintf(stderr, "@test actions failed %s\n", error.c_str());
         return 2;
+    }
+    // Opened by an update of the launcher: once the one it replaces has
+    // ended (it closes at once; 10 s at most), whose window would be shown
+    // instead of this one's.
+    if (const char* replaces = std::getenv(launcher::kReplacesVariable)) {
+        const int pid = std::atoi(replaces);
+        g_unsetenv(launcher::kReplacesVariable); // (not for what it starts)
+        for (int i = 0; i < 100 && launcher::process_alive(pid); ++i) g_usleep(100'000);
     }
     // The program's name is the window's class on X11, which its menu entry
     // names (StartupWMClass) so that docks match the two; GApplication would

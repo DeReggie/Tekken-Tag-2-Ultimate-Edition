@@ -183,6 +183,16 @@ needs the glibc and libstdc++ of the system it was made on: it runs on the
 distribution it was built on (and newer releases of it), not yet on any
 distribution.
 
+The AppImage updates itself. When it starts it asks GitHub for this
+repository's newest release; when that is newer, a notice at the top of the
+window says so, with **What's New** (the release's page) and **Update**,
+and the button left of Check Again is highlighted (that button also looks
+for an update any time). Update downloads the new AppImage (with curl or
+wget), checks it, puts it in place of the AppImage you started and opens it. A release is tagged `v<version>` (`v0.1.1`) with
+the AppImage attached, built with that version as `TTT2_LAUNCHER_VERSION` in
+`launcher/builder/CMakeLists.txt`: before it replaces anything the launcher
+checks that the new one says it is that version (`ttt2-launcher --version`).
+
 ## Playing
 
 Run the game straight from its archive (or from a game folder):

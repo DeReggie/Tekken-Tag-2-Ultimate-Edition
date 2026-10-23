@@ -1,5 +1,6 @@
 // The task panel at the window's bottom (see launcher.h): the one task that
-// runs (installing, updating, adding or removing characters, uninstalling),
+// runs (installing, updating, adding or removing characters, uninstalling,
+// updating the launcher),
 // its step and progress from the builder's or importer's lines, Cancel
 // (SIGTERM: they stop what they started and clean up, which can take
 // seconds; see Process::terminate), and its log in a list that opens.
@@ -89,7 +90,8 @@ void Launcher::begin_task(Kind kind, std::string title) {
     task_->kind = kind;
     task_->title = std::move(title);
     task_->progress = Progress(kind == Kind::kImport || kind == Kind::kRemove ? Progress::Kind::kImport
-                                                                                : Progress::Kind::kBuild);
+                               : kind == Kind::kLauncherUpdate                 ? Progress::Kind::kDownload
+                                                                               : Progress::Kind::kBuild);
     if (status_) {
         std::map<std::string, std::string> names;
         for (const Fighter& f : status_->fighters) names[f.name] = f.display;
@@ -130,12 +132,7 @@ bool Launcher::start_task(Kind kind, std::string title, const std::vector<std::s
     }
     begin_task(kind, std::move(title));
     task_->ended = std::move(ended);
-    std::string command;
-    for (const std::string& a : argv) {
-        const std::string shown = ui::shown(a);
-        command += (command.empty() ? "" : " ") + (a.find(' ') == std::string::npos ? shown : "\"" + shown + "\"");
-    }
-    log("$ " + command);
+    log("$ " + command_text(argv));
     std::string error;
     task_->process = Process::start(argv, environment,
                                     {[this](const std::string& line, bool is_error) { task_line(line, is_error); },
@@ -166,6 +163,15 @@ bool Launcher::start_task(Kind kind, std::string title, const std::vector<std::s
         }, new Watch{this, result_serial_, file}, +[](gpointer data) { delete static_cast<Watch*>(data); });
     }
     return true;
+}
+
+std::string Launcher::command_text(const std::vector<std::string>& argv) {
+    std::string command;
+    for (const std::string& a : argv) {
+        const std::string shown = ui::shown(a);
+        command += (command.empty() ? "" : " ") + (a.find(' ') == std::string::npos ? shown : "\"" + shown + "\"");
+    }
+    return command;
 }
 
 void Launcher::log(const std::string& line) {
@@ -301,7 +307,8 @@ void Launcher::task_exited(int code) {
         title = ok ? "Removed " + t.subject : t.cancelled ? "Removing cancelled" : "Removing " + t.subject + " failed";
         detail = ok ? "They are gone from the select screen next time the game starts." : why;
         break;
-    case Kind::kUninstall: break;
+    case Kind::kUninstall:
+    case Kind::kLauncherUpdate: break; // (their own)
     }
     finish_task(ok, title, detail, t.cancelled);
 }

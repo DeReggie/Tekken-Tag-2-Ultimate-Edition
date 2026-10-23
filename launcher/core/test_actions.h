@@ -13,7 +13,9 @@
 // show-uninstall (the uninstall dialog, closed again after its picture),
 // wait:<seconds>, focus:<id> (the keyboard focus on a button: "play",
 // "add:kazumi", ...) and refresh (as the window's Check Again button; the
-// widget focused once it is done is logged). For the Settings page:
+// widget focused once it is done is logged). update-launcher is the header
+// bar's Update (the AppImage replaced by the newest release's and opened:
+// its test actions run again there). For the Settings page:
 // settings (opens it), back, bind:<input>:<keycode>[+<keycode>...] (that
 // input's key clicked, unless it waits for a key already, then those XKB
 // keycodes pressed one after another and let go the other way round,

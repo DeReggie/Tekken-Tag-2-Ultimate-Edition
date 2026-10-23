@@ -20,16 +20,20 @@ if(NOT GTK4_FOUND)
 endif()
 
 set(TTT2_LAUNCHER_APP_ID io.github.petexy.TekkenTag2UltimateEdition)
+# (Its version is the kit's, set in builder/: a release is tagged v<version>.)
+if(NOT TTT2_LAUNCHER_VERSION)
+    message(FATAL_ERROR "TTT2_LAUNCHER_VERSION is not set (launcher/builder sets it)")
+endif()
 if(NOT TTT2_KIT_DIR)
     set(TTT2_KIT_DIR ${CMAKE_BINARY_DIR}/launcher/kit)
 endif()
 
-# The launcher's own icons (Settings, Back, the GamePad's inputs), built into
-# the program as a GResource: they are there whether it runs from the build
-# tree, an install or the AppImage. Its icon theme finds them under
+# The launcher's own icons (Settings, Back, Update, the GamePad's inputs),
+# built into the program as a GResource: they are there whether it runs from
+# the build tree, an install or the AppImage. Its icon theme finds them under
 # <prefix>/icons/scalable/actions.
 set(TTT2_LAUNCHER_ICON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/icons CACHE PATH "The folder of the launcher's SVG icons")
-set(launcher_icons ttt2-settings-symbolic ttt2-back-symbolic)
+set(launcher_icons ttt2-settings-symbolic ttt2-back-symbolic ttt2-update-symbolic)
 foreach(input dpad_up dpad_down dpad_left dpad_right face_top face_bottom face_left face_right l r zl zr
               stick_up stick_down stick_left stick_right plus minus home)
     list(APPEND launcher_icons ttt2-input-${input})
@@ -75,6 +79,7 @@ add_executable(ttt2-launcher
     game.cpp
     launcher.cpp
     process.cpp
+    self_update.cpp
     settings.cpp
     task.cpp
     widgets.cpp
@@ -101,6 +106,7 @@ target_compile_definitions(ttt2-launcher PRIVATE
     GDK_VERSION_MIN_REQUIRED=GDK_VERSION_4_10
     GDK_VERSION_MAX_ALLOWED=GDK_VERSION_4_10
     TTT2_LAUNCHER_APP_ID="${TTT2_LAUNCHER_APP_ID}"
+    TTT2_LAUNCHER_VERSION="${TTT2_LAUNCHER_VERSION}"
     TTT2_LAUNCHER_RESOURCE_PATH="${TTT2_LAUNCHER_RESOURCE_PATH}"
     TTT2_LAUNCHER_BUILD_KIT="${build_kit}"
     TTT2_LAUNCHER_SOURCE_IMPORTER="${source_importer}"

@@ -14,11 +14,13 @@
 namespace launcher {
 namespace {
 
-fs::path program_folder() {
+fs::path program_file() {
     std::error_code ec;
     const fs::path self = fs::read_symlink("/proc/self/exe", ec);
-    return ec ? fs::path() : self.parent_path();
+    return ec ? fs::path() : self;
 }
+
+fs::path program_folder() { return program_file().parent_path(); }
 
 bool there(const fs::path& path) {
     std::error_code ec;
@@ -46,6 +48,7 @@ Launcher::Launcher(GtkApplication* app, Options options) : app_(app), options_(s
     importer_ = find_importer(here, TTT2_LAUNCHER_SOURCE_IMPORTER);
     python_ = find_python(here);
     kit_version_ = kit_version(kit_);
+    appimage_ = running_appimage(program_file(), std::getenv("APPIMAGE"), std::getenv("APPDIR"));
     chosen_game_ = options_.game;
     // Steam's last answer to which DLC is owned, until it is asked again.
     if (const auto saved = saved_ownership(places_.owned_cache())) {
@@ -67,12 +70,14 @@ Launcher::Launcher(GtkApplication* app, Options options) : app_(app), options_(s
         std::error_code ec;
         fs::create_directories(shots_, ec);
     }
-    std::fprintf(stderr, "ttt2-launcher: kit %s, importer %s, python %s\n", kit_.empty() ? "(none)" : kit_.c_str(),
-                 importer_.empty() ? "(none)" : importer_.c_str(), python_.empty() ? "(none)" : python_.c_str());
+    std::fprintf(stderr, "ttt2-launcher %s: kit %s, importer %s, python %s, AppImage %s\n", TTT2_LAUNCHER_VERSION,
+                 kit_.empty() ? "(none)" : kit_.c_str(), importer_.empty() ? "(none)" : importer_.c_str(),
+                 python_.empty() ? "(none)" : python_.c_str(), appimage_ ? appimage_->c_str() : "(none)");
 
     ui::load_style();
     build_window();
     refresh();
+    check_release();
 }
 
 Launcher::~Launcher() {
@@ -114,7 +119,7 @@ void Launcher::build_window() {
     }, this, nullptr);
 
     // The header bar: on the Settings page, Back and its title instead of
-    // the window's and Check Again.
+    // the window's, Check Again and (in the AppImage) Update.
     GtkWidget* header = gtk_header_bar_new();
     title_ = gtk_label_new("Tekken Tag 2 Ultimate Edition");
     gtk_widget_add_css_class(title_, "title");
@@ -132,10 +137,46 @@ void Launcher::build_window() {
     gtk_widget_set_tooltip_text(refresh_button_, "Check again");
     clicked(refresh_button_, [](Launcher* self) { self->check_again(); });
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), refresh_button_);
+    update_button_ = gtk_button_new_from_icon_name("ttt2-update-symbolic");
+    ui::set_id(update_button_, "update-launcher");
+    gtk_widget_set_tooltip_text(update_button_, "Update the launcher (this is version " TTT2_LAUNCHER_VERSION ")");
+    gtk_accessible_update_property(GTK_ACCESSIBLE(update_button_), GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                   "Update the launcher", -1);
+    gtk_widget_set_visible(update_button_, appimage_.has_value());
+    clicked(update_button_, [](Launcher* self) { self->update_launcher(); });
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), update_button_);
     gtk_window_set_titlebar(GTK_WINDOW(window_), header);
 
     GtkWidget* outer = ui::box(GTK_ORIENTATION_VERTICAL, 0);
     GtkWidget* content = ui::box(GTK_ORIENTATION_VERTICAL, 12, "launcher-content");
+
+    // A newer version of the launcher, when GitHub has one (show_update_notice).
+    update_notice_ = ui::box(GTK_ORIENTATION_HORIZONTAL, 14, "update-notice");
+    GtkWidget* notice_icon = gtk_image_new_from_icon_name("ttt2-update-symbolic");
+    gtk_image_set_pixel_size(GTK_IMAGE(notice_icon), 20);
+    gtk_widget_set_valign(notice_icon, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(update_notice_), notice_icon);
+    GtkWidget* notice_text = ui::box(GTK_ORIENTATION_VERTICAL, 3);
+    gtk_widget_set_hexpand(notice_text, TRUE);
+    gtk_widget_set_valign(notice_text, GTK_ALIGN_CENTER);
+    update_notice_title_ = ui::label("", "notice-title");
+    update_notice_detail_ = ui::label("", "small dim");
+    gtk_box_append(GTK_BOX(notice_text), update_notice_title_);
+    gtk_box_append(GTK_BOX(notice_text), update_notice_detail_);
+    gtk_box_append(GTK_BOX(update_notice_), notice_text);
+    GtkWidget* notice_buttons = ui::box(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_valign(notice_buttons, GTK_ALIGN_CENTER);
+    update_notice_page_ = ui::button("What's New");
+    ui::set_id(update_notice_page_, "release-page");
+    clicked(update_notice_page_, [](Launcher* self) { self->open_release_page(); });
+    gtk_box_append(GTK_BOX(notice_buttons), update_notice_page_);
+    update_notice_button_ = ui::button("Update", "suggested-action");
+    ui::set_id(update_notice_button_, "notice-update");
+    clicked(update_notice_button_, [](Launcher* self) { self->update_launcher(); });
+    gtk_box_append(GTK_BOX(notice_buttons), update_notice_button_);
+    gtk_box_append(GTK_BOX(update_notice_), notice_buttons);
+    gtk_widget_set_visible(update_notice_, FALSE);
+    gtk_box_append(GTK_BOX(content), update_notice_);
 
     // The banner: the game's name, and its icon once installed (from the
     // install: nothing of the game is in the launcher).
@@ -193,6 +234,7 @@ void Launcher::refresh() {
         gtk_widget_set_visible(banner_icon_, FALSE);
     }
     show_game();
+    show_update_notice();
     load_status();
 }
 
@@ -202,12 +244,14 @@ void Launcher::check_again() {
 }
 
 bool Launcher::busy() const {
-    return task_ || status_loading_ || owned_state_ == Owned::kChecking || (preflight_ && preflight_->running);
+    return task_ || status_loading_ || owned_state_ == Owned::kChecking || (preflight_ && preflight_->running) ||
+           release_checking_;
 }
 
 void Launcher::show_all() {
     show_game();
     show_characters();
+    show_update_notice();
 }
 
 void Launcher::clicked(GtkWidget* button, void (*action)(Launcher*)) {
@@ -369,6 +413,8 @@ void Launcher::on_active(GObject* window, GParamSpec*, gpointer data) {
         if (!self->testing_) self->stop_picking();
         return;
     }
+    // (GitHub is asked again after hours, not each time.)
+    if (std::chrono::steady_clock::now() - self->release_time_ > std::chrono::hours(6)) self->check_release();
     if (self->busy() || self->testing_) return;
     if (std::chrono::steady_clock::now() - self->status_time_ > std::chrono::seconds(5)) self->refresh();
 }
@@ -493,6 +539,8 @@ void Launcher::run_next_test() {
     } else if (a.name == "update") {
         if (install_.state != InstallState::kInstalled) test_done(false, "no complete install to update");
         else start_update();
+    } else if (a.name == "update-launcher") {
+        update_launcher();
     } else if (a.name == "add") {
         start_import(a.args);
     } else if (a.name == "add-all-base" || a.name == "add-all-owned") {

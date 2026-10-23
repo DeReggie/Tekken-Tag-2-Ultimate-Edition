@@ -60,7 +60,7 @@ bool image_based(const Distro& distro);
 // can come from.
 std::string image_based_hint(const std::string& what);
 
-enum class Package { kCompiler, kPython, kNumpy, kPillow, kGamescope, kPactl, kMingw };
+enum class Package { kCompiler, kPython, kNumpy, kPillow, kGamescope, kPactl, kMingw, kCurl };
 
 // The command that installs these packages on that distribution
 // ("sudo pacman -S --needed clang"); empty when its package manager is not

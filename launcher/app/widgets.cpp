@@ -86,6 +86,16 @@ textview.log text { background-color: alpha(black, 0.25); }
 
 button.suggested-action.play { padding-left: 22px; padding-right: 22px; font-weight: 700; }
 
+.update-notice {
+    border-radius: 12px;
+    padding: 14px 16px 14px 18px;
+    background-color: alpha(@theme_selected_bg_color, 0.14);
+    border: 1px solid alpha(@theme_selected_bg_color, 0.5);
+}
+.update-notice > image { color: mix(@theme_selected_bg_color, currentColor, 0.3); }
+.update-notice .notice-title { font-weight: 700; }
+headerbar button.update-available { color: mix(@theme_selected_bg_color, currentColor, 0.25); }
+
 .setting-list {
     border-radius: 10px;
     border: 1px solid alpha(currentColor, 0.09);

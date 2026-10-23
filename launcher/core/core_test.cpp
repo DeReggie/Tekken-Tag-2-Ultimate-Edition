@@ -1,12 +1,13 @@
 // The launcher's logic without its window: the JSON reader, the progress
 // lines, the install's state and folders, the PC checks' parsing, the test
-// actions, the display settings' file, and uninstalling (in a folder of its
-// own, made and deleted here).
+// actions, the display settings' file, uninstalling, and the launcher's own
+// updates (in a folder of its own, made and deleted here).
 
 #include "display.h"
 #include "json.h"
 #include "paths.h"
 #include "protocol.h"
+#include "release.h"
 #include "status.h"
 #include "system.h"
 #include "test_actions.h"
@@ -17,6 +18,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cmath>
@@ -232,6 +234,15 @@ void test_protocol() {
     check(import.step() == "Adding chloe" && std::fabs(import.fraction() - 0.475) < 1e-9, "progress: second fighter");
     import.feed(parse_line("@step shared"));
     check(import.fraction() == 0.95, "progress: shared");
+
+    Progress download(Progress::Kind::kDownload);
+    download.feed(parse_line("@step update Downloading version 0.2.0"));
+    check(download.step() == "Downloading version 0.2.0" && download.fraction() < 0, "progress: download step");
+    download.feed(parse_line("@progress 1300000 2652664"));
+    check(download.detail() == "1.3 of 2.7 MB" && std::fabs(download.fraction() - 1300000.0 / 2652664) < 1e-9,
+          "progress: download bytes (" + download.detail() + ")");
+    download.feed(parse_line("@step update Checking version 0.2.0"));
+    check(download.fraction() < 0 && download.detail().empty(), "progress: download's next step");
 
     check(thousands(0) == "0" && thousands(999) == "999" && thousands(1000) == "1,000" &&
               thousands(1234567) == "1,234,567",
@@ -778,6 +789,122 @@ void test_uninstall(const fs::path& root) {
     check(r.refused.empty() && !there(folder / "game"), "uninstall: once the game has ended");
 }
 
+void test_release(const fs::path& root) {
+    using V = std::vector<unsigned>;
+    check(version_numbers("0.1.0") == V{0, 1, 0} && version_numbers("v0.2") == V{0, 2} &&
+              version_numbers("V1.10.3") == V{1, 10, 3},
+          "release: versions");
+    for (const char* bad : {"", "v", "0.", ".1", "0..1", "1.2-rc1", "1.2 ", "x1", "1234567890"}) {
+        check(!version_numbers(bad), std::string("release: not a version: '") + bad + "'");
+    }
+    check(compare_versions("0.1.1", "0.1.0") == 1 && compare_versions("0.2", "0.2.0") == 0 &&
+              compare_versions("v0.10.0", "0.9.9") == 1 && compare_versions("0.1.0", "1.0") == -1 &&
+              !compare_versions("next", "0.1.0"),
+          "release: comparing");
+
+    // GitHub's answers: a release, none yet, the hourly limit.
+    const std::string asset = R"({"name": "%s", "state": "uploaded", "size": 2652664,
+        "digest": "sha256:9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08",
+        "browser_download_url": "https://github.com/o/r/releases/download/v0.2.0/%s"})";
+    const auto release_json = [&](std::initializer_list<const char*> names, const char* tag = "v0.2.0") {
+        std::string assets;
+        for (const char* name : names) {
+            std::string a = asset;
+            for (size_t at; (at = a.find("%s")) != std::string::npos;) a.replace(at, 2, name);
+            assets += (assets.empty() ? "" : ",") + a;
+        }
+        return std::string(R"({"tag_name": ")") + tag +
+               R"(", "html_url": "https://github.com/o/r/releases/tag/v0.2.0", "draft": false, "assets": [)" + assets +
+               "]}";
+    };
+    ReleaseAnswer a = parse_release(release_json({"x.AppImage.zsync", "TTT2-aarch64.AppImage", "TTT2-x86_64.AppImage"}));
+    check(a.release && a.release->version == "0.2.0" && a.release->tag == "v0.2.0" &&
+              a.release->page == "https://github.com/o/r/releases/tag/v0.2.0" &&
+              a.release->asset == "TTT2-x86_64.AppImage" && a.release->size == 2652664 &&
+              a.release->url == "https://github.com/o/r/releases/download/v0.2.0/TTT2-x86_64.AppImage" &&
+              a.release->sha256 == "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+          "release: its x86-64 AppImage");
+    a = parse_release(release_json({"Tekken.AppImage"}, "0.3"));
+    check(a.release && a.release->version == "0.3" && a.release->asset == "Tekken.AppImage", "release: the only one");
+    a = parse_release(release_json({"a.AppImage", "b.AppImage"}));
+    check(!a.release && !a.none && a.error == "version 0.2.0 has no AppImage to download", "release: which one");
+    a = parse_release(release_json({"notes.txt", "TTT2-aarch64.AppImage"}));
+    check(!a.release && a.error == "version 0.2.0 has no AppImage to download", "release: none for this PC");
+    a = parse_release(release_json({"TTT2-x86_64.AppImage"}, "nightly"));
+    check(!a.release && a.error.find("is not named as a version") != std::string::npos, "release: tag not a version");
+    a = parse_release(R"({"message": "Not Found", "documentation_url": "https://docs.github.com", "status": "404"})");
+    check(a.none && !a.release && a.error.empty(), "release: none published");
+    a = parse_release(R"j({"message": "API rate limit exceeded for 192.0.2.1. (But here's the good news: ...)"})j");
+    check(!a.none && a.error.find("try again later") != std::string::npos, "release: rate limit");
+    a = parse_release("<html>");
+    check(!a.none && !a.release && a.error.starts_with("GitHub's answer is not readable"), "release: not JSON");
+
+    // The AppImage it runs from: only with the program inside $APPDIR.
+    const fs::path image = root / "Tekken_Tag_2_Ultimate_Edition-x86_64.AppImage", mount = root / "mount";
+    write(image, "old");
+    const fs::path program = mount / "usr/bin/ttt2-launcher";
+    check(running_appimage(program, image.c_str(), mount.c_str()) == image, "release: running AppImage");
+    check(!running_appimage(root / "elsewhere/ttt2-launcher", image.c_str(), mount.c_str()),
+          "release: another AppImage's variables");
+    check(!running_appimage(program, nullptr, mount.c_str()) && !running_appimage(program, image.c_str(), "") &&
+              !running_appimage(program, "relative.AppImage", mount.c_str()) &&
+              !running_appimage(program, (root / "gone.AppImage").c_str(), mount.c_str()),
+          "release: no AppImage");
+    check(update_file(image) == root / ".Tekken_Tag_2_Ultimate_Edition-x86_64.AppImage.update", "release: update file");
+    check(cannot_replace(image).empty() && !cannot_replace(root / "missing/x.AppImage").empty(),
+          "release: folder writable");
+
+    // The download: an AppImage (as checked), made executable as the old
+    // one, then renamed over it.
+    const fs::path update = update_file(image);
+    std::string head(32, '\0');
+    head.replace(0, 4, "\177ELF");
+    head[8] = 'A', head[9] = 'I', head[10] = 2, head[18] = 0x3e;
+    const std::string written = head + "new";
+    write(update, written);
+    check(is_appimage(update) && !is_appimage(image) && !is_appimage(root / "missing"), "release: is an AppImage");
+    head[10] = 1;
+    write(root / "type1", head);
+    check(!is_appimage(root / "type1"), "release: type 1 is not");
+    ::chmod(image.c_str(), 0750);
+    check(make_executable(update, image).empty(), "release: made executable");
+    struct stat st = {};
+    check(::stat(update.c_str(), &st) == 0 && (st.st_mode & 07777) == 0750, "release: the old one's permissions");
+    check(replace_appimage(update, image).empty() && !there(update), "release: replaced");
+    std::ifstream in(image, std::ios::binary);
+    const std::string now((std::istreambuf_iterator<char>(in)), {});
+    check(now == written, "release: the new one's bytes");
+    check(!replace_appimage(update, image).empty(), "release: nothing to replace with");
+
+    check(version_in("ttt2-launcher 0.2.0\n") == "0.2.0" && version_in("ttt2-launcher v1.0\n") == "1.0" &&
+              version_in("Gtk-WARNING\nttt2-launcher 0.3.1") == "0.3.1" && version_in("usage: ttt2-launcher").empty(),
+          "release: --version's answer");
+
+    const Downloader curl{"/usr/bin/curl", true}, wget{"/usr/bin/wget", false};
+    auto argv = download_command(curl, "https://x/latest", true, {}, "ttt2-launcher/0.1.0");
+    check(argv.front() == "/usr/bin/curl" && argv.back() == "https://x/latest" &&
+              std::find(argv.begin(), argv.end(), "-f") == argv.end() &&
+              std::find(argv.begin(), argv.end(), "Accept: application/vnd.github+json") != argv.end(),
+          "release: curl asks the API");
+    argv = download_command(curl, "https://x/a.AppImage", false, "/d/.a.update", "ua");
+    check(std::find(argv.begin(), argv.end(), "-f") != argv.end() &&
+              std::find(argv.begin(), argv.end(), "/d/.a.update") != argv.end(),
+          "release: curl downloads");
+    argv = download_command(wget, "https://x/latest", true, {}, "ua");
+    check(argv.front() == "/usr/bin/wget" && std::find(argv.begin(), argv.end(), "--content-on-error") != argv.end() &&
+              std::find(argv.begin(), argv.end(), "-") != argv.end(),
+          "release: wget asks the API");
+
+    check(process_alive(::getpid()) && !process_alive(0) && !process_alive(-1), "release: alive");
+    const pid_t child = ::fork();
+    if (child == 0) ::_exit(0);
+    // (Ended, not yet waited for: a zombie, which has ended.)
+    for (int i = 0; i < 200 && process_alive(child); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    check(!process_alive(child), "release: a zombie has ended");
+    ::waitpid(child, nullptr, 0);
+    check(!process_alive(child), "release: gone");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -800,6 +927,7 @@ int main(int argc, char** argv) {
     test_actions();
     test_display(root / "display");
     test_uninstall(root / "uninstall");
+    test_release(root / "release");
     std::error_code ec;
     fs::remove_all(root, ec);
     if (g_failures == 0) std::printf("launcher_core_test: all passed\n");

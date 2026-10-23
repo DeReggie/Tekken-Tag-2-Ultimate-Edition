@@ -1,7 +1,7 @@
 # The launcher's logic without GTK: finding the install, the kit, the importer
 # and Python; reading the builder's and the importer's output; checking the
 # PC before an install; uninstalling; the game's keyboard keys and display
-# settings. Tested on its own.
+# settings; the launcher's own updates. Tested on its own.
 #
 # display.ini is read and written by the game's own code for it (runtime/src,
 # found from here so that this folder also builds as a project's
@@ -14,6 +14,7 @@ add_library(ttt2_launcher_core STATIC
     keymap.cpp
     paths.cpp
     protocol.cpp
+    release.cpp
     status.cpp
     system.cpp
     test_actions.cpp

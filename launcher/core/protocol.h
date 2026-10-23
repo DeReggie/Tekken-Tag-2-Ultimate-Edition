@@ -23,10 +23,11 @@ struct Line {
 Line parse_line(std::string_view line);
 
 // A task's progress as one bar: where it is, how far (0..1, or below 0 while
-// that is unknown), and a detail ("412 of 1,203 files").
+// that is unknown), and a detail ("412 of 1,203 files"). A download's steps
+// are its text, and its progress in bytes ("1.2 of 2.6 MB").
 class Progress {
 public:
-    enum class Kind { kBuild, kImport };
+    enum class Kind { kBuild, kImport, kDownload };
     explicit Progress(Kind kind) : kind_(kind) {}
 
     // Fighters' names as the user sees them ("kazumi" -> "Kazumi Mishima").
