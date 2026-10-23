@@ -476,6 +476,40 @@ the stills differ; chroma moves by a * the stills' difference. The copyright
 lines (700x32 textures) lose the three words before the last seven ("Wii U
 EDITION" before "& (C) 2012 …") and are centred again.
 
+## Practice: position reset
+
+In Practice, 3 and + pressed together put both fighters back where the
+stage put them, as Tekken 8's position reset does (`title/practice.cpp`).
+The reset is the title's own start of a Practice round: the mode manager's
+kind (+444) is 4 or 5 (`sub_06ECB3CC`), and a round starts
+(`GameMode::Impl::state_game_preinitbattle`, `sub_0726BDA0`) with the
+situation set-up `sub_039C2DB0` for situation 15. Its Practice positioner
+(`sub_04F21428`, for situations 12 to 15) places the fighters as the
+pause menu's POSITION SETTINGS say (by default 1 m either side of the
+stage's centre, x = -1000 and 1000; the settings object `0x108D1C60` has
+the start type at +24 and REVERSE, the player on the right, at +100), and
+every fighter starts over, standing. The port runs that set-up at the start
+of a frame of `GameMode::Impl::state_game_battle` (`sub_0726DF8C`), then
+the camera calls of the title's own Practice restart (`sub_04A28490`): the
+round's start camera (`sub_05FBB480(camera, 0)`) and, with REVERSE on, the
+2P camera (`sub_05FBC0A4(camera, 2, 1.0, 1)`).
+
+3 is the title's button, after its Controller Setup: a fighter's buttons
+are at +2032 (1 to 4 = 0x200, 0x400, 0x800, 0x1000 held, 1, 2, 4, 8 pressed
+this frame; directions at +2036), and the GamePad's own buttons at +2052,
+which stay 0 for the training dummy; the fighter a side has in play is its
+first member at `0x1087FB60 + 4 * side`, or that one's partner (+172) when
++7808 is 0 (`sub_05C5EF14`). The battle state keeps running while the pause
+menu is open; the fighters' frame (`sub_03ADB118`) stops. That frame arms
+the chord in the input layer (`cafe::os::arm_start_chord`, with whether the
+GamePad's fighter holds 3): while it is armed, VPADRead holds a press of +
+back for eight of those frames (the fighter sees a button two or three
+frames after the pad has it), and if 3 is held by then the press is the
+chord's: the game never sees it, so the pause menu stays closed, and the
+battle state takes it (`take_start_chord`). Otherwise the press reaches the
+game late, also when it was let go meanwhile. 3 and + in either order
+reset, and + alone still opens the pause menu.
+
 ## Added fighters
 
 `runtime/src/title/roster.*` adds fighters from character packs (folders in
@@ -1196,6 +1230,7 @@ ignores. Renderer debugging:
 | `TTT2_TRACE_FS=1` | file and save opens, reads and writes, with times |
 | `TTT2_TRACE_TEXTURES=1` | every texture loaded from memory once, with the MD5 a replacement names |
 | `TTT2_TRACE_PRESENTATION=1` | how long the icons, texts and logo took to prepare |
+| `TTT2_TRACE_PRACTICE=1` | each position reset in Practice |
 | `TTT2_CONTROLLER=playstation/nintendo/xbox` | icons and menu buttons for this kind of controller |
 
 The launcher (`launcher/app`, `ttt2-launcher`) runs by itself for tests,

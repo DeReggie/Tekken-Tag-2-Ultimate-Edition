@@ -48,6 +48,8 @@ and shaders are translated to Vulkan as it runs.
   title screen's logo says "Ultimate Edition" where it said "Wii U
   Edition", in the same brush lettering. All of it is made by the port
   from the Wii U game's own files.
+- **Position reset in Practice**, as in Tekken 8: 3 and + (Start) pressed
+  together put both fighters back where the stage put them.
 - **Installs like any other program**: `ttt2 --install` copies the game into
   a folder you choose and adds it to the application menu.
 - **Made to be modified**: every function of the game is a C++ function that
@@ -239,6 +241,13 @@ fights use them that way. In menus the bottom button (B, by default K on the
 keyboard) confirms and the right one goes back, except with a Nintendo
 controller, which confirms with its A as on the Wii U. The icons follow the
 last controller used (the keyboard counts as a neutral one).
+
+In Practice, 3 (left kick: by default K, or a gamepad's bottom button) and
++ (Start: Enter) pressed together, in either order, put both fighters back
+where the stage put them, standing, as Tekken 8's position reset does; the
+pause menu's POSITION SETTINGS apply as at the start of training. 3 is
+whichever button the game's Controller Setup gives left kick. + alone
+still opens the pause menu, a few frames later than before.
 
 The launcher's **Settings** also choose how the game starts: fullscreen or
 in a window, the resolution it draws at (Automatic, the default, is enough

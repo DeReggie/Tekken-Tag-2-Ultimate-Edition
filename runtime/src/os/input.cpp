@@ -127,6 +127,67 @@ uint32_t scripted_buttons() {
     return buttons;
 }
 
+// ------------------------------------------------------------ the + chord
+// See arm_start_chord. A press of + waits kChordFrames armings (the mode's
+// frames, so slow frames wait longer): the mode sees a button two or three
+// frames after the pad has it, and the other button may come a little after
+// +. A press of + let go meanwhile still reaches the game, late, for
+// kHeldReads reads.
+using Clock = std::chrono::steady_clock;
+constexpr uint32_t kChordFrames = 8;                         // how many armings a press of + waits for the partner
+constexpr auto kChordArmed = std::chrono::milliseconds(250); // how long an arming lasts (frames may be slow)
+constexpr auto kChordTaken = std::chrono::milliseconds(500); // how long a chord waits to be taken
+
+struct StartChord {
+    enum Gate { kOpen, kWaiting, kChord } gate = kOpen;
+    Clock::time_point armed_until{}, chord_at{};
+    uint32_t armings = 0, pressed_armings = 0; // armings so far, and at the press of +
+    bool partner = false;
+    bool raw = false;     // + held, as the host has it
+    bool chord = false;   // a chord not taken yet
+    int late_reads = 0;
+};
+StartChord g_chord;
+
+uint32_t gate_start(uint32_t hold) {
+    StartChord& c = g_chord;
+    const Clock::time_point now = Clock::now();
+    const bool raw = hold & vpad::kPlus, pressed = raw && !c.raw, armed = now < c.armed_until;
+    c.raw = raw;
+    auto chord = [&] {
+        c.gate = StartChord::kChord;
+        c.chord = true;
+        c.chord_at = now;
+    };
+    if (pressed) {
+        if (!armed) c.gate = StartChord::kOpen;
+        else if (c.partner) chord();
+        else {
+            c.gate = StartChord::kWaiting;
+            c.pressed_armings = c.armings;
+        }
+    } else if (c.gate == StartChord::kWaiting) {
+        if (armed && c.partner) {
+            chord();
+        } else if (!armed || c.armings - c.pressed_armings >= kChordFrames) {
+            c.gate = StartChord::kOpen;
+            if (!raw) c.late_reads = kHeldReads;
+        }
+    }
+    switch (c.gate) {
+    case StartChord::kWaiting: return hold & ~vpad::kPlus;
+    case StartChord::kChord:
+        if (!raw) c.gate = StartChord::kOpen;
+        return hold & ~vpad::kPlus;
+    case StartChord::kOpen: break;
+    }
+    if (c.late_reads > 0) {
+        --c.late_reads;
+        return hold | vpad::kPlus;
+    }
+    return hold;
+}
+
 // ------------------------------------------------------------------- vpad
 constexpr int32_t kVpadOk = 0;
 constexpr int32_t kVpadNoController = -2;
@@ -163,7 +224,7 @@ int32_t VPADRead(int32_t channel, VPADStatus* status, uint32_t count, be<int32_t
     }
     std::lock_guard lock(g_input_mutex);
     std::memset(status, 0, sizeof(VPADStatus));
-    const uint32_t hold = g_gamepad.buttons | scripted_buttons();
+    const uint32_t hold = gate_start(g_gamepad.buttons | scripted_buttons());
     status->hold = hold;
     status->trigger = hold & ~g_previous_hold;
     status->release = g_previous_hold & ~hold;
@@ -240,6 +301,20 @@ void WPADClampTrigger(int32_t, uint32_t, uint32_t) {}
 void set_gamepad_state(const GamepadState& state) {
     std::lock_guard lock(g_input_mutex);
     g_gamepad = state;
+}
+
+void arm_start_chord(bool partner_held) {
+    std::lock_guard lock(g_input_mutex);
+    g_chord.armed_until = Clock::now() + kChordArmed;
+    g_chord.partner = partner_held;
+    ++g_chord.armings;
+}
+
+bool take_start_chord() {
+    std::lock_guard lock(g_input_mutex);
+    const bool chord = g_chord.chord && Clock::now() - g_chord.chord_at < kChordTaken;
+    g_chord.chord = false;
+    return chord;
 }
 
 CAFE_EXPORT(vpad, VPADInit, VPADInit);
