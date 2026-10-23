@@ -840,7 +840,7 @@ void test_release(const fs::path& root) {
     check(!a.none && !a.release && a.error.starts_with("GitHub's answer is not readable"), "release: not JSON");
 
     // The AppImage it runs from: only with the program inside $APPDIR.
-    const fs::path image = root / "Tekken_Tag_2_Ultimate_Edition-x86_64.AppImage", mount = root / "mount";
+    const fs::path image = root / "Ultimate_Launcher-x86_64.AppImage", mount = root / "mount";
     write(image, "old");
     const fs::path program = mount / "usr/bin/ttt2-launcher";
     check(running_appimage(program, image.c_str(), mount.c_str()) == image, "release: running AppImage");
@@ -850,7 +850,7 @@ void test_release(const fs::path& root) {
               !running_appimage(program, "relative.AppImage", mount.c_str()) &&
               !running_appimage(program, (root / "gone.AppImage").c_str(), mount.c_str()),
           "release: no AppImage");
-    check(update_file(image) == root / ".Tekken_Tag_2_Ultimate_Edition-x86_64.AppImage.update", "release: update file");
+    check(update_file(image) == root / ".Ultimate_Launcher-x86_64.AppImage.update", "release: update file");
     check(cannot_replace(image).empty() && !cannot_replace(root / "missing/x.AppImage").empty(),
           "release: folder writable");
 

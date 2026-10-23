@@ -907,8 +907,8 @@ keeps the games' file types out.
 
 ## The launcher
 
-`launcher/` is what players start: `ttt2-launcher`, shown as "Tekken Tag 2
-Ultimate Edition" (to be shipped as an AppImage). Nothing derived from the
+`launcher/` is what players start: `ttt2-launcher`, shown as "Ultimate
+Launcher" (to be shipped as an AppImage). Nothing derived from the
 game may be shipped, so the game program is built on the player's PC from
 their own `.wua`, by the tools this build uses and the system's C++
 compiler.

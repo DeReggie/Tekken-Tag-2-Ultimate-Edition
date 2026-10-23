@@ -37,6 +37,10 @@
 
 namespace launcher {
 
+// The launcher's name: its window's title and its menu entry's (the
+// .desktop file says it again).
+inline constexpr const char* kName = "Ultimate Launcher";
+
 // The content's width at most: lines stay readable in a wide window.
 inline constexpr int kColumn = 760;
 

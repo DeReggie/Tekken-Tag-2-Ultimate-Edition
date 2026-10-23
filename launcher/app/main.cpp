@@ -87,7 +87,7 @@ int main(int argc, char** argv) {
     g_set_prgname(TTT2_LAUNCHER_APP_ID);
     GtkApplication* app = gtk_application_new(
         TTT2_LAUNCHER_APP_ID, GApplicationFlags(G_APPLICATION_HANDLES_OPEN | (test ? G_APPLICATION_NON_UNIQUE : 0)));
-    g_set_application_name("Tekken Tag 2 Ultimate Edition");
+    g_set_application_name(launcher::kName);
     g_signal_connect(app, "activate", G_CALLBACK(activate), &a);
     g_signal_connect(app, "open", G_CALLBACK(open), &a);
     const int status = g_application_run(G_APPLICATION(app), static_cast<int>(args.size()), args.data());

@@ -94,7 +94,7 @@ void Launcher::open_game(const fs::path& game) {
 
 void Launcher::build_window() {
     window_ = gtk_application_window_new(app_);
-    gtk_window_set_title(GTK_WINDOW(window_), "Tekken Tag 2 Ultimate Edition");
+    gtk_window_set_title(GTK_WINDOW(window_), kName);
     int width = 880, height = 860;
     if (const char* size = std::getenv("TTT2_LAUNCHER_TEST_SIZE")) std::sscanf(size, "%dx%d", &width, &height);
     gtk_window_set_default_size(GTK_WINDOW(window_), width, height);
@@ -121,7 +121,7 @@ void Launcher::build_window() {
     // The header bar: on the Settings page, Back and its title instead of
     // the window's, Check Again and (in the AppImage) Update.
     GtkWidget* header = gtk_header_bar_new();
-    title_ = gtk_label_new("Tekken Tag 2 Ultimate Edition");
+    title_ = gtk_label_new(kName);
     gtk_widget_add_css_class(title_, "title");
     gtk_label_set_ellipsize(GTK_LABEL(title_), PANGO_ELLIPSIZE_END);
     gtk_label_set_single_line_mode(GTK_LABEL(title_), TRUE);

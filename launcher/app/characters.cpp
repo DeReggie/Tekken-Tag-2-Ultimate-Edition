@@ -115,8 +115,8 @@ GtkWidget* Launcher::fighter_row(const Fighter& f, bool usable) {
         ui::set_tooltip(state_label, "Made by an older version: the game leaves them out until they are added again.");
     } else if (f.newer) {
         state_label = ui::label("Newer version", "pill warn", false);
-        ui::set_tooltip(state_label, "Made by a newer version of Tekken Tag 2 Ultimate Edition: the game leaves them "
-                                     "out until it is updated.");
+        ui::set_tooltip(state_label, "Made by a newer version of Ultimate Launcher: the game leaves them out until it "
+                                     "is updated.");
     } else if (f.installed) {
         state_label = ui::label("Added", "pill ok", false);
     } else if (f.dlc != 0 && owned) {
@@ -356,7 +356,7 @@ void Launcher::show_characters() {
         gtk_box_append(GTK_BOX(card), line);
     };
     warn_line(outdated, "an older version", "add them again.");
-    warn_line(newer, "a newer version of Tekken Tag 2 Ultimate Edition", "update it to play them.");
+    warn_line(newer, "a newer version of Ultimate Launcher", "update it, then the game, to play them.");
 
     GtkWidget* list = gtk_list_box_new();
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(list), GTK_SELECTION_NONE);

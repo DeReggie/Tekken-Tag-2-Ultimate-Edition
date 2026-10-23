@@ -133,7 +133,7 @@ dumps from the debugging options under `local/` too.
 
 ## The launcher
 
-`ttt2-launcher` (**Tekken Tag 2 Ultimate Edition**) does the installing and
+`ttt2-launcher` (**Ultimate Launcher**) does the installing and
 the adding of fighters in a window, without a terminal. **Install…** asks for
 your `.wua` and a folder, checks the PC, builds the game program for it from
 the archive and installs the game with its menu entry, as `ttt2 --install`
@@ -172,7 +172,7 @@ To make an AppImage of the launcher (the launcher, its kit and the character
 importer; nothing of the game):
 
 ```bash
-launcher/appimage/make_appimage.sh Tekken_Tag_2_Ultimate_Edition-x86_64.AppImage build-appimage
+launcher/appimage/make_appimage.sh Ultimate_Launcher-x86_64.AppImage build-appimage
 ```
 
 It builds in a folder of its own (here `build-appimage`; Git ignores it and

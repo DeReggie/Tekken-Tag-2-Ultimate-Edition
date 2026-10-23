@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-<!-- Tekken Tag 2 Ultimate Edition launcher icon: "TTT2" in brushed metal. Original lettering, drawn for this project. -->
+<!-- Ultimate Launcher's icon (Tekken Tag 2 Ultimate Edition): "TTT2" in brushed metal. Original lettering, drawn for this project. -->
 <defs>
 <linearGradient id="tile" x1="0" y1="6" x2="0" y2="122" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1e1f23"/><stop offset="1" stop-color="#08080a"/></linearGradient>
 <radialGradient id="glow" cx="104" cy="112" r="70" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#b3121a" stop-opacity=".22"/><stop offset="1" stop-color="#b3121a" stop-opacity="0"/></radialGradient>

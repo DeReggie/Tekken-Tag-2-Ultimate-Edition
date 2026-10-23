@@ -292,7 +292,7 @@ void Launcher::close_settings() {
     if (!in_settings()) return;
     stop_picking();
     gtk_stack_set_visible_child_name(GTK_STACK(stack_), "main");
-    gtk_label_set_text(GTK_LABEL(title_), "Tekken Tag 2 Ultimate Edition");
+    gtk_label_set_text(GTK_LABEL(title_), kName);
     gtk_widget_set_visible(back_button_, FALSE);
     gtk_widget_set_visible(refresh_button_, TRUE);
     gtk_widget_set_visible(update_button_, appimage_.has_value());
