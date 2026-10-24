@@ -3509,7 +3509,7 @@ namespace {
 bool trace_eliza_assist(uint32_t player) {
     if (!std::getenv("TTT2_TRACE_ELIZA_ASSIST") || !player) return false;
     const int k = slot_of_id(load(player + kPlayerSelectId));
-    return k >= 0 && g_added[k].code == "elz";
+    return k >= 0 && (g_added[k].code == "elz" || g_added[k].code == "kmi");
 }
 const char* assist_move_name(uint32_t player) {
     const uint32_t move = load(player + kPlayerMove);
@@ -3517,7 +3517,8 @@ const char* assist_move_name(uint32_t player) {
 }
 bool trace_glide_move(uint32_t player) {
     const std::string_view name(assist_move_name(player));
-    return name == "Vp_rk00B" || name.starts_with("Vp_dash_");
+    return name == "Vp_rk00B" || name.starts_with("Vp_dash_") ||
+           name == "Kt_rk00F" || name == "Kt_shoryu02";
 }
 void trace_eliza_move(uint32_t player) {
     if (!trace_eliza_assist(player)) return;
@@ -3535,6 +3536,21 @@ void trace_eliza_move(uint32_t player) {
 
 // Diagnostic only: retain the native decision, including failures, to locate
 // the assist lockout before changing any more stance or attack flags.
+// Log the raw controller state at the point where the native inactive-partner
+// path replaces it with idle/tag-out input. Preserve that routing decision.
+PPC_FUNC(sub_03F53238_orig);
+PPC_FUNC(sub_03F53238) {
+    const uint32_t player = ctx.r[3];
+    const bool trace = trace_eliza_assist(player) && trace_glide_move(player);
+    const uint32_t controller = ctx.r[4], raw = ctx.r[5], pressed = ctx.r[6];
+    sub_03F53238_orig(ctx, base);
+    if (trace)
+        std::fprintf(stderr, "eliza-assist ROUTE player=%08X name=%s frame=%u controller=%u raw=%08X pressed=%08X owner=%u assist=%u assist_side=%u control=%u return_timer=%u routed=%08X\n",
+                     player, assist_move_name(player), load(player + kPlayerFrame), controller, raw, pressed,
+                     load(player + 0x1e80), load(player + 0x1e88), load(player + 0x1f10),
+                     load(player + 0x408), load(player + 0x7c0), load(player + 0x7f0));
+}
+
 PPC_FUNC(sub_03F51E70_orig);
 PPC_FUNC(sub_03F51E70) {
     const uint32_t player = ctx.r[3], row = ctx.r[4];
