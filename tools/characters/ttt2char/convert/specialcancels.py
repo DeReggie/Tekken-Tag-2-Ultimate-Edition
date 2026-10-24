@@ -9,6 +9,7 @@ def apply(c):
     rules = c.defn.MOVESET
     restore_normal_strings(c)
     restore_unbuffered_normal_strings(c)
+    restore_hit_latched_normal_strings(c)
     for source, targets in rules.get('special_cancels', {}).items():
         if rules.get('buffered_special_cancels'):
             buffered_special(c, source, targets)
@@ -299,6 +300,56 @@ def restore_unbuffered_normal_strings(c):
             move['cancel'] = len(c.T['cancels'])
             c.T['cancels'] += body[:-1] + added + body[-1:]
             c.stats['unbuffered normal string rows restored'] += len(added)
+
+
+def restore_hit_latched_normal_strings(c):
+    """Retain the one-frame hit-confirmed normal follow-up (Akuma f,f+2,1).
+
+    T7 latches the hit with 0x80a9 at frame 15 and tests 353 at frame 16. Use the verified native contact word,
+    reset on entry, rather than dropping the test or requiring the hit condition still to be live a frame later.
+    """
+    for name, i in c.kn.items():
+        if i not in c.newidx:
+            continue
+        original = M.cancels(c.k, c.k.tables['moves'][i]['cancel'])
+        captures = [r for r in original if r['direction'] == 0 and r['button'] == 0
+                    and M.reqs(c.k, r['req']) == [(43, 0), (0x80a9, 1)]]
+        dispatch = [r for r in original if r['button'] and r['direction'] < M.GROUP
+                    and M.reqs(c.k, r['req']) == [(353, 1)]
+                    and c.k.resolve_alias(r['move_id']) in c.newidx]
+        if not captures or not dispatch:
+            continue
+
+        def extra(value):
+            if value not in c.extra_index:
+                c.extra_index[value] = c.add('cancel_extras', dict(value=value))
+            return c.extra_index[value]
+
+        def req(values):
+            return TS.write(c.T, 'requirements', [dict(condition=a, param=b) for a, b in values]
+                            + [dict(condition=M.END_REQ['ttt2'], param=0)])
+
+        latch = []
+        for row in captures:
+            # T7's 43 is absent from the derived map. The native hit-contact predicate is 47,
+            # as in buffered_special's independently verified hit/block latch above.
+            latch.append(dict(row, req=req([(47, 0), (CONTACT_SET, 1)]),
+                              extradata=extra(0x2800), move_id=0x8001, option=0))
+        added = [dict(row, req=req([(CONTACT_VAR, 1)]), extradata=extra(0x182), option=0,
+                      move_id=c.newidx[c.k.resolve_alias(row['move_id'])]) for row in dispatch]
+        move = c.T['moves'][c.newidx[i]]
+        body = [dict(row) for row in TS.cancels(c.T, move['cancel'])]
+        move['cancel'] = TS.write(c.T, 'cancels', latch + body[:-1] + added + body[-1:])
+        original_entry, entry = move.get('begin_props'), []
+        if original_entry is not None:
+            for p in c.T['move_begin_props'][original_entry:]:
+                if p['id'] == M.END_REQ['ttt2']:
+                    break
+                entry.append(dict(p))
+        move['begin_props'] = TS.write(c.T, 'move_begin_props',
+            [dict(req=req([]), id=CONTACT_SET, value=0)] + entry
+            + [dict(req=0, id=M.END_REQ['ttt2'], value=0)])
+        c.stats['hit-latched normal string rows restored'] += len(added)
 
 
 def restore_normal_strings(c):

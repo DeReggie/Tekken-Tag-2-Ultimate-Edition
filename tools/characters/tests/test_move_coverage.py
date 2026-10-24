@@ -151,6 +151,50 @@ class NormalStrings(unittest.TestCase):
         S.restore_unbuffered_normal_strings(c)
         self.assertEqual(len(c.T['cancels']), 1)
 
+    def hit_latched_converter(self):
+        c = self.converter([(353, 1)])
+        capture_req = len(c.k.tables['requirements'])
+        c.k.tables['requirements'] += [dict(condition=a, param=b) for a, b in
+                                       [(43, 0), (0x80a9, 1), (881, 0)]]
+        dispatch = dict(c.k.tables['cancels'][0], win_start=16, win_end=16, start_frame=16)
+        capture = dict(dispatch, req=capture_req, button=0, win_start=15, win_end=15, start_frame=15)
+        c.k.tables['cancels'] = [capture, dispatch, c.k.tables['cancels'][1]]
+        c.k.tables['moves'][1]['cancel'] = 2
+        c.T['move_begin_props'] = []
+        S.restore_hit_latched_normal_strings(c)
+        return c
+
+    def test_just_frame_normal_followup_latches_hit_and_keeps_one_frame_window(self):
+        c = self.hit_latched_converter()
+        rows = TS.cancels(c.T, c.T['moves'][0]['cancel'])
+        self.assertEqual((rows[1]['win_start'], rows[1]['win_end'], rows[1]['start_frame']), (16, 16, 16))
+        self.assertEqual(c.T['cancel_extras'][rows[0]['extradata']]['value'], 0x2800)
+        for hit, pressed, expected in [(True, 16, True), (False, 16, False), (True, 17, False)]:
+            with self.subTest(hit=hit, pressed=pressed):
+                state, fired = 0, False
+                for frame in (15, 16, 17):
+                    for row in rows[:-1]:
+                        if not row['win_start'] <= frame <= row['win_end']:
+                            continue
+                        if row['button'] and frame != pressed:
+                            continue
+                        req = TS.reqs(c.T, row['req'])
+                        if (47, 0) in req and not (hit and frame == 15):
+                            continue
+                        if (S.CONTACT_VAR, 1) in req and state != 1:
+                            continue
+                        if (S.CONTACT_SET, 1) in req:
+                            state = 1
+                        elif row['button']:
+                            fired = True
+                self.assertEqual(fired, expected)
+
+    def test_just_frame_normal_clears_previous_contact_on_entry(self):
+        c = self.hit_latched_converter()
+        entry = c.T['move_begin_props'][c.T['moves'][0]['begin_props']]
+        self.assertEqual((entry['id'], entry['value']), (S.CONTACT_SET, 0))
+        self.assertEqual(TS.reqs(c.T, entry['req']), [])
+
 
 @unittest.skipUnless(os.environ.get('TTT2_TEST_GAME') and os.environ.get('TTT2_TEST_MOVESETS'),
                      'set TTT2_TEST_GAME and TTT2_TEST_MOVESETS for the local 17-fighter regression')
@@ -249,7 +293,7 @@ class SavedRosterCoverage(unittest.TestCase):
         side_attacks = {'gigas': 'Cz_yoko_rp', 'fahkumram': 'Nc_yokork', 'leroy': 'Nb_SideRK00',
                         'lidia': 'Nd_yokorp', 'kunimitsu2': 'Kt_SideRP', 'noctis': 'Mz_yokoRP'}
         strings = {'eliza': ['Vp_lp00_A', 'Vp_lp00_B', 'Vp_lplp', 'Vp_lprp'],
-                   'geese': ['My_lplp', 'My_lprp00', 'My_rp03F']}
+                   'geese': ['My_lplp', 'My_lprp00', 'My_rp03F'], 'akuma': ['Mx_66rplp2']}
         for slot, name in enumerate(CHARACTERS):
             with self.subTest(fighter=name):
                 d = definition(name)
