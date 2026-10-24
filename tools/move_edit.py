@@ -248,6 +248,30 @@ def edit(args, repo):
         print('DRY RUN. Add --apply to save; no pack is rebuilt automatically.')
 
 
+def rebuild_selected(args, repo):
+    fighters = list(dict.fromkeys(args.fighters))
+    available = definitions()
+    unknown = [name for name in fighters if name not in available]
+    if unknown:
+        raise ValueError('Unknown fighter(s): ' + ', '.join(unknown) +
+                         '. Use the fighters command to list supported names.')
+    for fighter in fighters:
+        d = available[fighter]
+        if not args.apply:
+            print('DRY RUN: rebuild', d.NAME, 'from saved T7 assets; backup and replace', args.packs / d.CODE)
+            continue
+        print('Rebuilding', fighter, flush=True)
+        target = args.packs / d.CODE
+        if target.exists():
+            backup(target, args.backups)
+        # Fresh interpreter per fighter; stop immediately if conversion fails.
+        code = 'import sys;sys.path.insert(0,sys.argv[1]);from ttt2char import importer;importer.run(sys.argv[2],sys.argv[3],sys.argv[4],sys.argv[5],out=sys.argv[6],make_shared=False)'
+        subprocess.run([sys.executable, '-u', '-c', code, str(repo / 'tools/characters'),
+                        fighter, str(args.t7), str(args.movesets), str(args.game), str(args.packs)], check=True)
+    if not args.apply:
+        print('Close the game, then repeat with --apply. Existing overrides for each fighter are included.')
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--repo', type=Path, default=HOME / 'Tekken-Tag-2-Ultimate-Edition')
@@ -276,7 +300,7 @@ def main():
             q.add_argument('--from-fighter', required=True);q.add_argument('--from-move', required=True);q.add_argument('--from-row', type=int)
         if cmd == 'tag':q.add_argument('--air-only', action='store_true')
     q = sub.add_parser('config');q.add_argument('fighter')
-    q = sub.add_parser('rebuild');q.add_argument('fighter');q.add_argument('--apply', action='store_true')
+    q = sub.add_parser('rebuild');q.add_argument('fighters', nargs='+', help='one or more names from the fighters command');q.add_argument('--apply', action='store_true')
     a = p.parse_args()
     errors = (ValueError, KeyError, OSError, subprocess.CalledProcessError)
     try:
@@ -294,16 +318,7 @@ def main():
         elif a.command in ('bound','damage','air-reaction','tag'):
             edit(a, repo)
         elif a.command == 'rebuild':
-            d = definitions()[a.fighter]
-            if not a.apply:
-                print('DRY RUN: rebuild', d.NAME, 'from saved T7 assets; backup and replace', a.packs / d.CODE)
-                print('Close the game, then repeat with --apply. Existing overrides for this fighter are included.')
-                return
-            target = a.packs / d.CODE
-            if target.exists():backup(target, a.backups)
-            # Use a fresh interpreter so the just-edited Python definition cannot be cached.
-            code = 'import sys;sys.path.insert(0,sys.argv[1]);from ttt2char import importer;importer.run(sys.argv[2],sys.argv[3],sys.argv[4],sys.argv[5],out=sys.argv[6],make_shared=False)'
-            subprocess.run([sys.executable,'-u','-c',code,str(repo/'tools/characters'),a.fighter,str(a.t7),str(a.movesets),str(a.game),str(a.packs)],check=True)
+            rebuild_selected(a, repo)
         else:
             from ttt2char.convert import idmaps as M
             m = load(a)

@@ -157,6 +157,20 @@ tail -f "$HOME/fahk-rebuild.log"
 
 After successful conversion, inspect the installed result, restart the game, and test grounded, airborne, wall, and tag behavior. File checks do not prove that the animation or gameplay feels right.
 
+To rebuild a selected list, pass multiple fighter names (or a Bash array):
+
+```bash
+fighters=(akuma eliza fahkumram noctis kunimitsu2)
+python3 tools/move_edit.py --repo "$PWD" --game "$HOME/Tekken Tag Tournament 2/game" rebuild "${fighters[@]}"
+python3 tools/move_edit.py --repo "$PWD" --game "$HOME/Tekken Tag Tournament 2/game" rebuild "${fighters[@]}" --apply
+```
+
+Use your actual installed game path. `fighters` lists the supported names.
+All names are validated before any backup or rebuild. Duplicate names run once,
+in the supplied order. Rebuilds run sequentially, back up each existing pack,
+and stop on the first failure; earlier successful rebuilds remain installed.
+The single-fighter form still works.
+
 ## 6. Backups and undo
 
 Every applied source edit prints its backup location under:
