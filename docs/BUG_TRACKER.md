@@ -50,6 +50,7 @@ The repeated Noctis u/f+1 report is consolidated. Related reaction/projectile re
 | GIG-04 | Gigas | Missing full-crouch d+3 | Open |
 | GIG-05 | Gigas | Missing full-crouch d/f+2 | Open |
 | SYS-01 | General | Game becomes extremely slow after hours; reboot resolves it. Memory leak is a hypothesis, not a diagnosis. | Open |
+| SYS-03 | General | Grounded counter-hit Screw launches consume Bound (e.g. Geese standing 4) | Correction installed; gameplay check pending |
 | SYS-02 | General | Fighters keep running indefinitely after starting a run. Referenced video was not attached in this message. | Open |
 | GEE-01 | Geese (carry-over) | Special cancels fail when entering as Tag Assault partner; Akuma works | Open |
 
@@ -70,3 +71,9 @@ Geese grounded scaling and f+1+2 airborne float changes are installed but still 
 ### Geese f+1+2 → d+4 airborne pickup — reopened
 
 Player confirmed the previous float-only change still did not allow the pickup. Installed `My_WPF` retains the native float but now returns to neutral at frame 44 rather than 52 (`recovery_trim: 8`). d+4 (`My_t_srk00`) first becomes active at frame 17. This candidate shortens recovery on hit, block and whiff; attack startup, active frames, damage, reactions and existing special cancels are preserved. Source override and installed moveset updated; no executable rebuild required. Binary round-trip validation and all 10 move-override tests passed. Restart and gameplay confirmation required; not marked resolved.
+
+### SYS-03 — Grounded counter-hit Screw launches consume Bound
+
+Geese standing 4 (`My_rk00`) has a distinct grounded CH reaction `sDw_screwL`, separate from its airborne requirement-467 Bound entry. Converted grounded Screw reactions retained T7 property 0x8255 as TTT2 property 0x8193, spending Bound when starting the juggle. The shared converter now removes only 0x8193 from the six grounded `sDw_screw{L,R,LL,LR,RL,RR}` reaction variants. Airborne Screw/Bound reactions and all hit conditions remain intact. Property lists are copied to preserve other users of shared data.
+
+Applied the same correction to 13 affected installed packs, preserving attack data, cancels, animations, costumes and all other tables. Backups and binary round-trip checks completed; 2,210 other installed files hash-verified unchanged. Restart required, no executable rebuild. Test CH standing 4 into a combo ending in a known Bound attack; the later Bound should remain available. Gameplay confirmation pending.

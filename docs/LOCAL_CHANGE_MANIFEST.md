@@ -65,3 +65,5 @@ Checks: current PR ancestry, all 17 preset definition counts, free-meter and
 move-choice integration tests, the full character suite, native outfit menu,
 scaling and title tests, and regenerated pack move/animation/metadata audits.
 Game files and generated packs are not committed.
+
+- Grounded counter-hit Screw launch reactions preserve the juggle Bound allowance; airborne Bound conversions remain unchanged. Shared conversion and 13 affected installed packs updated.

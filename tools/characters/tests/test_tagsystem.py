@@ -374,3 +374,20 @@ class Hubs(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class GroundedScrewBound(unittest.TestCase):
+    def test_grounded_launches_only_and_shared_properties_preserved(self):
+        names = ['sDw_screwL', 'sDw_screwRR', 'sDw_AIR_SPINL', 'dwup_hei_xe_ex']
+        original = [dict(frame=0x8001, id=0x8193, value=0),
+                    dict(frame=10, id=0x812a, value=3600),
+                    dict(frame=0, id=0, value=0)]
+        tables = {'moves': [dict(extraprops=0) for _ in names],
+                  'extra_move_properties': [dict(r) for r in original]}
+        self.assertEqual(TS.preserve_grounded_screw_bound(tables, names.__getitem__), [0, 1])
+        self.assertEqual(tables['extra_move_properties'][:3], original)
+        for move in tables['moves'][:2]:
+            at = move['extraprops']
+            self.assertEqual(tables['extra_move_properties'][at:at+2], original[1:])
+        self.assertEqual([m['extraprops'] for m in tables['moves'][2:]], [0, 0])
+        self.assertEqual(TS.preserve_grounded_screw_bound(tables, names.__getitem__), [])

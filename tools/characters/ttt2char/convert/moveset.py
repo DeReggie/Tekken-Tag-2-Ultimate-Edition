@@ -1110,6 +1110,8 @@ class Converter:
         self.own_transitions()
         self.link_queued(counterpart)          # Tekken 7 generic movement states the last two reached
         self.bake_arcs()
+        self.stats['grounded Screw launches preserve Bound'] += len(
+            tagsystem.preserve_grounded_screw_bound(self.T, self.move_name))
         move_overrides.apply(self)
         specialcancels.apply(self)
         self.dismiss_when_hit()

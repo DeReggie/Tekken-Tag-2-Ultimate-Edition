@@ -535,3 +535,30 @@ class TagStates:
         if e:
             return e[True] > 0 and e[True] >= e[False]
         return state_name(name) in self.common
+
+
+def preserve_grounded_screw_bound(tables, move_name):
+    """Grounded Screw launches start a juggle without spending its Bound.
+
+    T7's 0x8255 becomes TTT2's 0x8193. Keep that mapping for airborne
+    Screw/Bound reactions, but omit it from the distinct grounded launch
+    reactions used by counter hits. Copy property lists because they can be shared.
+    """
+    names = {'sDw_screwL', 'sDw_screwR', 'sDw_screwLL', 'sDw_screwLR',
+             'sDw_screwRL', 'sDw_screwRR'}
+    changed = []
+    props = tables['extra_move_properties']
+    for i, move in enumerate(tables['moves']):
+        if move_name(i) not in names or move['extraprops'] is None:
+            continue
+        rows = []
+        for row in props[move['extraprops']:]:
+            rows.append(dict(row))
+            if row['frame'] == 0:
+                break
+        kept = [row for row in rows if row['id'] != 0x8193]
+        if len(kept) != len(rows):
+            move['extraprops'] = len(props)
+            props.extend(kept)
+            changed.append(i)
+    return changed
