@@ -77,3 +77,5 @@ Game files and generated packs are not committed.
 - Eliza Moon Glide hitlevel candidate was reverted after the player reported it prevented entry. The verified pre-candidate cancel-restored pack is installed; Tag Assault Glide follow-ups remain unresolved.
 
 - Negan 4,2 and 1,4,2 bat-tip correction confirmed working by the player.
+
+- Eliza b+4 → f+3+4 Glide entry-mode candidate changes only that empty-stance transition to mode 0x80; hitlevel flag experiment remains reverted. Gameplay confirmation pending.

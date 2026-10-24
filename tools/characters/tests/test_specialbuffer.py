@@ -39,6 +39,28 @@ class BufferedSpecials(unittest.TestCase):
   self.assertEqual(c.T['input_sequences'][sequence]['window'],24)
   self.assertEqual(c.T['input_sequences'][5]['window'],13)
   self.assertEqual(TS.reqs(c.T,rows[3]['req']),[(307,3),(308,1)])
+ def test_opted_in_empty_stance_uses_native_entry_mode_and_keeps_gates(self):
+  c=fixtures.SpecialCancels().converter()
+  c.defn.MOVESET.update(buffered_special_cancels=True,
+    special_stance_cancels={'normal':('dp',)})
+  c.T.update(move_begin_props=[],move_end_props=[],cancel_extras=[]);c.extra_index={}
+  c.T['moves'][1].update(first_active=0,last_active=0,hitlevel=0)
+  S.apply(c)
+  rows=TS.cancels(c.T,c.T['moves'][0]['cancel'])
+  dispatch=[r for r in rows if r['move_id']==1]
+  self.assertEqual(len(dispatch),1)
+  self.assertEqual(c.T['cancel_extras'][dispatch[0]['extradata']]['value'],0x80)
+  self.assertEqual(TS.reqs(c.T,dispatch[0]['req']),[(307,3),(308,1)])
+  self.assertEqual((dispatch[0]['win_start'],dispatch[0]['win_end']),(1,17))
+  self.assertEqual(c.T['moves'][1]['hitlevel'],0)
+  self.assertEqual(c.T['cancel_extras'][rows[2]['extradata']]['value'],0x2800)
+ def test_special_stance_mode_rejects_attacking_target(self):
+  c=fixtures.SpecialCancels().converter()
+  c.defn.MOVESET.update(buffered_special_cancels=True,
+    special_stance_cancels={'normal':('dp',)})
+  c.T.update(move_begin_props=[],move_end_props=[],cancel_extras=[]);c.extra_index={}
+  c.T['moves'][1].update(first_active=1,last_active=1,hitlevel=1)
+  with self.assertRaisesRegex(ValueError,'is an attack'):S.apply(c)
  def test_normal_followup_keeps_early_buffer_and_string_timing(self):
   c=fixtures.SpecialCancels().converter()
   c.defn.MOVESET={'normal_string_followups':{'normal':('dp',)}}

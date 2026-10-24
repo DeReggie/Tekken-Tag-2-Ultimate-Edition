@@ -52,7 +52,7 @@ The repeated Noctis u/f+1 report is consolidated. Related reaction/projectile re
 | SYS-01 | General | Game becomes extremely slow after hours; reboot resolves it. Memory leak is a hypothesis, not a diagnosis. | Open |
 | SYS-03 | General | Grounded counter-hit Screw launches consume Bound (e.g. Geese standing 4) | Fixed — Geese standing 4 confirmed by player |
 | SYS-02 | General | Fighters keep running indefinitely after starting a run. Referenced video was not attached in this message. | Open |
-| ELZ-01 | Eliza | Tag Assault b+4 can enter Glide, but attacks out of Glide fail | Reopened — flag candidate regressed entry and was reverted |
+| ELZ-01 | Eliza | Tag Assault b+4 can enter Glide, but attacks out of Glide fail | Narrow b+4-to-Glide entry-mode candidate installed; needs gameplay check |
 | GEE-01 | Geese (carry-over) | Special cancels fail when entering as Tag Assault partner; Akuma works | Open |
 
 ## Investigation log
@@ -110,3 +110,9 @@ Changed only those three hitlevel fields in the installed Eliza moveset. All can
 ### Player test update — Negan confirmed, Eliza flag candidate reverted
 
 Player reports Negan's moves are fixed after the prior batch. NEG-02 and NEG-03 are marked confirmed; Noctis CH still requires its own confirmation. Eliza's Glide hitlevel candidate instead prevented entry, so restored the exact pre-candidate moveset from its hash-verified backup and removed the candidate source option/helper/tests. Prior restored special cancels and other fighter fixes remain intact. ELZ-01 remains open: before the candidate, b+4 could enter Glide but no attacks followed. The assumption that Kunimitsu's stance flag transfers directly to Eliza was disproved in gameplay. Trace the actual b+4 entry and assist cancel gate before any replacement change.
+
+### ELZ-01 — f+3+4 route verified; transition-only candidate
+
+Player confirms using f+3+4 after b+4. The installed command and b+4 capture rows accept that input (buffer code 21) and b+4 dispatches into `Vp_dash_EX`. The reverted flag candidate is not reintroduced: all three Glide states retain hitlevel 0. Instead, an explicitly scoped special-stance-cancel option changes only b+4's two automatic `Vp_dash_EX` dispatch rows from normal attack/string mode 0x182 to native empty-stance mode 0x80, as used by Kunimitsu's working held-forward SET transition. This remains a candidate; the native mode comparison does not prove the cause of the lockout.
+
+Original f+3+4 capture, contact latch gates, windows, damage, all five Glide attacks and other special cancels are preserved. Source configuration and converter guard reject applying this mode to an attacking target. Installed only the Eliza moveset with a verified backup and binary round-trip validation. 227 tests run, one skipped, no failures (launcher tests excluded). Restart and test Tag Assault b+4 → f+3+4 → Glide attack, as well as the same route outside Tag Assault. No executable rebuild needed. Negan's previously confirmed fixes remain installed.
