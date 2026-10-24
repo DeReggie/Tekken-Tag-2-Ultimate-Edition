@@ -62,7 +62,17 @@ VOICE_PREFIX = 'mx'
 # the id maps: Heihachi in both games, and his generic moves against TTT2's (Heihachi, the donor, Asuka)
 ALIGN = [('heihachi', 13), ('self', 13), ('heihachi', 14), ('self', DONOR_ROW), ('heihachi', 9), ('self', 23)]
 MOVESET = {
+    'bounds': {'Mx_3lprp2': True, 'Mx_66rk': True},
     'name': '[AKUMA]',
+    'special_cancels': {
+        name: ('Ry_shoryu', 'Ry_shoryuB', 'Ry_tatumaki', 'Ry_tatumakiB')
+        for name in ('Mx_rp00', 'Mx_lp00', 'Mx_syalk00')
+    },
+    'electric_tag_exit': True,
+    # Normal light/heavy DP, including their automatic continuation stages.
+    'tag_launchers': {name: 'La_Stormgear' for name in
+                      ('Ry_shoryu', 'Ry_shoryu3', 'Ry_shoryu_cn', 'Ry_shoryu_cnB',
+                       'Ry_shoryu_cnB2', 'Ry_shoryuB', 'Ry_shoryuB2', 'Ry_shoryuB3', 'Ry_shoryuB4')},
     'drop_moves': r'^Mx_Direct$',
     'direct': [(r'^(la|mk)_s', 'anim', ['mx_s%02d' % k for k in range(6)]),     # the donor's intros -> his
                (r'^la_w', 'anim', ['mx_w%02d' % k for k in range(2)])],         # win poses
