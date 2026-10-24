@@ -64,6 +64,10 @@ VOICE_PREFIX = 'my'
 ALIGN = [('heihachi', 13), ('self', 13), ('heihachi', 14), ('self', DONOR_ROW), ('heihachi', 9), ('self', 23)]
 MOVESET = {
     'name': '[GEESE]',
+    # CD+2 (Hishou Nichirin Zan): Bound on the second hit only.
+    'bounds': {'My_623B2': True},
+    # f+1+2 airborne pickup: native Jinpachi u+4 float permits d+4.
+    'air_reactions': {'My_WPF': (40, 'J8_jprk00')},
     'drop_moves': r'^My_Direct$',
     'direct': [(r'^(la|mk)_s', 'anim', ['my_s%02d' % k for k in range(7)]),     # the donor's intros -> his
                (r'^la_w', 'anim', ['my_w%02d' % k for k in range(3)])],         # win poses

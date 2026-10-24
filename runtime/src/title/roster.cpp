@@ -1,4 +1,5 @@
 #include "title/roster.h"
+#include "title/damage_scaling.h"
 
 #include "cafe/ppc_ops.h"
 #include "cafe/runtime.h"
@@ -3173,6 +3174,43 @@ void arc_property(uint32_t player, uint32_t id, uint32_t value) {
 }
 } // namespace
 
+// Geese has a character-specific grounded combo curve in T7's executable,
+// rather than in its MVLT/move damage rows. TTT2 has no corresponding fighter.
+// Keep its native hit accounting/reset logic, then scale this hit's output
+// before sub_03AE15D8 copies it into the defender's health-damage fields.
+PPC_FUNC(sub_04E184D0);
+PPC_FUNC(sub_04E18548);
+PPC_FUNC(sub_03AE1704_orig);
+PPC_FUNC(sub_03AE1704) { // defender r3, attacker r4, damage result r5
+    const uint32_t defender = ctx.r[3], attacker = ctx.r[4], result = ctx.r[5];
+    const int k = attacker ? slot_of_id(load(attacker + kPlayerSelectId)) : -1;
+    if (k < 0 || g_added[k].code != "mry" || !defender || !result ||
+        !damage::ground_hit(load(result + 0x3c), load8(defender + 0x36b))) {
+        sub_03AE1704_orig(ctx, base);
+        return;
+    }
+    // The same native side record feeds the HUD and clears when hitstun ends.
+    // Its +0x50 is the combo hits already registered before this collision.
+    const uint32_t stats = guest_call(ctx, base, sub_04E184D0, {attacker});
+    const uint32_t prior_hits = stats ? load(stats + 0x50) : 0;
+    const uint32_t percent = damage::geese_ground_percent(prior_hits);
+    std::array<int32_t, 4> before;
+    for (size_t i = 0; i < before.size(); ++i) before[i] = static_cast<int32_t>(load(result + 0x2c + 4 * i));
+    sub_03AE1704_orig(ctx, base);
+    if (percent == 100) return;
+    // The result contains four accumulated damage channels. Scale only the
+    // contribution just computed, retaining earlier hits and native modifiers.
+    for (size_t i = 0; i < before.size(); ++i) {
+        const uint32_t at = result + 0x2c + 4 * i;
+        const int32_t added = static_cast<int32_t>(load(at)) - before[i];
+        store(at, before[i] + damage::scale_hit(added, percent));
+    }
+    // Native percentage is in tenths of one percent; update the same record
+    // the training HUD reads, rather than only changing the health loss.
+    if (const uint32_t shown = guest_call(ctx, base, sub_04E18548, {attacker}))
+        store(shown + 0xb4, uint64_t{load(shown + 0xb4)} * percent / 100);
+}
+
 PPC_FUNC(sub_03AE86A0_orig);
 PPC_FUNC(sub_03AE86A0) { // a move property (player r3, {id, value} r4, pass r5)
     const uint32_t player = ctx.r[3], id = load(ctx.r[4]);
@@ -3182,7 +3220,35 @@ PPC_FUNC(sub_03AE86A0) { // a move property (player r3, {id, value} r4, pass r5)
     if ((id == kSummonProp || id == kDismissProp || id == kHoldProp) && ctx.r[5] == 0 &&
         slot_of_id(load(player + kPlayerSelectId)) >= 0)
         summon_property(player, id, load(ctx.r[4] + 4));
+    const bool trace_special = std::getenv("TTT2_TRACE_AKUMA") && id == 0x8093 && ctx.r[5] == 0;
+    const uint32_t trace_value = trace_special ? load(ctx.r[4] + 4) : 0;
+    const uint32_t trace_frame = trace_special ? load(player + kPlayerFrame) : 0;
     sub_03AE86A0_orig(ctx, base);
+    if (trace_special)
+        std::fprintf(stderr, "akuma-buffer SET player=%08X frame=%u requested=%u stored=%u\n",
+                     player, trace_frame, trace_value, load(player + 0x63c));
+}
+
+PPC_FUNC(sub_0404FF30_orig);
+PPC_FUNC(sub_0404FF30) {
+    const uint32_t requirement = ctx.r[3], player = ctx.r[4];
+    const uint32_t kind = load(requirement);
+    const bool trace = std::getenv("TTT2_TRACE_AKUMA") &&
+        (kind == 307 || ((kind == 46 || kind == 47) && load(player + 0x63c) != 0));
+    const uint32_t wanted = trace ? load(requirement + 4) : 0;
+    const uint32_t stored = trace ? load(player + 0x63c) : 0;
+    const uint32_t frame = trace ? load(player + kPlayerFrame) : 0;
+    const uint32_t move = trace ? load(player + kPlayerMove) : 0;
+    sub_0404FF30_orig(ctx, base);
+    if (trace) {
+        static std::map<uint32_t, std::pair<uint32_t, uint32_t>> last;
+        const auto key = std::make_pair(move, frame);
+        if (wanted || kind != 307 || last[player] != key) {
+            std::fprintf(stderr, "akuma-buffer CHECK player=%08X move=%08X frame=%u req=%u wanted=%u stored=%u result=%u\n",
+                         player, move, frame, kind, wanted, stored, ctx.r[3]);
+            last[player] = key;
+        }
+    }
 }
 
 PPC_FUNC(sub_04336854_orig);

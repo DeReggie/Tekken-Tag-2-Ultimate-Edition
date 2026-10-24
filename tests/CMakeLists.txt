@@ -101,6 +101,11 @@ target_link_libraries(title_test PRIVATE cafe_title)
 target_compile_options(title_test PRIVATE -Wall -Wextra)
 add_test(NAME title_test COMMAND title_test)
 
+add_executable(damage_scaling_test damage_scaling_test.cpp)
+target_include_directories(damage_scaling_test PRIVATE ${CMAKE_SOURCE_DIR}/runtime/src)
+target_compile_options(damage_scaling_test PRIVATE -Wall -Wextra)
+add_test(NAME damage_scaling_test COMMAND damage_scaling_test)
+
 # The keyboard's keys from keyboard.ini and its reloading (files in a
 # scratch folder of the build tree; SDL only for its key names).
 find_package(SDL3 REQUIRED CONFIG)
