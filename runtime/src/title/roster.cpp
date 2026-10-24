@@ -3473,23 +3473,24 @@ PPC_FUNC(sub_03AE86A0) { // a move property (player r3, {id, value} r4, pass r5)
     if ((id == kSummonProp || id == kDismissProp || id == kHoldProp) && ctx.r[5] == 0 &&
         slot_of_id(load(player + kPlayerSelectId)) >= 0)
         summon_property(player, id, load(ctx.r[4] + 4));
-    const bool trace_special = std::getenv("TTT2_TRACE_AKUMA") && id == 0x8093 && ctx.r[5] == 0;
+    const bool trace_special = (std::getenv("TTT2_TRACE_AKUMA") || std::getenv("TTT2_TRACE_SPECIAL_CANCELS")) &&
+                               (id == 0x8093 || id == 0x80a5) && ctx.r[5] == 0;
     const uint32_t trace_value = trace_special ? load(ctx.r[4] + 4) : 0;
     const uint32_t trace_frame = trace_special ? load(player + kPlayerFrame) : 0;
     sub_03AE86A0_orig(ctx, base);
     if (trace_special)
         std::fprintf(stderr, "akuma-buffer SET player=%08X frame=%u requested=%u stored=%u\n",
-                     player, trace_frame, trace_value, load(player + 0x63c));
+                     player, trace_frame, trace_value, load(player + (id == 0x80a5 ? 0x628 : 0x63c)));
 }
 
 PPC_FUNC(sub_0404FF30_orig);
 PPC_FUNC(sub_0404FF30) {
     const uint32_t requirement = ctx.r[3], player = ctx.r[4];
     const uint32_t kind = load(requirement);
-    const bool trace = std::getenv("TTT2_TRACE_AKUMA") &&
-        (kind == 307 || ((kind == 46 || kind == 47) && load(player + 0x63c) != 0));
+    const bool trace = (std::getenv("TTT2_TRACE_AKUMA") || std::getenv("TTT2_TRACE_SPECIAL_CANCELS")) &&
+        (kind == 307 || kind == 308 || ((kind == 46 || kind == 47) && load(player + 0x63c) != 0));
     const uint32_t wanted = trace ? load(requirement + 4) : 0;
-    const uint32_t stored = trace ? load(player + 0x63c) : 0;
+    const uint32_t stored = trace ? load(player + (kind == 308 ? 0x628 : 0x63c)) : 0;
     const uint32_t frame = trace ? load(player + kPlayerFrame) : 0;
     const uint32_t move = trace ? load(player + kPlayerMove) : 0;
     sub_0404FF30_orig(ctx, base);
