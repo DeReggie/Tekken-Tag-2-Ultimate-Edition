@@ -414,11 +414,6 @@ class Converter:
             return self.cache[key]
         rows, res = [], None
         for c, p in M.reqs(self.k, i):
-            # Geese's MAX mode is a T7 meter state, explicitly bypassed only
-            # for the character opt-in. Two-button EX inputs remain distinct.
-            if c == 176 and p == 0 and self.defn.MOVESET.get('free_max_mode'):
-                self.stats['MAX mode requirements removed (opt-in)'] += 1
-                continue
             if c in (629, 0x81c2) and self.defn.MOVESET.get('free_meter_specials'):
                 self.stats['meter requirements/costs removed (opt-in)'] += 1
                 continue

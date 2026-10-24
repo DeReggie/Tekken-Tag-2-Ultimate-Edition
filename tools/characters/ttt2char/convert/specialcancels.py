@@ -196,19 +196,9 @@ def buffered_special(c, source, targets):
             continue
         code = next((b for a, b in values if a == 346 and b), None)
         contact = next((a for a, _ in values if a in (49, 50)), None)
-        contact = contact or (353 if (353, 1) in values else None)
         if code is None or (contact is None and source not in
                             c.defn.MOVESET.get('noncontact_special_cancels', ())):
             continue
-        if c.defn.MOVESET.get('strict_special_cancel_gates'):
-            allowed = {346, 49, 50, 353, 0x81c8, 0x8069, 0x8068}
-            if c.defn.MOVESET.get('free_meter_specials'):
-                allowed.add(629)
-            if c.defn.MOVESET.get('free_max_mode'):
-                allowed.add(176)
-            if any(a not in allowed or (a in (49, 50, 176) and b != 0)
-                   or (a == 353 and b != 1) for a, b in values):
-                raise ValueError('unsupported special dispatch gates: ' + source)
         codes.add(code)
         capture_ends[code] = max(capture_ends.get(code, 0), min(32767, row['win_end'] + late))
         checks = [(SPECIAL_VAR, code)]
@@ -226,13 +216,6 @@ def buffered_special(c, source, targets):
         is_sequence = SEQ0 <= row['direction'] < SEQ0 + len(c.k.tables['input_sequences'])
         if not is_sequence and not (row['direction'] < 0x400 and row['button']):
             continue
-        if c.defn.MOVESET.get('strict_special_cancel_gates'):
-            allowed = {346, 0x80c5, 0x822b}
-            if c.defn.MOVESET.get('free_max_mode'):
-                allowed.add(176)
-            if any(a not in allowed or (a in (346, 176) and b != 0)
-                   or (a == 0x822b and b != 1) for a, b in values):
-                raise ValueError('unsupported special capture gates: ' + source)
         # These are input-only rows: native 0x2800 runs requirement actions
         # without leaving the normal. Never add a hit/block gate here.
         sequence = c.conv_seq(row['direction'] - SEQ0) if is_sequence else None
@@ -292,7 +275,7 @@ def restore_unbuffered_normal_strings(c):
     explicit = c.defn.MOVESET.get('normal_string_followups', {})
     buffered = c.defn.MOVESET.get('special_cancels', {}) if c.defn.MOVESET.get('buffered_special_cancels') else {}
     for name, i in c.kn.items():
-        if name in explicit or (name in buffered and not c.defn.MOVESET.get('buffered_normal_followups')):
+        if name in explicit or name in buffered:
             continue
         index = c.newidx.get(i, getattr(c, 'dn', {}).get(name))
         if index is None:
@@ -307,9 +290,7 @@ def restore_unbuffered_normal_strings(c):
             target = c.k.resolve_alias(row['move_id'])
             if target not in c.newidx:
                 continue
-            contact_gated = any(pid in (49, 50) for pid, _ in values)
-            contacts = ((CONTACT_VAR,) if contact_gated else (None,)) if name in buffered else (
-                (46, 47) if contact_gated else (None,))
+            contacts = (46, 47) if any(pid in (49, 50) for pid, _ in values) else (None,)
             for contact in contacts:
                 key = (row['direction'], row['button'], c.newidx[target], row['win_start'], row['win_end'],
                        row['start_frame'], contact)
@@ -317,10 +298,8 @@ def restore_unbuffered_normal_strings(c):
                     continue
                 seen.add(key)
                 rq = len(c.T['requirements'])
-                if name in buffered:
-                    c.add('requirements', dict(condition=SPECIAL_VAR, param=0))
                 if contact is not None:
-                    c.add('requirements', dict(condition=contact, param=1 if contact == CONTACT_VAR else 0))
+                    c.add('requirements', dict(condition=contact, param=0))
                 c.add('requirements', dict(condition=M.END_REQ['ttt2'], param=0))
                 extra = c.extra_index.get(0x182)
                 if extra is None:
