@@ -211,19 +211,11 @@ def buffered_special(c, source, targets):
                 raise ValueError('unsupported special dispatch gates: ' + source)
         codes.add(code)
         capture_ends[code] = max(capture_ends.get(code, 0), min(32767, row['win_end'] + late))
-        mode = 0x182
-        if c.k.move_name(target) in c.defn.MOVESET.get('special_stance_cancels', {}).get(source, ()):
-            state = c.T['moves'][c.newidx[target]]
-            if state['first_active'] or state['last_active'] or state['hitlevel'] & 0xffff:
-                raise ValueError('special stance cancel target is an attack: ' + c.k.move_name(target))
-            # Empty stance entries use the same native mode as the working
-            # held-forward SET entry, not the normal attack/string mode.
-            mode = 0x80
         checks = [(SPECIAL_VAR, code)]
         if contact is not None:
             checks.append((CONTACT_VAR, 1))
         dispatch.append(dict(row, req=req(checks),
-                             extradata=extra(mode), move_id=c.newidx[target],
+                             extradata=extra(0x182), move_id=c.newidx[target],
                              win_end=min(32767, row['win_end'] + late), start_frame=1, option=0))
     captures, captured = [], set()
     for row in rows:

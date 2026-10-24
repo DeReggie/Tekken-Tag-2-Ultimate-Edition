@@ -158,8 +158,6 @@ MOVESET = {
     'free_meter_specials': True,
     'noncontact_special_cancels': ('Vp_energyA', 'Vp_energyB'),
     'buffered_special_cancels': True,
-    # b+4 -> f+3+4: enter empty Glide as a stance during an assist.
-    'special_stance_cancels': {'Vp_rk00B': ('Vp_dash_EX',)},
     'buffered_special_timing': {
         'extra_frames': 8,
         'source_extra_frames': {'Vp_syalk00': 12, 'Vp_t_slk00': 12, 'Co_s_tlp00': 12},

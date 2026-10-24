@@ -3505,9 +3505,65 @@ PPC_FUNC(sub_0404FF30) {
     }
 }
 
+namespace {
+bool trace_eliza_assist(uint32_t player) {
+    if (!std::getenv("TTT2_TRACE_ELIZA_ASSIST") || !player) return false;
+    const int k = slot_of_id(load(player + kPlayerSelectId));
+    return k >= 0 && g_added[k].code == "elz";
+}
+const char* assist_move_name(uint32_t player) {
+    const uint32_t move = load(player + kPlayerMove);
+    return move && load(move) ? reinterpret_cast<const char*>(guest_pointer(load(move))) : "?";
+}
+bool trace_glide_move(uint32_t player) {
+    const std::string_view name(assist_move_name(player));
+    return name == "Vp_rk00B" || name.starts_with("Vp_dash_");
+}
+void trace_eliza_move(uint32_t player) {
+    if (!trace_eliza_assist(player)) return;
+    static std::map<uint32_t, std::pair<uint32_t, bool>> last;
+    const uint32_t move = load(player + kPlayerMove);
+    auto& old = last[player];
+    const bool glide = trace_glide_move(player);
+    if (move != old.first && (glide || old.second))
+        std::fprintf(stderr, "eliza-assist MOVE player=%08X move=%08X name=%s frame=%u input=%08X lock=%u flags=%08X/%08X\n",
+                     player, move, assist_move_name(player), load(player + kPlayerFrame),
+                     load(player + 0x7f0), load(player + 0x800), load(player + 0x480), load(player + 0x484));
+    old = {move, glide};
+}
+} // namespace
+
+// Diagnostic only: retain the native decision, including failures, to locate
+// the assist lockout before changing any more stance or attack flags.
+PPC_FUNC(sub_03F51E70_orig);
+PPC_FUNC(sub_03F51E70) {
+    const uint32_t player = ctx.r[3], row = ctx.r[4];
+    const bool trace = trace_eliza_assist(player) && trace_glide_move(player) && row && load(row + 4);
+    sub_03F51E70_orig(ctx, base);
+    if (trace)
+        std::fprintf(stderr, "eliza-assist INPUT player=%08X name=%s frame=%u row=%08X dir=%08X buttons=%08X mode=%08X target=%u window=%u-%u start=%u held=%08X dirheld=%08X dirpress=%08X lock=%u result=%u\n",
+                     player, assist_move_name(player), load(player + kPlayerFrame), row, load(row), load(row + 4),
+                     load(load(row + 12)), load16(row + 28), load(row + 16), load(row + 20), load(row + 24),
+                     load(player + 0x7f0), load(player + 0x7f4), load(player + 0x7f8), load(player + 0x800), ctx.r[3]);
+}
+
+PPC_FUNC(sub_0414E7E4_orig);
+PPC_FUNC(sub_0414E7E4) {
+    const uint32_t player = ctx.r[6];
+    const bool trace = trace_eliza_assist(player) && trace_glide_move(player);
+    sub_0414E7E4_orig(ctx, base);
+    if (trace && ctx.r[3]) {
+        const uint32_t row = ctx.r[3];
+        std::fprintf(stderr, "eliza-assist SELECT player=%08X name=%s frame=%u row=%08X dir=%08X buttons=%08X mode=%08X target=%u held=%08X lock=%u\n",
+                     player, assist_move_name(player), load(player + kPlayerFrame), row, load(row), load(row + 4),
+                     load(load(row + 12)), load16(row + 28), load(player + 0x7f0), load(player + 0x800));
+    }
+}
+
 PPC_FUNC(sub_04336854_orig);
 PPC_FUNC(sub_04336854) { // a fighter's physics, once a frame (r3; it recurses into the objects at +164, +168)
     const uint32_t player = ctx.r[3];
+    trace_eliza_move(player);
     const bool own = ctx.lr < 0x04336854 || ctx.lr >= 0x0433AF5C;
     const auto it = own ? g_arcs.find(player) : g_arcs.end();
     if (it == g_arcs.end() || it->second.mode == Arc2D::kNone) {

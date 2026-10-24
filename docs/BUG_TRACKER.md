@@ -52,7 +52,7 @@ The repeated Noctis u/f+1 report is consolidated. Related reaction/projectile re
 | SYS-01 | General | Game becomes extremely slow after hours; reboot resolves it. Memory leak is a hypothesis, not a diagnosis. | Open |
 | SYS-03 | General | Grounded counter-hit Screw launches consume Bound (e.g. Geese standing 4) | Fixed — Geese standing 4 confirmed by player |
 | SYS-02 | General | Fighters keep running indefinitely after starting a run. Referenced video was not attached in this message. | Open |
-| ELZ-01 | Eliza | Tag Assault b+4 can enter Glide, but attacks out of Glide fail | Narrow b+4-to-Glide entry-mode candidate installed; needs gameplay check |
+| ELZ-01 | Eliza | Tag Assault b+4 can enter Glide, but attacks out of Glide fail | Open — entry works; follow-ups fail; native trace prepared |
 | GEE-01 | Geese (carry-over) | Special cancels fail when entering as Tag Assault partner; Akuma works | Open |
 
 ## Investigation log
@@ -116,3 +116,9 @@ Player reports Negan's moves are fixed after the prior batch. NEG-02 and NEG-03 
 Player confirms using f+3+4 after b+4. The installed command and b+4 capture rows accept that input (buffer code 21) and b+4 dispatches into `Vp_dash_EX`. The reverted flag candidate is not reintroduced: all three Glide states retain hitlevel 0. Instead, an explicitly scoped special-stance-cancel option changes only b+4's two automatic `Vp_dash_EX` dispatch rows from normal attack/string mode 0x182 to native empty-stance mode 0x80, as used by Kunimitsu's working held-forward SET transition. This remains a candidate; the native mode comparison does not prove the cause of the lockout.
 
 Original f+3+4 capture, contact latch gates, windows, damage, all five Glide attacks and other special cancels are preserved. Source configuration and converter guard reject applying this mode to an attacking target. Installed only the Eliza moveset with a verified backup and binary round-trip validation. 227 tests run, one skipped, no failures (launcher tests excluded). Restart and test Tag Assault b+4 → f+3+4 → Glide attack, as well as the same route outside Tag Assault. No executable rebuild needed. Negan's previously confirmed fixes remain installed.
+
+### ELZ-01 — entry-mode candidate ineffective; native diagnostics installed
+
+Player confirms b+4 → f+3+4 enters Glide but still cannot attack. Reverted the two entry-mode rows and their source option/converter/test changes to the prior verified pack. Neither failed flag nor ineffective entry-mode experiment remains active. Native input-gate investigation identifies `sub_03F51E70` as the input eligibility check and `sub_0414E7E4` as the cancel selector. Added opt-in `TTT2_TRACE_ELIZA_ASSIST=1` logging around their original decisions and the physics move transitions, limited to Eliza b+4/Glide. Hooks preserve native results and do not change eligibility, timing, state or input. Ordinary launches keep logging disabled.
+
+Diagnostic executable built and synchronized to both established launch paths. Title, damage scaling, character import and outfit menu CTests passed (4/4). Baseline Eliza moveset restored by SHA-256; confirmed Negan fixes and other packs untouched. A logged normal b+4 → f+3+4 → Glide attack followed by the same route during Tag Assault is needed to distinguish rejected input, missing cancel evaluation and assist exit. No new gameplay candidate installed; issue remains unresolved.

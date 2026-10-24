@@ -78,4 +78,4 @@ Game files and generated packs are not committed.
 
 - Negan 4,2 and 1,4,2 bat-tip correction confirmed working by the player.
 
-- Eliza b+4 → f+3+4 Glide entry-mode candidate changes only that empty-stance transition to mode 0x80; hitlevel flag experiment remains reverted. Gameplay confirmation pending.
+- Eliza Glide entry-mode candidate was also ineffective and reverted. Baseline cancel-restored pack is installed. Optional `TTT2_TRACE_ELIZA_ASSIST=1` diagnostics retain all native decisions and trace the remaining Tag Assault follow-up failure.
