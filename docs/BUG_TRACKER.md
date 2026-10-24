@@ -66,3 +66,7 @@ NEG-02 and NEG-03 remain open independently; no common cause has been confirmed.
 ## Carry-over validation
 
 Geese grounded scaling and f+1+2 airborne float changes are installed but still need player confirmation. Akuma and Geese were rebuilt after source consolidation; other installed packs were preserved. Do not assume all 17 installed packs match the newest consolidated source until each is audited/rebuilt as appropriate.
+
+### Geese f+1+2 → d+4 airborne pickup — reopened
+
+Player confirmed the previous float-only change still did not allow the pickup. Installed `My_WPF` retains the native float but now returns to neutral at frame 44 rather than 52 (`recovery_trim: 8`). d+4 (`My_t_srk00`) first becomes active at frame 17. This candidate shortens recovery on hit, block and whiff; attack startup, active frames, damage, reactions and existing special cancels are preserved. Source override and installed moveset updated; no executable rebuild required. Binary round-trip validation and all 10 move-override tests passed. Restart and gameplay confirmation required; not marked resolved.
