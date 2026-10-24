@@ -25,7 +25,7 @@ from ..movesets import REACTION_MOVE_FIELDS, TABLE_ORDER, TTT2
 from ..ttt2 import animation, motbin, motion
 from . import arcs
 from . import idmaps as M
-from . import tagsystem
+from . import tagsystem, specialcancels, move_overrides
 
 T7_END, TT_END = M.END_REQ['t7'], M.END_REQ['ttt2']
 SEQ0 = 0x800D                       # a cancel direction from here on names an input sequence
@@ -201,6 +201,13 @@ class Converter:
         self.dn = {donor.move_name(i): i for i in range(len(donor.tables['moves']))}
         self.kn = {k.move_name(i): i for i in range(len(k.tables['moves']))}
         self.cls = classify(k, h7, donor)
+        # Some character-specific attacks reuse a generic move name in T7.
+        # Let a definition retain those attacks instead of losing their input.
+        own_moves = d.MOVESET.get('own_moves')
+        if own_moves:
+            for i in range(len(self.cls)):
+                if re.search(own_moves, k.move_name(i)):
+                    self.cls[i] = 'K'
         self.effect_ids = set()                                    # the Tekken 7 effect ids the moves spawn
         self.effect_rows = []              # (property row, Tekken 7 effect id, frames left of its move or None)
         self.projectile_effects = {}                               # effect id -> its projectile (projectile_look)
@@ -1069,6 +1076,8 @@ class Converter:
         self.own_transitions()
         self.link_queued(counterpart)          # Tekken 7 generic movement states the last two reached
         self.bake_arcs()
+        move_overrides.apply(self)
+        specialcancels.apply(self)
         self.dismiss_when_hit()
         self.hold_thrown()
         # TTT2's tag system on the converted moves (convert/tagsystem.py; the slams were gated while linking): the
@@ -1210,6 +1219,19 @@ class Converter:
                     y = dict(y)
                     y['option'] = 0
                     inserts[anchor].append(y)
+            elif (x['direction'] == 16 and x['button'] == 0 and m < len(d.tables['moves'])
+                  and d.move_name(m) in {'Co_AOzen', 'Co_AOkou', 'Co_UTokiF', 'Co_UTokiB'}):
+                # T7 replaced the grounded back-roll routes with *tk7 recovery
+                # moves. Those targets have no TTT2 counterpart and are dropped.
+                # Keep each native orientation-gated back route, without duplicating
+                # routes already converted. Retain native priority via the anchor.
+                if not any(sig_new(y) == sig_new(x)
+                           and tagsystem.reqs(self.T, y['req']) == M.reqs(d, x['req'])
+                           for y in cl[:-1]):
+                    inserts[anchor].append(dict(x))
+                    self.stats['native grounded back-roll routes restored'] += 1
+                else:
+                    anchor = pos.get(sig_new(x), anchor)
             elif tto(m):
                 y = dict(x)
                 y['option'] = 0
