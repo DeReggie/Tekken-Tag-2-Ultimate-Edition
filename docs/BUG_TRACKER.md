@@ -11,7 +11,7 @@ Updated 2026-10-24. Branch: `codex/all-local-changes`. Merges the full pasted ch
 - **False positive:** closed at the player’s request; not queued for another fix.
 - **Requested behavior change:** design request rather than an established defect.
 
-The screenshot still marks universal CH Screw consumption Open, but the player subsequently confirmed Geese CH 4 preserves Bound. That specific confirmation is retained; universal airborne double-Bound accounting remains separate. Eliza ordinary cancels are confirmed working; her Tag Assault Glide string/handoff update remains awaiting testing. Gigas’s broad resolved screenshot row does not specifically name FC d/f+2, so that route needs verification before calling it confirmed.
+The screenshot still marks universal CH Screw consumption Open, but the player subsequently confirmed Geese CH 4 preserves Bound. That specific confirmation is retained; universal airborne double-Bound accounting remains separate. Eliza ordinary cancels are confirmed working; her full Tag Assault Glide 3,3 now works, while main-character follow-along is a newly confirmed regression (ELZ-07). Gigas’s broad resolved screenshot row does not specifically name FC d/f+2, so that route needs verification before calling it confirmed.
 
 Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` means hold/transition forward; CH = counter hit; FC = full crouch; WS = while standing; WR = while running; BT = back-turned; SET/INT = named stances.
 
@@ -150,12 +150,13 @@ Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` mea
 
 | ID | Report / requested behavior | Current status | Source / notes |
 |---|---|---|---|
-| ELZ-01 | Tag Assault b+4 → f+3+4 → Glide: first 3 now works; full 3,3 / 3,4 and premature main-character control need verification | Partial fix confirmed; full 3,3 / 3,4 and main-control handoff update installed, awaiting test | Current conversation; latest installed continuation update |
+| ELZ-01 | Tag Assault b+4 → f+3+4 → Glide attack/string continuation | Partial confirmation — full Glide 3,3 confirmed working; 3,4 not yet confirmed | Latest player test: full b+4 → Glide → 3,3 works; follow-along regression tracked separately as ELZ-07 |
 | ELZ-02 | qcb+2 does not hit grounded opponents | Open | Full pasted report |
 | ELZ-03 | Stance 4 has a broken reaction, described as the same problem as Noctis d/b+2 CH | Open | Full pasted report |
 | ELZ-04 | General missing hitboxes; exact affected moves unspecified | Reported resolved — screenshot; relationship to qcb+2 unconfirmed | Screenshot |
 | ELZ-05 | Ordinary special cancels were broken | Fixed — confirmed by player; screenshot also says Resolved | Screenshot |
 | ELZ-06 | EX divekick consumes Bound | Open | Screenshot |
+| ELZ-07 | During Tag Assault b+4 → Glide → 3,3, the main character cannot move or follow along, leaving them too far behind to continue the combo; expected automatic follow-along during extended assist stance/string sequences | Open — player-confirmed regression after Glide string/controller handoff update | Latest player test; preserve working full Glide 3,3 while correcting main-character follow-along |
 
 ## Akuma
 
@@ -220,7 +221,7 @@ Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` mea
 
 ## Scope and history
 
-This inventory contains **100 tracked entries**. A combined report may have been split into independently testable moves; this is not a count of confirmed defects. Conversation chatter and the speculative memory-leak diagnosis are excluded as separate bugs. The long-session slowdown report keeps the memory-leak theory explicitly unproven.
+This inventory contains **101 tracked entries**. A combined report may have been split into independently testable moves; this is not a count of confirmed defects. Conversation chatter and the speculative memory-leak diagnosis are excluded as separate bugs. The long-session slowdown report keeps the memory-leak theory explicitly unproven.
 
 No gameplay changes were made for this inventory. Existing investigation history is retained below in the repository tracker.
 
@@ -310,3 +311,8 @@ The 16:58:52 trace confirms `Vp_dash_EX` has assist=1, owner=0, human control=0,
 Player confirms the routing exception enables the first Glide 3, but not 3,3 / 3,4, and the main fighter becomes controllable too soon. Installed metadata identifies `Vp_6rklk` as the first Glide 3: direct 3 and 4 follow-up rows accept input frames 1–18 and enter `Vp_66lklk` / `Vp_6rklkrk` at frame 18. The previous exception covered only the empty Glide state, so it stopped at that first kick.
 
 A latched Tag Assault Glide session now follows precisely these string states, including `Vp_66lklk_H` on hit. Native active decoding remains available to the assist through the string; the shared controller decodes neutral buttons/directions for the main fighter meanwhile. The session ends on leaving this graph, interruption/tag-out, or the existing neutral recovery endpoint: first kick 46, 3,3 58, its hit state 54, 3,4 50. It can only begin during human-controlled Eliza Tag Assault Glide, so normal strings and other fighters cannot start it. No attack timing, hitbox, damage, pack or costume edits. This extends the user-confirmed partial fix; full gameplay verification is pending.
+
+
+### ELZ-01 confirmation / ELZ-07 follow-along regression
+
+Player confirms full Tag Assault b+4 → Glide → 3,3 now works. Do not revert that successful continuation. Glide 3,4 has not been individually confirmed. Player reports the main fighter cannot move at all during the sequence and stays too far behind for the follow-up; expected behavior is to follow along with extended Tag Assault stance/string movement. Added separate open regression ELZ-07. This turn only updates documentation; no new gameplay candidate installed.
