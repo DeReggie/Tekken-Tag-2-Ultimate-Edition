@@ -10,7 +10,9 @@ sandboxed one), Tekken 7 (found through Steam as the importer finds it, or why i
 folder (as the game finds it) and every fighter the importer knows: its name, whether it is a DLC fighter (the DLC's
 Steam app id), whether its pack is there ("installed"), whether that pack is an older importer's ("outdated": the
 game does not load it; adding the fighter again replaces it) or a newer one's ("newer": the game does not load it
-either, and this importer does not replace it; the game needs updating) and whether its moveset is saved. With --game:
+either, and this importer does not replace it; the game needs updating), whether the pack the game loads misses what
+importing the fighter now gives ("update": an older revision, pack.revision; adding them again replaces it) and
+whether its moveset is saved. With --game:
 whether that folder is an installed game the importer can read.
 
 owned: which DLC fighters the player's Steam account owns, as Steam tells the game ({"owned": {name: true|false}}):
@@ -79,7 +81,9 @@ def status(game=None, movesets=None):
     folder = os.path.abspath(pack.default_folder())
     packs = {}                      # {code: its packs' state: 'current' (one is loaded), else 'newer' or 'outdated'}
     rank = ('outdated', 'newer', 'current')
-    for p in pack.installed(folder):
+    installed = pack.installed(folder)
+    loaded = {p['code']: p for _, p in pack.loaded(installed)}
+    for p in installed:
         state = 'current' if p['current'] else 'newer' if p['newer'] else 'outdated'
         if rank.index(state) >= rank.index(packs.get(p['code'], 'outdated')):
             packs[p['code']] = state
@@ -92,6 +96,7 @@ def status(game=None, movesets=None):
         fighters.append({'name': name, 'display': d.NAME.split(' (')[0], 'dlc': autodump.DLC.get(d.TEKKEN7_ID),
                          'installed': d.CODE in packs, 'outdated': packs.get(d.CODE) == 'outdated',
                          'newer': packs.get(d.CODE) == 'newer',
+                         'update': d.CODE in loaded and loaded[d.CODE]['revision'] < pack.revision(d),
                          'moveset_saved': d.TEKKEN7_ID in saved})
     out = {'python': {'version': platform.python_version(), 'numpy': importable('numpy'),
                       'pillow': importable('PIL.Image')},

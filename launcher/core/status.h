@@ -25,6 +25,10 @@ struct Fighter {
     // updating), and this importer does not replace it. (Only with
     // `installed`, never with `outdated`.)
     bool newer = false;
+    // Their pack is in the game, but an older version made it: adding them
+    // again gives them what this version adds (outfits, fixes). (Only with
+    // `added()`.)
+    bool update = false;
     bool moveset_saved = false;
 
     // In the game: a pack it loads.

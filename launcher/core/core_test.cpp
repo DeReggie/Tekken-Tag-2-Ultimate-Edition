@@ -121,9 +121,9 @@ void test_status() {
                       "moveset_saved": true},
                      {"name": "eliza", "display": "Eliza", "dlc": 592370, "installed": false, "moveset_saved": false},
                      {"name": "chloe", "display": "Lucky Chloe", "dlc": null, "installed": true, "outdated": true,
-                      "moveset_saved": true},
+                      "update": true, "moveset_saved": true},
                      {"name": "geese", "display": "Geese Howard", "dlc": 592373, "installed": true,
-                      "outdated": false, "moveset_saved": false},
+                      "outdated": false, "update": true, "moveset_saved": false},
                      {"name": "noctis", "display": "Noctis", "dlc": 592374, "installed": false, "outdated": true},
                      {"name": "josie", "display": "Josie Rizal", "dlc": null, "installed": true, "outdated": false,
                       "newer": true},
@@ -152,6 +152,8 @@ void test_status() {
         check(eliza.dlc == 592370 && !eliza.installed && !eliza.outdated && !eliza.added(), "status: eliza");
         check(chloe.installed && chloe.outdated && !chloe.added(), "status: an outdated pack is not in the game");
         check(geese.installed && !geese.outdated && geese.added(), "status: a current pack");
+        check(geese.update && !kazumi.update, "status: a pack to update is still added");
+        check(!chloe.update, "status: an outdated pack is to add again, not to update");
         check(!noctis.installed && !noctis.outdated && !noctis.added(), "status: outdated without a pack is not");
     }
     const auto missing =

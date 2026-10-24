@@ -127,6 +127,7 @@ private:
     bool addable(const Fighter& fighter) const;
     std::vector<std::string> base_to_add() const;
     std::vector<std::string> owned_to_add() const;
+    std::vector<std::string> to_update() const;
     bool can_import(std::string* why = nullptr) const;
     std::optional<bool> owns(const Fighter& fighter) const;
 
@@ -218,6 +219,7 @@ private:
         std::string error;                // from @error
         std::vector<std::string> added;   // @added, @removed: the fighters done
         std::vector<std::string> skipped; // @skipped: "<fighter>: <why>"
+        bool update = false;              // an import of added characters an older version made
         std::function<void(Task&, int code)> ended; // before the task's result is shown
         bool shot_running = false;      // the test picture half-way is taken
     };

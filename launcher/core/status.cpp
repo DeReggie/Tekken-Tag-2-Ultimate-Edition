@@ -41,6 +41,7 @@ std::optional<ImporterStatus> parse_status(std::string_view text, std::string* e
         fighter.installed = f["installed"].boolean();
         fighter.outdated = fighter.installed && f["outdated"].boolean();
         fighter.newer = fighter.installed && !fighter.outdated && f["newer"].boolean();
+        fighter.update = fighter.added() && f["update"].boolean();
         fighter.moveset_saved = f["moveset_saved"].boolean();
         s.fighters.push_back(std::move(fighter));
     }

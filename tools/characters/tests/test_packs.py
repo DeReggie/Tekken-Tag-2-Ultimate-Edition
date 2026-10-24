@@ -361,6 +361,8 @@ class Status(unittest.TestCase):
             self.assertEqual(state['claudio'], (True, False, False))
             self.assertEqual(state['josie'], (True, True, False))
             self.assertEqual(state['akuma'], (False, False, False))
+            # loaded packs of an older revision (claudio's: none) are to update; packs the game skips are not
+            self.assertEqual({name for name, f in fighters.items() if f['update']}, {'claudio'})
 
 
 class Remove(unittest.TestCase):

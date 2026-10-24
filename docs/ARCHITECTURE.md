@@ -590,7 +590,10 @@ read numbers (`format`, `slot`) as ASCII digits only, else as none. An older
 or a newer pack is skipped with a warning and keeps its number for its
 re-import, `shared/` is made for current packs only, and `launcher.py status`
 reports such a fighter as `outdated` (or `newer`, which the importer does not
-replace). Numbers go to packs as the port gives them (`pack.placed`): a pack
+replace). A current pack's `revision` (none: 0; the port ignores it) below
+`pack.revision` (`pack.REVISION` for changes every fighter gets, plus a
+definition's `REVISION` for its own) is loaded but misses what importing the
+fighter now gives: `launcher.py status` reports it as `update`. Numbers go to packs as the port gives them (`pack.placed`): a pack
 without a code of three lower-case letters or a donor has none, named slots
 count below 128, and of two packs of one code the first by number is
 loaded. Each frame the
@@ -1008,7 +1011,8 @@ compiler.
   folder or why it cannot be used, the packs folder, and per fighter its
   DLC's app id, whether it is added, whether its pack is outdated (an older
   importer's: the game skips it) or newer (a newer importer's: skipped too,
-  and never replaced by this importer) and whether its moveset is saved);
+  and never replaced by this importer), whether the pack the game loads is
+  to update (an older revision) and whether its moveset is saved);
   `owned` asks Steam through the hidden helper which DLC fighters the
   account owns (Steam is never started). `import_character.py --progress`
   adds `@step dump|fighter|shared`, `@added`, `@removed`, `@skipped`,
@@ -1062,7 +1066,9 @@ compiler.
   whose pack is outdated shows "Older version", Remove
   and Add Again (Add All and Add All Owned add them again too, and a line
   above the list counts them); a newer version's shows "Newer version" and
-  Remove only.
+  Remove only; one to update shows "Update ready", Remove and Update (a
+  line above the list counts them, with Update All; Add All leaves them,
+  and an import of only such characters is called an update).
 
 **The AppImage**: `launcher/appimage/make_appimage.sh OUTPUT BUILD_DIR`
 configures BUILD_DIR afresh (a folder of its own: it refuses another build

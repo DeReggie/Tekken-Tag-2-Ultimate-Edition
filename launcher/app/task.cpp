@@ -304,9 +304,15 @@ void Launcher::task_exited(int code) {
         detail = ok ? "The game program is built again for this PC." : t.cancelled ? "The game is as it was." : why;
         break;
     case Kind::kImport:
-        if (ok) {
+        if (ok && t.update) {
+            title = added.empty() ? "No characters updated" : "Updated " + joined(added);
+            detail = added.empty() ? "" : "Their new version is in the game next time it starts.";
+        } else if (ok) {
             title = added.empty() ? "No characters added" : "Added " + joined(added);
             detail = added.empty() ? "" : "They are on the select screen next time the game starts.";
+        } else if (t.update) {
+            title = t.cancelled ? "Updating cancelled" : "Updating " + t.subject + " failed";
+            detail = t.cancelled ? "The characters updated before stay updated, the others as they were." : why;
         } else {
             title = t.cancelled ? "Adding cancelled" : "Adding " + t.subject + " failed";
             detail = t.cancelled ? "The characters added before stay." : why;

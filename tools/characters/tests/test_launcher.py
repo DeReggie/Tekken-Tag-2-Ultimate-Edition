@@ -88,7 +88,7 @@ class Status(unittest.TestCase):
             self.assertEqual(list(fighters), list(importer.CHARACTERS))
             self.assertEqual(fighters['kazumi'], {'name': 'kazumi', 'display': 'Kazumi Mishima', 'dlc': None,
                                                   'installed': False, 'outdated': False, 'newer': False,
-                                                  'moveset_saved': False})
+                                                  'update': False, 'moveset_saved': False})
             self.assertEqual(fighters['eliza']['dlc'], 592370)
 
     def test_tekken7_as_the_importer_finds_it(self):

@@ -69,8 +69,9 @@ bool Launcher::can_import(std::string* why) const {
 bool Launcher::addable(const Fighter& f) const {
     // (A moveset not saved yet is saved from Tekken 7, which needs Steam; a
     // DLC fighter's import asks Steam whether the DLC is owned, every time.
-    // An older importer's pack is replaced, a newer one's never.)
-    if (f.added() || f.newer || owns(f) != true || !status_) return false;
+    // An older importer's pack is replaced, also one to update, a newer
+    // one's never.)
+    if ((f.added() && !f.update) || f.newer || owns(f) != true || !status_) return false;
     if (f.dlc != 0) return status_->steam_running;
     return status_->steam_running || (f.moveset_saved && status_->heihachi_saved);
 }
@@ -79,7 +80,7 @@ std::vector<std::string> Launcher::base_to_add() const {
     std::vector<std::string> names;
     if (status_) {
         for (const Fighter& f : status_->fighters) {
-            if (f.dlc == 0 && addable(f)) names.push_back(f.name);
+            if (f.dlc == 0 && !f.update && addable(f)) names.push_back(f.name);
         }
     }
     return names;
@@ -89,7 +90,17 @@ std::vector<std::string> Launcher::owned_to_add() const {
     std::vector<std::string> names;
     if (status_) {
         for (const Fighter& f : status_->fighters) {
-            if (f.dlc != 0 && addable(f)) names.push_back(f.name);
+            if (f.dlc != 0 && !f.update && addable(f)) names.push_back(f.name);
+        }
+    }
+    return names;
+}
+
+std::vector<std::string> Launcher::to_update() const {
+    std::vector<std::string> names;
+    if (status_) {
+        for (const Fighter& f : status_->fighters) {
+            if (f.update && addable(f)) names.push_back(f.name);
         }
     }
     return names;
@@ -98,8 +109,9 @@ std::vector<std::string> Launcher::owned_to_add() const {
 // ---------------------------------------------------------------- the section
 
 GtkWidget* Launcher::fighter_row(const Fighter& f, bool usable) {
-    // A line each: the name, the state (added, made by an older version, or
-    // for the DLC's whether it is owned) and the buttons, in columns.
+    // A line each: the name, the state (added, to update, made by an older
+    // version, or for the DLC's whether it is owned) and the buttons, in
+    // columns.
     GtkWidget* row = ui::box(GTK_ORIENTATION_HORIZONTAL, 12);
     GtkWidget* name = ui::label(f.display, nullptr, false);
     gtk_widget_set_hexpand(name, TRUE);
@@ -117,6 +129,10 @@ GtkWidget* Launcher::fighter_row(const Fighter& f, bool usable) {
         state_label = ui::label("Newer version", "pill warn", false);
         ui::set_tooltip(state_label, "Made by a newer version of Ultimate Launcher: the game leaves them out until it "
                                      "is updated.");
+    } else if (f.update) {
+        state_label = ui::label("Update ready", "pill warn", false);
+        ui::set_tooltip(state_label, "Made by an older version: they are in the game, and updating them gives them "
+                                     "what this version adds.");
     } else if (f.installed) {
         state_label = ui::label("Added", "pill ok", false);
     } else if (f.dlc != 0 && owned) {
@@ -163,12 +179,12 @@ GtkWidget* Launcher::fighter_row(const Fighter& f, bool usable) {
                          this);
         append(button);
     };
-    if (f.outdated) {
+    if (f.outdated || f.update) {
         // (Adding them again replaces the old pack: the main button. A DLC
         // no longer owned cannot be added again, and says so there.)
         remove_button("remove:" + f.name);
         if (owned != false) {
-            add_button("Add Again");
+            add_button(f.update ? "Update" : "Add Again");
         } else {
             GtkWidget* note = ui::label("Not owned", "small dim", false);
             gtk_label_set_xalign(GTK_LABEL(note), 0.5f);
@@ -318,7 +334,7 @@ void Launcher::show_characters() {
     gtk_widget_set_hexpand(head_text, TRUE);
     gtk_box_append(GTK_BOX(head_text), ui::label("Tekken 7's characters", "heading"));
     gtk_box_append(GTK_BOX(head_text),
-                   ui::label("They join the roster beside the game's own fighters. Each takes about a minute; the "
+                   ui::label("They join the roster beside the game's own fighters. Each takes a few minutes; the "
                              "first time, Tekken 7 runs hidden in the background to save their moves.",
                              "small dim"));
     gtk_box_append(GTK_BOX(head), head_text);
@@ -358,15 +374,45 @@ void Launcher::show_characters() {
     warn_line(outdated, "an older version", "add them again.");
     warn_line(newer, "a newer version of Ultimate Launcher", "update it, then the game, to play them.");
 
+    // Characters in the game that an older version made: updating them (adding
+    // them again) gives them what this version adds.
+    std::vector<const Fighter*> updates;
+    for (const Fighter& f : s.fighters) {
+        if (f.update && owns(f) != false) updates.push_back(&f);
+    }
+    if (!updates.empty()) {
+        GtkWidget* line = ui::box(GTK_ORIENTATION_HORIZONTAL, 10, "check-row");
+        GtkWidget* image = gtk_image_new_from_icon_name("ttt2-update-symbolic");
+        gtk_widget_add_css_class(image, "warn");
+        gtk_widget_set_valign(image, GTK_ALIGN_START);
+        gtk_box_append(GTK_BOX(line), image);
+        const std::string who = updates.size() == 1 ? updates[0]->display + " was"
+                                                    : std::to_string(updates.size()) + " characters were";
+        GtkWidget* note = ui::label(who + " made by an older version: update " +
+                                    (updates.size() == 1 ? "them" : "them all") + " to get what this one adds.");
+        gtk_widget_set_hexpand(note, TRUE);
+        gtk_box_append(GTK_BOX(line), note);
+        const auto names = to_update();
+        GtkWidget* update_all = ui::button(updates.size() == 1 ? "Update" : "Update All");
+        ui::set_id(update_all, "update-all");
+        gtk_widget_set_valign(update_all, GTK_ALIGN_CENTER);
+        gtk_widget_set_sensitive(update_all, usable && !task_ && !names.empty());
+        if (usable && names.empty()) gtk_widget_set_tooltip_text(update_all, "Start Steam: Tekken 7 needs it");
+        clicked(update_all, [](Launcher* self) { self->start_import(self->to_update()); });
+        gtk_box_append(GTK_BOX(line), update_all);
+        gtk_box_append(GTK_BOX(card), line);
+    }
+
     GtkWidget* list = gtk_list_box_new();
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(list), GTK_SELECTION_NONE);
     gtk_widget_add_css_class(list, "fighter-list");
-    int dlc_count = 0, owned_count = 0, dlc_outdated = 0;
+    int dlc_count = 0, owned_count = 0, dlc_outdated = 0, dlc_update = 0;
     for (const Fighter& f : s.fighters) {
         if (f.dlc != 0) {
             ++dlc_count;
             owned_count += owns(f) == true;
             dlc_outdated += f.outdated && owns(f) != false;
+            dlc_update += f.update && owns(f) != false;
             continue;
         }
         gtk_list_box_append(GTK_LIST_BOX(list), fighter_row(f, usable));
@@ -383,6 +429,9 @@ void Launcher::show_characters() {
     gtk_box_append(GTK_BOX(title), ui::label(summary, "pill neutral", false));
     if (dlc_outdated > 0) {
         gtk_box_append(GTK_BOX(title), ui::label(std::to_string(dlc_outdated) + " to add again", "pill warn", false));
+    }
+    if (dlc_update > 0) {
+        gtk_box_append(GTK_BOX(title), ui::label(std::to_string(dlc_update) + " to update", "pill warn", false));
     }
     GtkWidget* expander = gtk_expander_new(nullptr);
     ui::set_id(expander, "dlc");
@@ -465,8 +514,16 @@ void Launcher::start_import(const std::vector<std::string>& names) {
     std::vector<std::string> argv = importer_command("import_character.py");
     argv.insert(argv.end(), names.begin(), names.end());
     argv.insert(argv.end(), {"--game", install_.folder.string(), "--progress"});
-    if (start_task(Kind::kImport, "Adding " + names_text(status_, names), argv, importer_environment(), nullptr)) {
+    // (Characters to update only: an update. Their packs are replaced whole,
+    // as the importer replaces any.)
+    const bool update = !names.empty() && std::all_of(names.begin(), names.end(), [&](const std::string& name) {
+        return std::any_of(status_->fighters.begin(), status_->fighters.end(),
+                           [&](const Fighter& f) { return f.name == name && f.update; });
+    });
+    if (start_task(Kind::kImport, (update ? "Updating " : "Adding ") + names_text(status_, names), argv,
+                   importer_environment(), nullptr)) {
         task_->subject = names_text(status_, names);
+        task_->update = update;
     }
 }
 

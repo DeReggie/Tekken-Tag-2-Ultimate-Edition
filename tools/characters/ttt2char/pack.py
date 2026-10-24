@@ -5,7 +5,7 @@ $XDG_DATA_HOME/ttt2/characters, else ~/.local/share/ttt2/characters, as the port
     character.ini              format = PACK_FORMAT, code = <three letters>, donor = <a TTT2 fighter's code>,
                                sex = female | male, slot = its number k (place(k): select id 64 + k, its motion
                                row and grid cell), chr_tones = its voice bank's shout tones (the win quotes' come
-                               after)
+                               after), revision = revision(d) (the port ignores it)
     <code>.xml                 item database (BXML)
     <code>.nud .nut .bon       body model, textures, skeleton
     <code>.mop                 spring entries of its extra bones (Kazumi's tiger)
@@ -32,8 +32,11 @@ only: an older importer's pack keeps its place, unloaded, until its fighter is i
 launcher.py status "outdated"). A pack without a `format` line is format 1 unless it has its own `keys/` (the earliest
 packs, made one by one before shared/: the port would join those to shared/'s), which is format 0; a newer importer's
 pack (a format above PACK_FORMAT) is not loaded either, nor replaced by this one's. PACK_FORMAT goes up when packs
-made before cannot work with the port's or shared/'s new design. character.ini is read as the port reads it: a line
-is `key = value` ('#' starts a comment), and numbers (format, slot) are ASCII digits only, else none.
+made before cannot work with the port's or shared/'s new design. A current pack whose `revision` (none: 0) is below
+revision(d) is loaded but misses what a new import gives (the launcher offers to update it: launcher.py status
+"update"); REVISION goes up for changes every fighter gets, a definition's REVISION for its fighter's alone.
+character.ini is read as the port reads it: a line is `key = value` ('#' starts a comment), and numbers (format, slot,
+revision) are ASCII digits only, else none.
 """
 import os
 import re
@@ -47,6 +50,7 @@ from . import InputError, signals
 FILES = ('.xml', '.nud', '.nut', '.bon', '.moveset', '.motion')
 SHARED = 'shared'               # the packs' shared title entries
 PACK_FORMAT = 1                 # character.ini `format` of the packs made now (the port's kPackFormat, roster.cpp)
+REVISION = 1                    # what packs made before lack, for every fighter (1: cloth, outfits, move fixes)
 # Added fighter k's place as the port gives it (roster.cpp): select id 64 + k, a motion row (what the moveset's
 # fighter fields hold: the rows no fighter has first, then 69 on) and a select grid cell (roster.cpp kCells): the free
 # ends of the top row, then columns beyond the grid's ends (-1 and 23, then -2 and 24). A cell is
@@ -175,6 +179,12 @@ def remove_shared(folder):
         delete_path(path)
 
 
+def revision(d):
+    """The character.ini `revision` of fighter d's pack made now: REVISION and the definition's own (each only goes
+    up, so a pack made before has a lower one)."""
+    return REVISION + vars(d).get('REVISION', 0)
+
+
 def character_ini(d, slot, chr_tones=0, voice_extra=(), weapons=(), outfits=()):
     """voice_extra: the se_Chr tones of the shouts past the donor's (the port appends them to the voice list);
     weapons: weapons.of_skeleton's [(k, parent bone, [(point number, slot)], summon)] (the port poses them):
@@ -183,8 +193,8 @@ def character_ini(d, slot, chr_tones=0, voice_extra=(), weapons=(), outfits=()):
         return '%d:%d:%s' % (k, parent, ','.join('%d' % n if n == slot else '%d>%d' % (n, slot) for n, slot in points)) \
             + (':%d' % summon if summon is not None else '')
     return ('# %s, from Tekken 7 (made on this machine from the player\'s own copy)\n'
-            'format = %d\ncode = %s\ndonor = %s\nsex = %s\nslot = %d\nchr_tones = %d\n'
-            % (d.NAME.split(' (')[0], PACK_FORMAT, d.CODE, d.DONOR, d.SEX, slot, chr_tones)
+            'format = %d\ncode = %s\ndonor = %s\nsex = %s\nslot = %d\nchr_tones = %d\nrevision = %d\n'
+            % (d.NAME.split(' (')[0], PACK_FORMAT, d.CODE, d.DONOR, d.SEX, slot, chr_tones, revision(d))
             + ('voice_extra = %s\n' % ' '.join(map(str, voice_extra)) if voice_extra else '')
             + ('weapons = %s\n' % ' '.join(item(*w) for w in weapons) if weapons else '')
             + ('outfits = %s\n' % ' '.join(outfits) if outfits else ''))
@@ -210,8 +220,9 @@ def number(value):
 
 def installed(folder):
     """The packs in the characters folder: [{'path', 'code', 'donor', 'slot' (None if it names none), 'format' (0:
-    an older importer's; see above), 'valid' (the port takes it: a three-letter code and a donor), 'current' (valid
-    and of PACK_FORMAT: the port loads it), 'newer' (valid and of a later format)}], by folder name. A folder whose
+    an older importer's; see above), 'revision' (0 without one), 'valid' (the port takes it: a three-letter code and a
+    donor), 'current' (valid and of PACK_FORMAT: the port loads it), 'newer' (valid and of a later format)}], by
+    folder name. A folder whose
     name starts with a dot is none (write()'s pack being made, or the one it replaces; the port skips them too)."""
     out = []
     if not os.path.isdir(folder):
@@ -228,8 +239,8 @@ def installed(folder):
             form = 0 if os.path.isdir(os.path.join(path, 'keys')) else 1
         valid = bool(CODE.fullmatch(v.get('code', ''))) and v.get('donor', '') != ''
         out.append(dict(path=path, code=v.get('code', ''), donor=v.get('donor', ''), slot=number(v.get('slot', '')),
-                        format=form, valid=valid, current=valid and form == PACK_FORMAT,
-                        newer=valid and form > PACK_FORMAT))
+                        format=form, revision=number(v.get('revision', '')) or 0, valid=valid,
+                        current=valid and form == PACK_FORMAT, newer=valid and form > PACK_FORMAT))
     return out
 
 
