@@ -1,5 +1,5 @@
 """Character opt-ins for special inputs and native tag-launch exits."""
-from . import idmaps as M
+from . import idmaps as M, tagsystem as TS
 from ..ttt2 import motion
 
 SEQ0 = 0x800D
@@ -8,6 +8,7 @@ SEQ0 = 0x800D
 def apply(c):
     rules = c.defn.MOVESET
     restore_normal_strings(c)
+    restore_unbuffered_normal_strings(c)
     for source, targets in rules.get('special_cancels', {}).items():
         if rules.get('buffered_special_cancels'):
             buffered_special(c, source, targets)
@@ -250,6 +251,54 @@ def buffered_special(c, source, targets):
                        dict(req=req([]), id=CONTACT_SET, value=0)] + kept + [dict(req=0, id=M.END_REQ['ttt2'], value=0)]
     c.stats['special input capture rows restored'] += len(captures)
     c.stats['buffered special dispatch rows restored'] += len(dispatch)
+
+
+def restore_unbuffered_normal_strings(c):
+    """Keep ordinary 2D-fighter strings whose only missing state is an empty T7 special buffer.
+
+    Native special-cancel opt-ins retain their explicit timing/priority rules. Do not turn motion captures,
+    meter checks or a nonempty special-buffer dispatch into unrestricted normal attacks.
+    """
+    explicit = c.defn.MOVESET.get('normal_string_followups', {})
+    buffered = c.defn.MOVESET.get('special_cancels', {}) if c.defn.MOVESET.get('buffered_special_cancels') else {}
+    for name, i in c.kn.items():
+        if name in explicit or name in buffered:
+            continue
+        index = c.newidx.get(i, getattr(c, 'dn', {}).get(name))
+        if index is None:
+            continue
+        added, seen = [], set()
+        for row in M.cancels(c.k, c.k.tables['moves'][i]['cancel']):
+            if not row['button'] or row['direction'] >= M.GROUP:
+                continue
+            values = M.reqs(c.k, row['req'])
+            if (346, 0) not in values or any(pid not in (346, 49, 50) or value != 0 for pid, value in values):
+                continue
+            target = c.k.resolve_alias(row['move_id'])
+            if target not in c.newidx:
+                continue
+            contacts = (46, 47) if any(pid in (49, 50) for pid, _ in values) else (None,)
+            for contact in contacts:
+                key = (row['direction'], row['button'], c.newidx[target], row['win_start'], row['win_end'],
+                       row['start_frame'], contact)
+                if key in seen:
+                    continue
+                seen.add(key)
+                rq = len(c.T['requirements'])
+                if contact is not None:
+                    c.add('requirements', dict(condition=contact, param=0))
+                c.add('requirements', dict(condition=M.END_REQ['ttt2'], param=0))
+                extra = c.extra_index.get(0x182)
+                if extra is None:
+                    extra = c.add('cancel_extras', dict(value=0x182))
+                    c.extra_index[0x182] = extra
+                added.append(dict(row, req=rq, extradata=extra, move_id=c.newidx[target], option=0))
+        if added:
+            move = c.T['moves'][index]
+            body = [dict(r) for r in TS.cancels(c.T, move['cancel'])]
+            move['cancel'] = len(c.T['cancels'])
+            c.T['cancels'] += body[:-1] + added + body[-1:]
+            c.stats['unbuffered normal string rows restored'] += len(added)
 
 
 def restore_normal_strings(c):

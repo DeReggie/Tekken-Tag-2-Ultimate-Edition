@@ -315,7 +315,15 @@ class Converter:
         self.unmapped[('prop', p)] += 1
         return None
 
-    def target(self, mid):
+    def shared_input_target(self, mid):
+        """A shared T7 gameplay move the donor cannot provide, reached by an input or follow-up."""
+        if mid is None or not 0 <= mid < len(self.cls) or self.cls[mid] != 'T':
+            return False
+        name = self.k.move_name(mid)
+        return (name not in self.dn and not DROP_T_RE.search(name) and not re.search(DROP_MOVES, name)
+                and not name.startswith(('Co_I', 'Wi_I', 'Mt_I')))
+
+    def target(self, mid, input_target=False):
         """A Tekken 7 move id (or alias slot) -> the new moveset's move id, or None."""
         if mid is None:
             return None
@@ -335,15 +343,16 @@ class Converter:
         if r and r in self.dn:
             self.stats['target remapped (Tekken 7-only move -> the TTT2 move in its place)'] += 1
             return self.dn[r]
-        # a Tekken 7 generic move: converted when a reaction needs it, or a movement state (Master Raven's crouch
-        # walk forward cWALK_00F, which TTT2 calls Ju_cWALKF)
-        if self.cls[mid] == 'T' and not DROP_T_RE.search(n) and (self.alloc_ok or self.is_state(mid)):
+        # Shared attacks (FC jabs/kicks, jump attacks, throw follow-ups) can be absent from the donor too.
+        # Import them when a retained input/follow-up reaches them, not only when a reaction needs them.
+        if self.cls[mid] == 'T' and not DROP_T_RE.search(n) and (
+                self.alloc_ok or self.is_state(mid) or (input_target and self.shared_input_target(mid))):
             idx = len(self.T['moves'])
             self.newidx[mid] = idx
             self.T['moves'].append(self.conv_move(mid))
             self.queue.append(mid)
-            self.stats['Tekken 7 generic moves converted (needed by reactions)' if self.alloc_ok else
-                       'Tekken 7 generic moves converted (movement states)'] += 1
+            reason = 'needed by reactions' if self.alloc_ok else 'input targets' if input_target else 'movement states'
+            self.stats['Tekken 7 generic moves converted (%s)' % reason] += 1
             return idx
         return None
 
@@ -400,6 +409,18 @@ class Converter:
             return self.cache[key]
         rows, res = [], None
         for c, p in M.reqs(self.k, i):
+            # These checks refer to the owner of this moveset, known at conversion time. Native requirement
+            # 200 interprets parameters 69..83 as character-family selectors, not equality with our virtual row.
+            # Folding only the owner's checks avoids breaking SS attacks when an import takes one of those rows.
+            # Opponent checks (219/223) must still be evaluated at run time.
+            if c in (217, 218):
+                matches = p == self.k_id
+                if matches == (c == 217):
+                    self.stats['owner character requirements folded true'] += 1
+                    continue
+                self.stats['owner character requirements folded false'] += 1
+                res = (None, False)
+                break
             if c in CHAR_IS or c in CHAR_IS_NOT:
                 if p == self.k_id:
                     p = self.newid
@@ -452,7 +473,7 @@ class Converter:
                 d['req'], _ = self.conv_reqs(c['req'])
                 d['extradata'] = self.extradata(c['extradata'])
                 if c['direction'] == M.LIST_END:
-                    d['move_id'] = self.target(c['move_id']) or 0
+                    d['move_id'] = self.target(c['move_id'], input_target=True) or 0
                 out.append(d)
                 break
             d['req'], ok = self.conv_reqs(c['req'])
@@ -464,7 +485,7 @@ class Converter:
             else:
                 if SEQ0 <= c['direction'] < SEQ0 + nseq:
                     d['direction'] = SEQ0 + self.conv_seq(c['direction'] - SEQ0)
-                t = self.target(c['move_id'])
+                t = self.target(c['move_id'], input_target=True)
                 if t is None:
                     self.stats['cancel dropped: target not converted'] += 1
                     continue
@@ -1119,7 +1140,7 @@ class Converter:
             self.T['cancels'] += cl
         else:
             row['cancel'] = self.cancel_list(mv['cancel'])
-        t = self.target(mv['transition'])
+        t = self.target(mv['transition'], input_target=True)
         if t is None:
             self.stats['transition -> the standing alias 0x8001'] += 1
             t = 0x8001
@@ -1145,7 +1166,8 @@ class Converter:
             kc = M.cancels(k, mv['cancel'])
             dj = self.dn[k.move_name(i)]
             dc = M.cancels(d, d.tables['moves'][dj]['cancel'])
-            k_hub = any(x['direction'] < 0x8000 and x['move_id'] in self.newidx for x in kc) or \
+            k_hub = any(x['direction'] < 0x8000 and (x['move_id'] in self.newidx or
+                        self.shared_input_target(x['move_id'])) for x in kc) or \
                 any(x['direction'] == M.GROUP for x in kc)
             d_spec = any(x['direction'] < 0x8000 and x['move_id'] < nd and d.move_name(x['move_id']) in donor_specific
                          for x in dc) or any(x['direction'] == M.GROUP for x in dc)
