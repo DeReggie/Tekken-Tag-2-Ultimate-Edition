@@ -73,7 +73,78 @@ VOICE_PREFIX = 'my'
 
 # the id maps: Heihachi in both games, and his generic moves against TTT2's (Heihachi, the donor, Asuka)
 ALIGN = [('heihachi', 13), ('self', 13), ('heihachi', 14), ('self', DONOR_ROW), ('heihachi', 9), ('self', 23)]
+# All sources below were audited against Geese's exported T7 capture/dispatch rows.
+# EX commands retain their distinct two-button inputs; normal commands stay available.
+_SPECIALS = (
+    'My_EX_SPReppuu',
+    'My_EX_Reppuu',
+    'My_Reppuu',
+    'My_RS00',
+    'My_EX_FudohPAB',
+    'My_FudohP',
+    'My_CCL_DASH',
+    'My_623EX',
+    'My_623A',
+    'My_623B',
+    'My_ReppuuB',
+    'My_FudohPB',
+    'My_EX_Jyaei',
+    'My_Jyaei_C',
+    'My_Jyaei_D',
+    'My_HItataki',
+    'My_lk00F',
+)
+_NORMAL_CANCELS = (
+    'My_lp00',
+    'My_rp00',
+    'Co_R_rp00L',
+    'Co_R_lp00R',
+    'My_syalp00',
+    'Co_R_crp00L',
+    'Co_R_clp00R',
+    'My_syalk00_LP',
+    'My_syark00',
+    'Co_R_clk00L',
+    'Co_R_crk00R',
+    'My_t_slp00',
+    'My_t_slk_LP',
+    'My_t_srk00',
+    'My_s_tlp00',
+    'My_HItataki',
+)
+_SUPER_CANCELS_ON_CONTACT = (
+    'My_FudohP',
+    'My_FudohP_LP',
+    'My_FudohP_LK',
+    'My_FudohP_RK',
+    'My_EX_FudohPAB_LP',
+    'My_EX_FudohPAB_LK',
+    'My_EX_FudohPAB_RK',
+    'My_Jyaei_C2',
+    'My_Jyaei_D3',
+    'My_EX_Jyaei03',
+)
+_SUPER_CANCELS_WITHOUT_CONTACT = (
+    'My_Reppuu',
+    'My_ReppuuB2',
+    'My_EX_Reppuu2',
+)
 MOVESET = {
+    'own_moves': r'^(My_.*|Co_R_(rp00L|lp00R|crp00L|clp00R|clk00L|crk00R))$',
+    'free_meter_specials': True,
+    'free_max_mode': True,
+    'buffered_special_cancels': True,
+    'strict_special_cancel_gates': True,
+    'buffered_normal_followups': True,
+    'buffered_special_timing': {'extra_frames': 8, 'motion_window': 24},
+    'noncontact_special_cancels': _SUPER_CANCELS_WITHOUT_CONTACT,
+    'special_cancels': {
+        **{name: _SPECIALS for name in _NORMAL_CANCELS},
+        **{name: ('My_CCL_DASH',) for name in ('My_rp02F', 'My_lk00F', 'My_4lplk', 'My_lkrp00B',)},
+        'My_WPF': ('My_WPF_EX_ShippuF', 'My_WPF_ShippuF_A', 'My_WPF_ShippuF_B'),
+        **{name: ('My_EX_SPReppuu', 'My_RS00')
+           for name in _SUPER_CANCELS_ON_CONTACT + _SUPER_CANCELS_WITHOUT_CONTACT},
+    },
     'name': '[GEESE]',
     # CD+2 (Hishou Nichirin Zan): Bound on the second hit only.
     'bounds': {'My_623B2': True},
