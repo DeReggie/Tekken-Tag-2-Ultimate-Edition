@@ -11,14 +11,14 @@ The repeated Noctis u/f+1 report is consolidated. Related reaction/projectile re
 | ID | Fighter | Report | Status |
 |---|---|---|---|
 | NEG-01 | Negan | 1,2: second hit does not connect | False positive — closed at user request |
-| NEG-02 | Negan | 4,2: second hit does not connect | Open |
-| NEG-03 | Negan | 1,4,2: final hit does not connect | Open |
+| NEG-02 | Negan | 4,2: second hit does not connect | Bat-tip candidate installed; needs gameplay check |
+| NEG-03 | Negan | 1,4,2: final hit does not connect | Same bat-tip candidate installed; needs gameplay check |
 | NEG-04 | Negan | INT 4 fails mid-combo | Open |
 | NEG-05 | Negan | Hit effects should be red | Open |
-| NEG-06 | Negan | d/b+1+2 counter-hit reaction is broken; resembles Noctis u/f+1 problem | Open |
+| NEG-06 | Negan | d/b+1+2 counter-hit reaction is broken; resembles Noctis u/f+1 problem | CH crumple correction installed; needs gameplay check |
 | NEG-07 | Negan | qcf+1 knife is not visible | Open |
 | NEG-08 | Negan | Missing sidestep 2 | Open |
-| NOC-01 | Noctis | u/f+1 counter-hit reaction is broken (reported twice) | Open |
+| NOC-01 | Noctis | u/f+1 counter-hit reaction is broken (reported twice) | Same CH crumple correction installed; needs gameplay check |
 | NOC-02 | Noctis | f+2 deals unscaled combo damage | Open |
 | KUN-01 | Kunimitsu II | f+2 deals unscaled combo damage | Open |
 | TAG-01 | Noctis / Kunimitsu II | Dagger attacks fail during Tag Assault; inspect each fighter separately | Open |
@@ -83,3 +83,19 @@ Player confirmed SYS-03: Geese CH standing 4 now preserves the subsequent Bound.
 ### Eliza — special cancels absent from installed pack
 
 Player reported all cancels failing. Compared with the pre-Screw-fix backup: cancel/requirement tables were identical, so SYS-03 did not overwrite them. Source retained all Eliza fixes, but the preserved installed pack lacked buffered-special capture/dispatch routes. Rebuilt Eliza from consolidated source and installed only `elz.moveset` and `elz.motion`, with backups. Verified all 16 configured special-cancel sources have capture and dispatch rows; all base move names retained, eight costumes and pack metadata unchanged, CH Screw correction retained, 2,221 other files unchanged. Six obsolete Bound Tag Assault twin/exit moves disappear consistently with the existing three `bounds: False` source settings. Twelve special-cancel tests and three local-customization tests passed. Restart required; gameplay confirmation pending.
+
+Eliza special cancels: player confirmed working after the rebuilt pack was installed.
+
+### NEG-02 / NEG-03 — confirmed string misses
+
+Player confirms both 4,2 and 1,4,2 consistently miss the final hit. Both routes reach `Na_rkrp` (1,4 uses `Na_lprk` then cancels into it). Source and installed active frame 26, damage 20 and reaction choices agree; follow-up is present. No weapon-pair change has been reintroduced. Collision cause remains under investigation.
+
+### NEG-02 / NEG-03 — bat-tip collision candidate installed
+
+Player clarified the last swing animates but passes through the opponent. The finisher uses T7 point 0x72, previously approximated as 70 cm along the scaled bat axis (664.65 mm from the grip). The actual T7 model tip bone `ATH_R_weapon001_top` is 873.54 mm from the grip and already exists as native point 71 (T7 0x70). Scoped `Na_rkrp` override extends only the second collision capsule to that actual tip: installed hitbox `48004808` → `48004708`. Inner point, timing, damage, reactions and cancel tables are unchanged by this override. Source override saved, installed moveset backed up, binary round-trip verified. This is a candidate, not a confirmed diagnosis or resolved issue. Restart and test both strings.
+
+### NEG-06 / NOC-01 — retain the two-stage CH crumple
+
+Verified actual inputs: Negan d/b+1+2 is `Na_1lrp`; Noctis u/f+1 is `Mz_9LP` (not the generic jump jab). Both T7 grounded reactions select `sDm_nkdoBxC` on CH, transitioning at frame 24 into `sDm_nkd2BxC`. The installed packs instead selected `ym_y01L`, a normal stagger. Alignment-derived reaction remapping had replaced the crumple. Shared converter now retains these two T7 states when no native counterpart exists, preserving their animation and follow-up while leaving other mappings intact.
+
+Regenerated and installed Negan and Noctis gameplay moveset/motion files, retaining all old base move names, valid animation references, and the prior grounded Screw/Bound fix. Costumes, metadata, effects, voices and other fighters were hash-verified unchanged (2,219 other files). Added regression coverage for both crumple stages, native-counterpart priority and unchanged unrelated remaps. 225 tests run with one skipped and no failures (launcher tests excluded after their previously observed subprocess timeout). No executable rebuild; restart required. Gameplay confirmation pending for both CH reactions. NEG-04 (INT 4 mid-combo) remains open separately.

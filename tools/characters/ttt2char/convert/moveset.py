@@ -51,6 +51,9 @@ REQ_OVERRIDE = {615: 467}
 # of Heihachi's (df+1,2 among them); the reaction map makes the slam the donor's bound reaction, so such an entry gets
 # TTT2's 467 test too (convert/tagsystem.py gated_slam)
 T7_AIR = 614
+# Keep the two-stage CH stomach crumple: alignment can confuse its grounded
+# hit slot with a normal stagger and lose both the collapse and its follow-up.
+PRESERVE_T7_REACTIONS = {'sDm_nkdoBxC', 'sDm_nkd2BxC'}
 # Direction tests: TTT2's requirement function (sub_0404FF30) has four sets of four, front first, back last, at 81..96
 # (*(r24), *(r24 + 4), the quadrant of an angle (sub_05C5D9B4), the hit's direction *(r20)) and 97 (TTT2 only);
 # Tekken 7 has the same four sets at 84..99 (100 = TTT2's 98). The alignment anchors only 87 -> 84 and 100 -> 98, so
@@ -344,7 +347,7 @@ class Converter:
         n = self.k.move_name(mid)
         if n in self.dn:
             return self.dn[n]
-        r = self.react_remap.get(n)
+        r = self.react_remap.get(n) if n not in PRESERVE_T7_REACTIONS else None
         if r and r in self.dn:
             self.stats['target remapped (Tekken 7-only move -> the TTT2 move in its place)'] += 1
             return self.dn[r]

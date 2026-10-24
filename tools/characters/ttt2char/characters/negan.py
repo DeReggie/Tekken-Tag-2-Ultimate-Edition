@@ -73,6 +73,9 @@ VOICE_PREFIX = 'na'
 ALIGN = [('heihachi', 13), ('self', 13), ('heihachi', 14), ('self', DONOR_ROW), ('heihachi', 9), ('self', 23)]
 MOVESET = {
     'name': '[NEGAN]',
+    # 4,2 / 1,4,2: cover the bat through its model-defined tip.
+    # Keep the inner point; extend the outer capsule beyond the inferred 70 cm point.
+    'hitboxes': {'Na_rkrp': (0x72, 0, 0x70, 8)},
     'drop_moves': r'^Na_Direct$',
     'direct': [(r'^(la|mk)_s', 'anim', ['na_s%02d' % k for k in range(4)]),     # the donor's intros -> his
                (r'^la_w', 'anim', ['na_w%02d' % k for k in range(4)])],         # win poses

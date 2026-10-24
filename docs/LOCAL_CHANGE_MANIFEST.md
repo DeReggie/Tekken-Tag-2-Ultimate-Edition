@@ -69,3 +69,7 @@ Game files and generated packs are not committed.
 - Grounded counter-hit Screw launch reactions preserve the juggle Bound allowance; airborne Bound conversions remain unchanged. Shared conversion and 13 affected installed packs updated.
 
 - Eliza gameplay pack rebuilt from consolidated source after discovering the preserved installed pack lacked special-cancel fixes. All 16 configured source routes verified in the rebuilt pack; all eight costume assets preserved. Gameplay confirmation pending.
+
+- Negan 4,2 / 1,4,2 share a scoped actual-bat-tip collision candidate; gameplay confirmation pending.
+- Shared CH crumple conversion preserves `sDm_nkdoBxC` and `sDm_nkd2BxC` instead of remapping them to a normal stagger. Negan and Noctis gameplay packs regenerated and installed; player testing pending.
+- Eliza restored cancels confirmed working by the player.

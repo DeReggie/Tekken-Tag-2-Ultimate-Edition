@@ -67,6 +67,26 @@ class SharedAttacks(unittest.TestCase):
                 self.assertIsNone(c.target(0, input_target=True))
                 self.assertEqual(c.queue, [])
 
+    def test_ch_crumple_chain_is_imported_instead_of_stagger_remap(self):
+        for name in ('sDm_nkdoBxC', 'sDm_nkd2BxC'):
+            with self.subTest(move=name):
+                c = converter(source([name]))
+                c.react_remap[name] = 'ym_y01L'
+                c.dn['ym_y01L'] = 42
+                c.alloc_ok = 1
+                self.assertEqual(c.target(0), 0)
+                self.assertEqual(c.queue, [0])
+                self.assertEqual(c.target(0), 0)
+                self.assertEqual(len(c.T['moves']), 1)
+
+    def test_other_reaction_remaps_and_native_crumples_are_preserved(self):
+        c = converter(source(['other_reaction', 'sDm_nkdoBxC']))
+        c.react_remap['other_reaction'] = 'ym_y01L'
+        c.dn.update(ym_y01L=42, sDm_nkdoBxC=43)
+        self.assertEqual(c.target(0), 42)
+        self.assertEqual(c.target(1), 43)
+        self.assertEqual(c.queue, [])
+
     def test_cancel_list_retains_input_window_and_target_zero(self):
         k = source(['Co_syalp00'])
         row = dict(direction=0, button=0x40000001, req=0, extradata=0, win_start=3, win_end=17,
