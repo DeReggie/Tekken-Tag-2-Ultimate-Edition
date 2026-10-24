@@ -15,7 +15,8 @@ TTT2 shows a fighter's pictures in three ways, all by its UI position (its row i
 Each picture is made the same way: the pictures every fighter has at that place give the frame (pixels all of
 them share), the background (their darkest, most transparent pixels) and the area a picture covers; the fighter's
 Tekken 7 picture is scaled and placed so that its face sits where faces sit in that kind of picture, cut to that
-area, laid over the background, under the frame.
+area, laid over the background, under the frame. In the big portraits it also fades into the dark background
+towards the frame, as every fighter there does (edge_fade).
 
 What every added fighter shares (layouts, the big portraits' container, the HUD's pictures) is made for all of them
 together, in the order of their places (shared_files, for shared/): layouts and the container whole
@@ -29,7 +30,7 @@ import re
 import struct
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from ..tekken7.texture import Texture2D
 from ..tekken7.uasset import load
@@ -198,10 +199,11 @@ def deglow(img):
     return out
 
 
-def compose(others, picture):
+def compose(others, picture, fade=None):
     """A picture like `others` (N, h, w, 4 floats: every fighter's picture for the place) with `picture` (h, w, 4)
     in it: where all of them agree (a frame, a background they share) theirs, elsewhere `picture` cut to the area
-    theirs cover, over their darkest and most transparent pixels."""
+    theirs cover, over their darkest and most transparent pixels; `fade` (h, w, see edge_fade): how much of
+    `picture` shows at each pixel."""
     n = len(others)
     spread = others.std(0).max(-1)
     shared = spread < 0.04
@@ -213,9 +215,45 @@ def compose(others, picture):
     cover = np.percentile(others[..., 3], 85, axis=0)
     p = picture.copy()
     p[..., 3] *= cover
+    if fade is not None:
+        p[..., 3] *= fade
+        shared &= fade <= 0.0       # (where the picture fades out, theirs differ too little to tell apart)
     out = _over(p, background)
     out[shared] = mean[shared]
     return out
+
+
+FADE_REACH = 64        # how far into a window (pixels) its edges' fade is measured
+
+
+def edge_fade(others):
+    """How much of a fighter shows at each pixel (h, w floats, 0 to 1) in pictures like `others` (N, h, w, 4) whose
+    fighters fade into a dark background towards the edges of their window (the big portraits): the window is
+    where the pictures differ much; how much they differ at each distance from its edge, against how much they
+    differ deep inside, gives the fade by distance."""
+    premultiplied = np.concatenate([others[..., :3] * others[..., 3:], others[..., 3:]], -1)
+    spread = premultiplied.std(0).max(-1)
+    much = np.percentile(spread, 90)
+    if much <= 0.0:
+        return np.ones(spread.shape, np.float32)
+    rough = Image.fromarray(np.where(spread > 0.3 * much, 255, 0).astype(np.uint8))
+    window = np.asarray(rough.filter(ImageFilter.GaussianBlur(3))) > 127     # (its edges smoothed)
+    if not window.any():
+        return np.ones(spread.shape, np.float32)
+    # distance from the window's edge: up inside, down outside
+    inside = np.minimum(_distances(~window, FADE_REACH), FADE_REACH)
+    outside = np.minimum(_distances(window, FADE_REACH), FADE_REACH)
+    at = np.round(np.where(window, inside - 0.5, 0.5 - outside)).astype(np.int64)
+    steps = np.arange(at.min(), at.max() + 1)
+    deep = spread[at >= min(FADE_REACH - 8, int(at.max() * 0.7))]
+    level = np.zeros(len(steps))
+    for i, step in enumerate(steps):
+        here = spread[at == step]
+        if len(here) >= 8:
+            level[i] = np.median(here) / max(np.median(deep), 1e-6)
+    # it only grows inwards, and is whole a little before the measured differences settle (the median there ~0.95)
+    level = np.clip(np.maximum.accumulate(level) / 0.95, 0.0, 1.0)
+    return np.interp(at, steps, level).astype(np.float32)
 
 
 def _over(top, bottom):
@@ -254,17 +292,22 @@ SHADOW = 12            # how far (pixels) the shadow is measured
 
 
 def _distances(mask, limit):
-    """Per pixel, the distance to the nearest pixel of `mask` (inf beyond `limit`)."""
+    """Per pixel, the distance to the nearest pixel of `mask` (inf beyond `limit`): first down each column (at most
+    limit + 1, meaning farther), then the nearest of the columns around."""
     h, w = mask.shape
-    out = np.full(mask.shape, np.inf)
-    offsets = sorted(((dx * dx + dy * dy) ** 0.5, dx, dy) for dx in range(-limit, limit + 1)
-                     for dy in range(-limit, limit + 1) if dx * dx + dy * dy <= limit * limit)
-    for d, dx, dy in offsets:
-        shifted = np.zeros_like(mask)
-        shifted[max(dy, 0):h + min(dy, 0), max(dx, 0):w + min(dx, 0)] = \
-            mask[max(-dy, 0):h + min(-dy, 0), max(-dx, 0):w + min(-dx, 0)]
-        out = np.where(shifted & (out > d), d, out)
-    return out
+    far = float(limit + 1)
+    column = np.empty(mask.shape)
+    for rows in (range(h), range(h - 1, -1, -1)):
+        run = np.full(w, far)
+        for y in rows:
+            run = np.where(mask[y], 0.0, np.minimum(run + 1.0, far))
+            column[y] = run if rows.step > 0 else np.minimum(column[y], run)
+    column *= column
+    out = column.copy()
+    for dx in range(1, limit + 1):
+        out[:, dx:] = np.minimum(out[:, dx:], column[:, :-dx] + dx * dx)
+        out[:, :-dx] = np.minimum(out[:, :-dx], column[:, dx:] + dx * dx)
+    return np.where(out <= limit * limit, np.sqrt(out), np.inf)
 
 
 class Letters:
@@ -643,11 +686,11 @@ class Layout:
 
 # ------------------------------------------------------------------------------------------------ portraits
 
-def portrait(sources, others, player2):
-    """A big portrait (356x612) like `others` (every fighter's of that kind)."""
+def portrait(sources, others, player2, fade):
+    """A big portrait (356x612) like `others` (every fighter's of that kind; fade: edge_fade(others))."""
     w, h = PORTRAIT_SIZE
     mine = sources.framed(FACE_PORTRAIT, w, h, mirror=player2)
-    return compose(others, mine)
+    return compose(others, mine, fade)
 
 
 def container_frames(d):
@@ -699,7 +742,8 @@ def portrait_files(sources, archives, rpx):
             t = nut.read(archives.read(k))['textures'][0]
             if (t['w'], t['h']) == (paul['w'], paul['h']):
                 pics.append(_float(nut.decode(t)))
-        mine = compose(np.stack(pics), sources.framed(FACE_PORTRAIT, paul['w'], paul['h'], mirror=player2))
+        pics = np.stack(pics)
+        mine = compose(pics, sources.framed(FACE_PORTRAIT, paul['w'], paul['h'], mirror=player2), edge_fade(pics))
         files[name] = nut.write([like_texture(paul, mine)])
     return files
 
@@ -916,10 +960,11 @@ def shared_files(paks, archives, rpx, fighters, log=None):
     cont = archives.read(PORTRAITS)
     frames = container_frames(cont)
     pics = np.stack([_texture_picture(cont[o:o + s]) for o, s in frames])
+    fades = [edge_fade(pics[p::2]) for p in (0, 1)]
     new = []
     for slot in range(max(sources) + 1):
         if slot in sources:
-            new += [_one_texture(portrait(sources[slot], pics[p::2], p == 1)) for p in (0, 1)]
+            new += [_one_texture(portrait(sources[slot], pics[p::2], p == 1, fades[p])) for p in (0, 1)]
         else:
             new += [cont[o:o + s] for o, s in frames[:2]]
     files['keys/%08x.bin' % PORTRAITS] = with_frames(cont, new)
