@@ -3,6 +3,10 @@ from . import tagsystem as TS
 
 
 def apply(c):
+    for name, frames in c.defn.MOVESET.get('recovery_trim', {}).items():
+        trim_recovery(c, name, frames)
+    for name, frames in c.defn.MOVESET.get('startup_trim', {}).items():
+        trim_startup(c, name, frames)
     for name, damage in c.defn.MOVESET.get('damage', {}).items():
         if type(damage) is not int or not 0 <= damage <= 255:
             raise ValueError('damage must be an integer from 0 to 255: ' + name)
@@ -216,3 +220,58 @@ def normalize_buffered_strings(c):
         if not set(captures) <= dispatch:
             continue
         direct_buffered_string(c, name)
+
+
+def trim_startup(c, name, frames):
+    """Remove wind-up frames from a private animation and its event timeline."""
+    from ..ttt2 import animation as A
+    if type(frames) is not int or frames <= 0:
+        raise ValueError('startup trim must be a positive integer')
+    move = c.T['moves'][c.newidx[c.kn[name]]]
+    if not move['first_active'] or frames >= move['first_active']:
+        raise ValueError('startup trim reaches the attack: ' + name)
+    index = (move['anim'] & 0x3fff) - c.pack0_count
+    if not move['anim'] & 0x4000 or index < 0:
+        raise ValueError('startup trim requires a private imported animation: ' + name)
+    dec = A.decode(c.new_anims[index])
+    if frames >= dec['frames']:
+        raise ValueError('startup trim removes the whole animation: ' + name)
+    raw = A.to_raw(dec['descriptors'], dec['values'], dec['type'])
+    move['anim'] = 0x4000 | (c.pack0_count + len(c.new_anims))
+    c.new_anims.append(A.encode_raw(dec['descriptors'], raw[frames:]))
+    def shift(value):
+        return max(1, value - frames) if 0 < value < 32767 else value
+    for field in ('first_active', 'last_active', 'anim_len', 'airborne_start', 'airborne_end', 'ground_fall'):
+        move[field] = shift(move[field])
+    rows = [dict(r) for r in TS.cancels(c.T, move['cancel'])]
+    for row in rows:
+        for field in ('win_start', 'win_end', 'start_frame'):
+            row[field] = shift(row[field])
+    move['cancel'] = TS.write(c.T, 'cancels', rows)
+    if move['extraprops'] is not None:
+        props = []
+        for old in c.T['extra_move_properties'][move['extraprops']:]:
+            p = dict(old)
+            if p['frame']:
+                p['frame'] = (p['frame'] & 0xe000) | shift(p['frame'] & 0x1fff)
+            props.append(p)
+            if old['id'] == 0 and old['frame'] == 0:
+                break
+        move['extraprops'] = len(c.T['extra_move_properties'])
+        c.T['extra_move_properties'] += props
+    c.stats['move startup frames removed'] += frames
+
+
+def trim_recovery(c, name, frames):
+    """Return to neutral earlier, preserving startup, hits and launch reactions."""
+    if type(frames) is not int or frames <= 0:
+        raise ValueError('recovery trim must be a positive integer')
+    move = c.T['moves'][c.newidx[c.kn[name]]]
+    rows = [dict(row) for row in TS.cancels(c.T, move['cancel'])]
+    end = rows[-1]
+    if end['win_start'] - frames <= move['last_active']:
+        raise ValueError('recovery trim reaches the attack: ' + name)
+    end['win_start'] -= frames
+    end['start_frame'] = max(end['win_start'], end['start_frame'] - frames)
+    move['cancel'] = TS.write(c.T, 'cancels', rows)
+    c.stats['move recovery frames removed'] += frames

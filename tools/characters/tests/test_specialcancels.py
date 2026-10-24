@@ -54,6 +54,20 @@ class SpecialCancels(unittest.TestCase):
         self.assertEqual(rows[-1]['direction'], M.LIST_END)
         self.assertEqual(c.T['cancels'][0]['direction'], M.LIST_END)  # shared list untouched
 
+    def test_leniency_extends_only_opted_in_cancel_sequences(self):
+        c = self.converter()
+        c.defn.MOVESET['special_cancel_leniency'] = {'normal': 6}
+        c.cache = {}
+        c.T['input_sequences'] = [dict(window=13, inputs=0, amount=3)] * 6
+        S.apply(c)
+        rows = TS.cancels(c.T, c.T['moves'][0]['cancel'])[:2]
+        self.assertTrue(all(row['win_end'] == 23 for row in rows))
+        self.assertTrue(all(row['start_frame'] == 1 for row in rows))
+        self.assertEqual(rows[0]['direction'], rows[1]['direction'])
+        self.assertEqual(c.T['input_sequences'][rows[0]['direction'] - S.SEQ0]['window'], 19)
+        self.assertEqual(c.T['input_sequences'][5]['window'], 13)
+        self.assertEqual([TS.reqs(c.T, row['req']) for row in rows], [[(46, 0)], [(47, 0)]])
+
     def test_native_tag_exit_precedes_automatic_followups(self):
         c = self.converter()
         c.defn.MOVESET = {'tag_launchers': {'dp': 'launcher'}}
