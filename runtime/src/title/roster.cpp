@@ -3536,14 +3536,28 @@ void trace_eliza_move(uint32_t player) {
 
 // Diagnostic only: retain the native decision, including failures, to locate
 // the assist lockout before changing any more stance or attack flags.
-// Log the raw controller state at the point where the native inactive-partner
-// path replaces it with idle/tag-out input. Preserve that routing decision.
+// Retain controller input through Eliza's empty Tag Assault Glide states.
+// Trace this boundary for comparison with native stance continuation.
+PPC_FUNC(sub_03F52F20_orig);
 PPC_FUNC(sub_03F53238_orig);
 PPC_FUNC(sub_03F53238) {
     const uint32_t player = ctx.r[3];
     const bool trace = trace_eliza_assist(player) && trace_glide_move(player);
     const uint32_t controller = ctx.r[4], raw = ctx.r[5], pressed = ctx.r[6];
-    sub_03F53238_orig(ctx, base);
+    const int slot = player ? slot_of_id(load(player + kPlayerSelectId)) : -1;
+    const std::string_view name = player ? assist_move_name(player) : "";
+    // Native inactive-partner routing synthesizes TAG instead of reading the
+    // controller in these empty special-cancel states. Keep human control only
+    // through Glide's existing attack-input window; normal assist exit resumes
+    // immediately afterwards. Use the native input decoder, not copied masks.
+    const bool glide_input = slot >= 0 && g_added[slot].code == "elz" &&
+        (name == "Vp_dash_C" || name == "Vp_dash_EX" || name == "Vp_dash_EX2") &&
+        load(player + 0x1e88) == 1 && load(player + 0x408) == 0 &&
+        load(player + kPlayerFrame) >= 1 && load(player + kPlayerFrame) <= 24;
+    if (glide_input)
+        sub_03F52F20_orig(ctx, base);
+    else
+        sub_03F53238_orig(ctx, base);
     if (trace)
         std::fprintf(stderr, "eliza-assist ROUTE player=%08X name=%s frame=%u controller=%u raw=%08X pressed=%08X owner=%u assist=%u assist_side=%u control=%u return_timer=%u routed=%08X\n",
                      player, assist_move_name(player), load(player + kPlayerFrame), controller, raw, pressed,
