@@ -166,3 +166,45 @@ class DamageOverride(unittest.TestCase):
         with self.assertRaises(ValueError):O.apply(c)
 
 if __name__=='__main__':unittest.main()
+
+class CounterhitReaction(unittest.TestCase):
+    def test_only_grounded_ch_slots_change_and_shared_lists_stay_intact(self):
+        import copy
+        c=types.SimpleNamespace(kn={'attack':0}, newidx={0:0}, dn={'reference':9}, stats=collections.Counter())
+        reaction=dict(default=1, ch=2, crouch_ch=3, block=4, downed=5, pb_front=6, vertical_pushback=7)
+        c.T={'moves':[dict(hit_condition=0),dict(hit_condition=0)],
+             'requirements':[dict(condition=T.AIR,param=0),dict(condition=T.TT_END,param=0)],
+             'hit_conditions':[dict(req=0,damage=12,reactions=0),dict(req=1,damage=20,reactions=0)],
+             'reactions':[reaction]}
+        original=copy.deepcopy(c.T)
+        def add(table,row):
+            c.T[table].append(row)
+            return len(c.T[table])-1
+        c.add=add
+        O.counterhit_reaction(c,'attack','reference')
+        hits=T.hits(c.T,c.T['moves'][0]['hit_condition'])
+        self.assertEqual(hits[0],original['hit_conditions'][0])
+        changed=c.T['reactions'][hits[1]['reactions']]
+        self.assertEqual(changed,dict(reaction,ch=9,crouch_ch=9))
+        self.assertEqual(hits[1]['damage'],20)
+        self.assertEqual(c.T['moves'][1],original['moves'][1])
+        self.assertEqual(c.T['reactions'][0],reaction)
+        self.assertEqual(c.T['hit_conditions'][:2],original['hit_conditions'])
+
+class OnHitFollowup(unittest.TestCase):
+    def test_restores_timing_with_native_hit_gate_and_rejects_other_requirements(self):
+        from ttt2char.movesets import Moveset
+        k=Moveset();k.game='t7';k.aliases=[]
+        source=dict(direction=0,button=0,req=0,extradata=0,win_start=17,win_end=18,start_frame=20,move_id=1,option=0)
+        end=dict(source,direction=M.LIST_END,move_id=0)
+        k.tables={'moves':[dict(cancel=0),dict(cancel=1)],'cancels':[source,end],
+                  'requirements':[dict(condition=51,param=0),dict(condition=881,param=0)]}
+        c=types.SimpleNamespace(k=k,kn={'first':0,'second':1},newidx={0:0,1:1},stats=collections.Counter(),extradata=lambda _:7)
+        c.T={'moves':[dict(cancel=0),dict(cancel=0)],'cancels':[dict(end)],'requirements':[]}
+        O.on_hit_followup(c,'first','second')
+        row=T.cancels(c.T,c.T['moves'][0]['cancel'])[0]
+        self.assertEqual((row['win_start'],row['win_end'],row['start_frame']),(17,18,20))
+        self.assertEqual(T.reqs(c.T,row['req']),[(47,0)])
+        self.assertEqual(row['move_id'],1)
+        k.tables['requirements'][0]['condition']=52
+        with self.assertRaises(ValueError):O.on_hit_followup(c,'first','second')

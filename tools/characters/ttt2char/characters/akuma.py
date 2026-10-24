@@ -82,7 +82,7 @@ _SPECIAL_TARGETS = (
 )
 
 MOVESET = {
-    'bounds': {'Mx_3lprp2': True, 'Mx_66rk': True, 'Mx_3lrp': True},
+    'bounds': {'Mx_3lprp2': True, 'Mx_66rk': True, 'Mx_3lrp': True, 'Mx_6lrp': True},
     'recovery_trim': {'Mx_3rplp': 4},
     'startup_trim': {'Mx_3lrp': 4, 'Mx_66rk': 4},
     'name': '[AKUMA]',

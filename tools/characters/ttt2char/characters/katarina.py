@@ -76,6 +76,9 @@ VOICE_PREFIX = 'ln'
 # the id maps: Heihachi in both games, and her generic moves against TTT2's (Heihachi, the donor, Asuka)
 ALIGN = [('heihachi', 13), ('self', 13), ('heihachi', 14), ('self', DONOR_ROW), ('heihachi', 9), ('self', 23)]
 MOVESET = {
+    'bounds': {'Ln_4rklrp': True},
+    # Match Noctis d/b+2 on counter hit only; retain normal-hit behavior.
+    'counterhit_reactions': {'Ln_t_srkF': 'sDw_utuharai_l', 'Ln_3lrk': 'sDw_utuharai_l'},
     'name': '[KATARINA]',
     'drop_moves': r'^Ln_Direct$',
     'direct': [(r'^(ju|mk)_s', 'anim', ['ln_s%02d' % k for k in range(5)]),     # the donor's intros -> her

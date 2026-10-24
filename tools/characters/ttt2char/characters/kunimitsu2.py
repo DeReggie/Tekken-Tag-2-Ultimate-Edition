@@ -80,6 +80,7 @@ VOICE_PREFIX = 'kt'
 # the id maps: Heihachi in both games, and her generic moves against TTT2's (Heihachi, the donor, Asuka)
 ALIGN = [('heihachi', 13), ('self', 13), ('heihachi', 14), ('self', DONOR_ROW), ('heihachi', 9), ('self', 23)]
 MOVESET = {
+    'bounds': {'Kt_6lk_lprpLK': True},
     'buffered_stance_transitions': {'Kt_rk00F': 'Kt_shoryu02'},
     'name': '[KUNIMITSU]',
     'drop_moves': r'^Kt_Direct$',
@@ -95,15 +96,15 @@ HIDE = [('gla', 'ATH_L_hand_mask_knm')]
 # no scalp); Tekken 7 shows the mask over it: the hair in front of the mask's face is left out
 COVERED = [('har', 'MI_CH_knm_gla_1p_Mask')]
 
-# her blades, not drawn, posed by her animations' extra pairs (weapons.py): the left hand's short sword (pair 0; with
+# her blades, drawn and posed by her animations' extra pairs (weapons.py): the left hand's short sword (pair 0; with
 # the other left-hand pairs it is the kunai she throws, which Tekken 7 flies by these pairs, up to 7 m out) and the
 # right hand's (pair 3); the points they hit with (Tekken 7 hit locations) are Tekken 7's own: the swords' tips, the
 # kunai's ends
 _WEAPONS = _ITEM + '/Meshes/knm/extra/knm_exp_1p/Meshes/SK_CH_knm_exp_1p'
 WEAPONS = [
-    {'mesh': _WEAPONS, 'draw': False, 'bone': 'ATH_L_weapon001', 'parent': 'TE_L_jnt', 'pair': 0,
+    {'mesh': _WEAPONS, 'draw': True, 'bone': 'ATH_L_weapon001', 'parent': 'TE_L_jnt', 'pair': 0,
      'points': {0x74: 'ATH_L_weapon001_top', 0x76: 'ATH_L_weapon001_top', 0x77: 'ATH_L_weapon001_hilp'}},
-    {'mesh': _WEAPONS, 'draw': False, 'bone': 'ATH_R_weapon001', 'parent': 'TE_R_jnt', 'pair': 3,
+    {'mesh': _WEAPONS, 'draw': True, 'bone': 'ATH_R_weapon001', 'parent': 'TE_R_jnt', 'pair': 3,
      'points': {0x75: 'ATH_R_weapon001_top'}},
 ]
 # her Piercing Kunai Throw (d, d/f, f + 1) and the kunai ending her low-high kicks: Tekken 7 flies the kunai by those

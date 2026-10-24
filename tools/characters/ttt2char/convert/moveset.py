@@ -1115,6 +1115,8 @@ class Converter:
         self.bake_arcs()
         self.stats['grounded Screw launches preserve Bound'] += len(
             tagsystem.preserve_grounded_screw_bound(self.T, self.move_name))
+        self.stats['native running collision exits restored'] += tagsystem.restore_running_contacts(
+            self.T, self.move_name, d.tables, d.move_name)
         move_overrides.apply(self)
         specialcancels.apply(self)
         self.dismiss_when_hit()

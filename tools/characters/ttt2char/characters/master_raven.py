@@ -75,6 +75,7 @@ VOICE_PREFIX = 'fr'
 # the id maps: Heihachi in both games, and her generic moves against TTT2's (Heihachi, the donor, Asuka)
 ALIGN = [('heihachi', 13), ('self', 13), ('heihachi', 14), ('self', DONOR_ROW), ('heihachi', 9), ('self', 23)]
 MOVESET = {
+    'bounds': {'Nj_lprp00F': True},
     'name': '[MASTER RAVEN]',
     'drop_moves': r'^Fr_Direct$',
     'direct': [(r'^(ju|mk)_s', 'anim', ['fr_s%02d' % k for k in range(4)]),     # the donor's intros -> her

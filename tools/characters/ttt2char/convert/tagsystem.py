@@ -562,3 +562,38 @@ def preserve_grounded_screw_bound(tables, move_name):
             props.extend(kept)
             changed.append(i)
     return changed
+
+
+def restore_running_contacts(tables, move_name, donor_tables, donor_name):
+    """Retain native running collision exits lost to T7-only requirement 640.
+
+    Copy the donor's generic tackle/body-check rows and gates, never its own
+    running attacks. Repoint new lists so shared cancel/requirement rows survive.
+    """
+    names = {move_name(i): i for i in range(len(tables['moves']))}
+    donor = {donor_name(i): i for i in range(len(donor_tables['moves']))}
+    restored = 0
+    for name in ('sRUN__01F', 'sRUN__02F', 'sRUN__03F'):
+        if name not in names or name not in donor:
+            continue
+        move = tables['moves'][names[name]]
+        rows = [dict(r) for r in cancels(tables, move['cancel'])]
+        changed = False
+        for original in cancels(donor_tables, donor_tables['moves'][donor[name]]['cancel']):
+            target = donor_name(original['move_id']) if original['move_id'] < len(donor_tables['moves']) else ''
+            if not is_automatic(original) or target not in ('Co_runtac00', 'Co_runspA00') or target not in names:
+                continue
+            required = reqs(donor_tables, original['req'])
+            if any(r['move_id'] == names[target] and is_automatic(r) and reqs(tables, r['req']) == required for r in rows[:-1]):
+                continue
+            row = dict(original, move_id=names[target])
+            row['req'] = write(tables, 'requirements', [dict(condition=c,param=p) for c,p in required] +
+                               [dict(condition=TT_END,param=0)])
+            if original['extradata'] is not None:
+                row['extradata'] = write(tables, 'cancel_extras', [dict(donor_tables['cancel_extras'][original['extradata']])])
+            rows.insert(len(rows)-1,row)
+            restored += 1
+            changed = True
+        if changed:
+            move['cancel'] = write(tables,'cancels',rows)
+    return restored

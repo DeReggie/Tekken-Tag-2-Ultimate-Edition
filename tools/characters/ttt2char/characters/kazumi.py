@@ -140,6 +140,7 @@ VOICE_PREFIX = 'ka'
 # 13 Heihachi, 14 Kazuya, 9 Jin, 42 Jun, 23 Asuka.
 ALIGN = [('heihachi', 13), ('self', 13), ('heihachi', 14), ('self', 42), ('heihachi', 9), ('self', 23)]
 MOVESET = {
+    'bounds': {'Ka_lkrp': True},
     'name': '[KAZUMI]',
     # her own moves that are not converted (besides Rage Arts and story moves): customisation and story
     # variants, and her round-start move Ka_Direct (the donor's is kept)

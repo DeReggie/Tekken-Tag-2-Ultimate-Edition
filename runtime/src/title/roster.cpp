@@ -3562,14 +3562,19 @@ void trace_eliza_move(uint32_t player) {
 } // namespace
 
 // An assist continuation owns the shared human controller until it leaves the
-// sequence. Decode neutral input for the main fighter during that interval.
+// sequence. Suppress duplicate attack buttons, retaining movement/analog input
+// and native assist-follow movement for the main fighter during that interval.
 PPC_FUNC(sub_03F52F20_orig);
 PPC_FUNC(sub_03F52F20) {
     const uint32_t player = ctx.r[3];
     const uint32_t partner = player ? load(player + 0xac) : 0;
     if (eliza_assist_glide_sequence(partner)) {
-        ctx.r[5] = 0;
-        ctx.r[6] = 0;
+        // Use the native configurable LP/RP/LK/RK masks read by 03F52F20.
+        // Zeroing the whole pad also discarded the main fighter's movement.
+        const uint32_t attacks = load(0x10708aa0) | load(0x10708aac) |
+                                 load(0x10708aa4) | load(0x10708aa8);
+        ctx.r[5] &= ~attacks;
+        ctx.r[6] &= ~attacks;
     }
     sub_03F52F20_orig(ctx, base);
 }

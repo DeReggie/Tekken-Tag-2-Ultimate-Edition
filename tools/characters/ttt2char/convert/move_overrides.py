@@ -3,6 +3,10 @@ from . import tagsystem as TS
 
 
 def apply(c):
+    for source, target in c.defn.MOVESET.get('on_hit_followups', {}).items():
+        on_hit_followup(c, source, target)
+    for name, reaction in c.defn.MOVESET.get('counterhit_reactions', {}).items():
+        counterhit_reaction(c, name, reaction)
     # Explicit neutral inputs only: do not add attack cancels or alter recovery.
     for name, (direction, button) in c.defn.MOVESET.get('neutral_inputs', {}).items():
         target = c.newidx[c.kn[name]]
@@ -290,3 +294,64 @@ def trim_recovery(c, name, frames):
     end['start_frame'] = max(end['win_start'], end['start_frame'] - frames)
     move['cancel'] = TS.write(c.T, 'cancels', rows)
     c.stats['move recovery frames removed'] += frames
+
+
+def counterhit_reaction(c, name, reaction):
+    """Replace grounded CH move slots only; preserve every other reaction field.
+
+    Resolve an explicit T7 reaction without the alignment's approximate remap.
+    Lists are copied: other attacks may share their hit/reaction rows.
+    """
+    if reaction in c.dn:
+        target = c.dn[reaction]
+    else:
+        original = c.react_remap.pop(reaction, None)
+        c.alloc_ok += 1
+        try:
+            target = c.target(c.kn[reaction])
+        finally:
+            c.alloc_ok -= 1
+            if original is not None:
+                c.react_remap[reaction] = original
+        if target is None:
+            raise ValueError('cannot retain explicit CH reaction: ' + reaction)
+        c.link_queued({})
+    move = c.T['moves'][c.newidx[c.kn[name]]]
+    hits = [dict(h) for h in TS.hits(c.T, move['hit_condition'])]
+    changed = 0
+    for hit in hits:
+        if any(TS.has(c.T, hit['req'], condition) for condition in (TS.AIR, TS.BOUND, TS.BOUND_TAG)):
+            continue
+        row = dict(c.T['reactions'][hit['reactions']])
+        row.update(ch=target, crouch_ch=target)
+        hit['reactions'] = c.add('reactions', row)
+        changed += 1
+    if not changed:
+        raise ValueError('no grounded hit entry for CH override: ' + name)
+    move['hit_condition'] = TS.write(c.T, 'hit_conditions', hits)
+    c.stats['explicit counter-hit reactions restored'] += changed
+
+
+def on_hit_followup(c, source, target):
+    """Restore an opted-in automatic on-hit continuation using its T7 timing.
+
+    Only the single unsupported [51, 0] contact check is accepted here. Other
+    requirements or player-input rows must not be silently made unconditional.
+    """
+    from . import idmaps as M
+    original = c.k.tables['moves'][c.kn[source]]
+    matches = [row for row in M.cancels(c.k, original['cancel'])
+               if TS.is_automatic(row) and c.k.resolve_alias(row['move_id']) == c.kn[target]
+               and M.reqs(c.k, row['req']) == [(51, 0)]]
+    if len(matches) != 1:
+        raise ValueError('no unique T7 on-hit continuation: ' + source)
+    move = c.T['moves'][c.newidx[c.kn[source]]]
+    index = c.newidx[c.kn[target]]
+    rows = [dict(row) for row in TS.cancels(c.T, move['cancel'])]
+    if any(row['move_id'] == index for row in rows[:-1]):
+        raise ValueError('on-hit continuation already present: ' + source)
+    req = TS.write(c.T, 'requirements', [dict(condition=47, param=0), dict(condition=TS.TT_END,param=0)])
+    row = dict(matches[0], move_id=index, req=req, extradata=c.extradata(matches[0]['extradata']))
+    rows.insert(len(rows)-1, row)
+    move['cancel'] = TS.write(c.T, 'cancels', rows)
+    c.stats['explicit on-hit continuations restored'] += 1

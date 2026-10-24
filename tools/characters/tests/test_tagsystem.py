@@ -391,3 +391,24 @@ class GroundedScrewBound(unittest.TestCase):
             self.assertEqual(tables['extra_move_properties'][at:at+2], original[1:])
         self.assertEqual([m['extraprops'] for m in tables['moves'][2:]], [0, 0])
         self.assertEqual(TS.preserve_grounded_screw_bound(tables, names.__getitem__), [])
+
+class RunningContacts(unittest.TestCase):
+    def test_donor_contact_gates_restored_without_copying_attacks(self):
+        import copy
+        names=['sRUN__01F','Co_runtac00','character_wr3']
+        end=dict(direction=M.LIST_END,button=0,req=0,extradata=0,win_start=0,win_end=0,start_frame=0,move_id=0,option=0)
+        contact=dict(end,direction=0,req=1,win_start=1,win_end=32767,start_frame=1,move_id=1)
+        attack=dict(contact,button=0x40000004,move_id=2)
+        donor=dict(moves=[dict(cancel=0),dict(cancel=2),dict(cancel=2)],cancels=[contact,attack,end],
+                   requirements=[dict(condition=TS.TT_END,param=0),dict(condition=122,param=0),dict(condition=TS.TT_END,param=0)],
+                   cancel_extras=[dict(value=0x182)])
+        live=copy.deepcopy(donor);live['cancels']=[attack,end];live['moves'][0]['cancel']=0
+        before=copy.deepcopy(live)
+        self.assertEqual(TS.restore_running_contacts(live,names.__getitem__,donor,names.__getitem__),1)
+        rows=TS.cancels(live,live['moves'][0]['cancel'])
+        self.assertEqual(len(rows),3)
+        self.assertEqual(rows[0],attack)
+        self.assertEqual(TS.reqs(live,rows[1]['req']),[(122,0)])
+        self.assertEqual(rows[1]['move_id'],1)
+        self.assertEqual(live['cancels'][:2],before['cancels'])
+        self.assertEqual(TS.restore_running_contacts(live,names.__getitem__,donor,names.__getitem__),0)
