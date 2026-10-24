@@ -52,6 +52,7 @@ The repeated Noctis u/f+1 report is consolidated. Related reaction/projectile re
 | SYS-01 | General | Game becomes extremely slow after hours; reboot resolves it. Memory leak is a hypothesis, not a diagnosis. | Open |
 | SYS-03 | General | Grounded counter-hit Screw launches consume Bound (e.g. Geese standing 4) | Fixed — Geese standing 4 confirmed by player |
 | SYS-02 | General | Fighters keep running indefinitely after starting a run. Referenced video was not attached in this message. | Open |
+| ELZ-01 | Eliza | Tag Assault b+4 can enter Glide, but attacks out of Glide fail | Assist-continuation candidate installed; needs gameplay check |
 | GEE-01 | Geese (carry-over) | Special cancels fail when entering as Tag Assault partner; Akuma works | Open |
 
 ## Investigation log
@@ -99,3 +100,9 @@ Player clarified the last swing animates but passes through the opponent. The fi
 Verified actual inputs: Negan d/b+1+2 is `Na_1lrp`; Noctis u/f+1 is `Mz_9LP` (not the generic jump jab). Both T7 grounded reactions select `sDm_nkdoBxC` on CH, transitioning at frame 24 into `sDm_nkd2BxC`. The installed packs instead selected `ym_y01L`, a normal stagger. Alignment-derived reaction remapping had replaced the crumple. Shared converter now retains these two T7 states when no native counterpart exists, preserving their animation and follow-up while leaving other mappings intact.
 
 Regenerated and installed Negan and Noctis gameplay moveset/motion files, retaining all old base move names, valid animation references, and the prior grounded Screw/Bound fix. Costumes, metadata, effects, voices and other fighters were hash-verified unchanged (2,219 other files). Added regression coverage for both crumple stages, native-counterpart priority and unchanged unrelated remaps. 225 tests run with one skipped and no failures (launcher tests excluded after their previously observed subprocess timeout). No executable rebuild; restart required. Gameplay confirmation pending for both CH reactions. NEG-04 (INT 4 mid-combo) remains open separately.
+
+### ELZ-01 — Moon Glide follow-ups during Tag Assault
+
+Player confirms ordinary special cancels work, but b+4 into Glide during Tag Assault cannot perform any attacks from Glide. Installed `Vp_dash_C`, `Vp_dash_EX` and `Vp_dash_EX2` all retain five attack input rows, but their hitlevel is 0. Working Kunimitsu SET uses hitlevel flag 0x200000 to retain an empty state's assist continuation. Opted in these three non-attacking Glide states to the same flag, guarded against active attacks or a nonzero low hit level. This is a candidate based on the working stance convention; gameplay confirmation is required.
+
+Changed only those three hitlevel fields in the installed Eliza moveset. All cancel/input/requirement tables, timing, damage, animations and other tables are unchanged; 2,222 other files hash-verified unchanged, including costumes, other packs and the executable. Source override retained for future rebuilds, backup saved and binary round-trip verified. Twelve move-override tests passed, including new empty-state preservation and attacking-state rejection coverage. Restart required; no executable rebuild or reimport needed for this installation. Test Tag Assault → Eliza b+4 → Glide → 1, 2, 3, 4 or 1+2, then verify ordinary Glide still works.

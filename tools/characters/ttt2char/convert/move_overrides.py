@@ -87,6 +87,9 @@ def apply(c):
             raise ValueError('no airborne hit condition: ' + name)
         move['hit_condition'] = TS.write(c.T, 'hit_conditions', hits)
         c.stats['airborne reactions replaced from native template'] += changed
+    for name in c.defn.MOVESET.get('tag_continuation_states', ()):
+        tag_continuation_state(c, name)
+
     for source, target in c.defn.MOVESET.get('buffered_stance_transitions', {}).items():
         buffered_stance_transition(c, source, target)
 
@@ -290,3 +293,16 @@ def trim_recovery(c, name, frames):
     end['start_frame'] = max(end['win_start'], end['start_frame'] - frames)
     move['cancel'] = TS.write(c.T, 'cancels', rows)
     c.stats['move recovery frames removed'] += frames
+
+
+def tag_continuation_state(c, name):
+    """Keep an opted-in empty stance inside an assist's continuation chain.
+
+    Use the same high hitlevel flag as the working SET/FLY states; never
+    apply it to an attack or alter the state's input and exit windows.
+    """
+    move = c.T['moves'][c.newidx[c.kn[name]]]
+    if move['first_active'] or move['last_active'] or move['hitlevel'] & 0xffff:
+        raise ValueError('tag continuation state is an attack: ' + name)
+    move['hitlevel'] |= 0x200000
+    c.stats['empty tag continuation states retained'] += 1

@@ -127,6 +127,8 @@ VOICE_PREFIX = 'vp'           # her intro and win lines' events in Tekken 7's ba
 ALIGN = [('heihachi', 13), ('self', 13), ('heihachi', 14), ('self', 42), ('heihachi', 9), ('self', 23)]
 MOVESET = {
     'name': '[ELIZA]',
+    # Moon Glide must allow its attacks after entry during Tag Assault.
+    'tag_continuation_states': ('Vp_dash_C', 'Vp_dash_EX', 'Vp_dash_EX2'),
     # Her low kick exists, but the imported neutral dispatcher omits d+4.
     'jump_special_inputs': ('Vp_jp214lk', 'Vp_jp214rk', 'Vp_jp214wk'),
     'neutral_inputs': {'Jn_syark00': (4, 0x40000008)},

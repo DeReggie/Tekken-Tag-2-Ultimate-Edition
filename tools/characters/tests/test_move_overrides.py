@@ -166,3 +166,23 @@ class DamageOverride(unittest.TestCase):
         with self.assertRaises(ValueError):O.apply(c)
 
 if __name__=='__main__':unittest.main()
+
+
+class TagContinuationState(unittest.TestCase):
+    def test_only_empty_state_flag_changes_and_other_flags_survive(self):
+        original = dict(hitlevel=0x400000, bitfield=0x80000020,
+                        first_active=0, last_active=0, cancel=12, transition=3)
+        c = types.SimpleNamespace(kn={'glide':0},newidx={0:0},
+            T={'moves':[dict(original)]}, stats=collections.Counter())
+        O.tag_continuation_state(c, 'glide')
+        self.assertEqual(c.T['moves'][0],dict(original,hitlevel=0x600000))
+
+    def test_attacks_are_rejected_without_mutation(self):
+        for values in ({'first_active':1}, {'last_active':1}, {'hitlevel':0x200001}):
+            move = dict(hitlevel=0,first_active=0,last_active=0,cancel=12)
+            move.update(values)
+            c = types.SimpleNamespace(kn={'glide':0},newidx={0:0},
+                T={'moves':[dict(move)]},stats=collections.Counter())
+            with self.assertRaisesRegex(ValueError, 'is an attack'):
+                O.tag_continuation_state(c,'glide')
+            self.assertEqual(c.T['moves'][0],move)
