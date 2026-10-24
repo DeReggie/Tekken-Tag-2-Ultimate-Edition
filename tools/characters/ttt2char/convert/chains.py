@@ -84,7 +84,13 @@ def drape(k, chains):
             world[b][:3, 3] = at
             if i + 1 < len(bones):
                 at = at + length * want
-    moved = sorted({b for bones, _ in chains for b in bones})
+    return follow(k, before, sorted({b for bones, _ in chains for b in bones}))
+
+
+def follow(k, before, moved):
+    """Moves the vertices skinned to bones `moved` with them, from their bind matrices `before` to k's (its shared
+    vertex streams, in place). -> the number of vertices moved."""
+    world = k['bones']['world']
     delta = np.tile(np.eye(4), (len(world), 1, 1))
     delta[moved] = world[moved] @ np.linalg.inv(before[moved])
     s = k['prims'][0]
@@ -98,9 +104,10 @@ def drape(k, chains):
     return len(v)
 
 
-def append_bones(skel, k, chains, parents):
+def append_bones(skel, k, chains, parents, first=OPT_FIRST):
     """The fighter's skeleton (a .bon dict) with the chains' bones after its own: [(merged bone indices)] after
-    drape; parents: the TTT2 bone index of each chain's first bone's parent. -> (skeleton, [[new bone index]])."""
+    drape; parents: the TTT2 bone index of each chain's first bone's parent; first: the first bone's OPT number.
+    -> (skeleton, [[new bone index]])."""
     hw = bone.world_matrices(skel)
     s = dict(skel)
     for key in ('names', 'parent', 'opt'):
@@ -108,7 +115,7 @@ def append_bones(skel, k, chains, parents):
     s['names_raw'] = None                       # bone.write makes them from the names
     ts, rs, ss = list(skel['t']), list(skel['r']), list(skel['s'])
     out, frames = [], {}
-    number = OPT_FIRST
+    number = first
     for bones, parent in zip(chains, parents):
         made = []
         for i, b in enumerate(bones):
@@ -159,5 +166,7 @@ def spring_file(mop, template_mop, numbers, template=SPRING_TEMPLATE[1], links=T
         struct.pack_into('>I', e, 0, number)
         out.append(bytes(e))
     links = colliders(mop) + (colliders(template_mop) if links else [])
+    at = MOP_ENTRIES + MOP_ENTRY * struct.unpack_from('>I', mop, MOP_COUNT)[0]
+    tail = mop[at + 16 + MOP_COLLIDER * struct.unpack_from('>I', mop, at)[0]:]  # mop's entries' pairs and links
     return (mop[:MOP_COUNT] + struct.pack('>I', len(out)) + bytes(12) + b''.join(out)
-            + struct.pack('>I', len(links)) + bytes(12) + b''.join(links))
+            + struct.pack('>I', len(links)) + bytes(12) + b''.join(links) + tail)

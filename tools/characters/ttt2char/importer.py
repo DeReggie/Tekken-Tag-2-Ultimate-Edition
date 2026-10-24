@@ -7,7 +7,7 @@ import time
 
 from . import InputError, pack, shared
 from .characters import CHARACTERS, definition
-from .convert import art, chains, effects as fx, idmaps, itemdb, model, movelist, moveset, particles, tagsystem, \
+from .convert import art, chains, cloth, effects as fx, idmaps, itemdb, model, movelist, moveset, particles, tagsystem, \
     tiger, voice, weapons
 from .tekken7 import tkmvst
 from .tekken7.autodump import FILES
@@ -158,7 +158,10 @@ def _run(name, tekken7, movesets, game, out, log, make_shared, files):
              % (d.NAME, out, slot))
 
     step('model: %s (place %d)' % (d.NAME, slot))
-    nud, nut, bon, palettes = model.convert(paks, archives, d, slot, log=lambda s: log('         ' + s.strip()))
+    own_moveset = tkmvst.read(own)
+    nud, nut, bon, palettes, cloth_springs = model.convert(paks, archives, d, slot,
+                                                           log=lambda s: log('         ' + s.strip()),
+                                                           standing=cloth.standing(own_moveset))
     donor_xml = archives.read_name(d.DONOR + '.xml')
     effect_files, _, _ = fx.copy_files(archives, d.DONOR, itemdb.effect_names(donor_xml), {},
                                        log=lambda s: log('         ' + s))
@@ -170,11 +173,15 @@ def _run(name, tekken7, movesets, game, out, log, make_shared, files):
         mop = tiger.spring_file(archives.read_name(d.DONOR + '.mop'),
                                 archives.read_name(tiger.SPRING_TEMPLATE[0] + '.mop'),
                                 sum(1 for n in skel['opt'] if tiger.OPT_FIRST <= n < weapons.OPT_FIRST))
-    swinging = [n for n in bone.read(bon)['opt'] if chains.OPT_FIRST <= n < tiger.OPT_FIRST]
+    swinging = [n for n in bone.read(bon)['opt'] if chains.OPT_FIRST <= n < cloth.OPT_FIRST]
     if swinging:
         template = archives.read_name(chains.SPRING_TEMPLATE[0] + '.mop')
         donor_mop = archives.read_name(d.DONOR + '.mop') if archives.has(key_of(d.DONOR + '.mop')) else None
         mop = chains.spring_file(mop or donor_mop or chains.empty_spring_file(template), template, swinging)
+    if cloth_springs:                             # cloth: Lars's coat tails' entries, leg capsules, pairs and links
+        template = cloth.template(archives)
+        donor_mop = archives.read_name(d.DONOR + '.mop') if archives.has(key_of(d.DONOR + '.mop')) else None
+        mop = cloth.spring_file(mop or donor_mop or chains.empty_spring_file(template), template, cloth_springs)
     still = [n for n in bone.read(bon)['opt'] if n >= weapons.OPT_FIRST]
     if still:                                     # weapons: still extra bones (Devil Jin's wing entry, flag 8)
         template = archives.read_name(tiger.SPRING_TEMPLATE[0] + '.mop')
@@ -202,7 +209,7 @@ def _run(name, tekken7, movesets, game, out, log, make_shared, files):
         log('         ' + line)
 
     step('moveset: the id maps from Heihachi in both games')
-    k = tkmvst.read(own)
+    k = own_moveset
     h7 = tkmvst.read(heihachi)
     evidence = collections.defaultdict(idmaps.Evidence)
     for who, row in d.ALIGN:

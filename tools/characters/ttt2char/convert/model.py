@@ -24,7 +24,7 @@ from ..tekken7.texture import Texture2D
 from ..tekken7.uasset import export_properties, load
 from ..ttt2 import bone, nud, nut
 from ..ttt2.archive import key_of
-from . import chains as hanging, colours as colours2p, skeleton, skin, strips, tiger, weapons
+from . import chains as hanging, cloth, colours as colours2p, skeleton, skin, strips, tiger, weapons
 
 GIDX_BASE = 0x10408000          # texture ids above every id the game's own textures use (0x10404fac at most)
 SLOT_GIDX = 0x1000              # each place's added fighter its own range of texture ids (they meet in fights)
@@ -191,7 +191,8 @@ def load_tekken7_model(paks, parts, merge_order):
     parts: [(tag, skeletal mesh path)] in mesh order; merge_order: the tags in skeleton-merge order.
     Returns {'bones': {'names', 'parents', 'world' (n, 4, 4) bind matrices, mm}, 'prims': [{'part', 'material',
     'pos' (mm), 'nrm', 'tan', 'uv', 'joints' (n, 8), 'weights' (n, 8), 'tris'}] (prims share the vertex arrays),
-    'parts': {tag: {'names', 'parents', 'remap' (part bone -> merged bone)}}}."""
+    'parts': {tag: {'names', 'parents', 'remap' (part bone -> merged bone), 'mesh' (its SkeletalMesh), 'first' (its
+    first vertex in the streams)}}}."""
     loaded = []
     for tag, path in parts:
         m = t7mesh.SkeletalMesh(load(paks, path))
@@ -202,9 +203,10 @@ def load_tekken7_model(paks, parts, merge_order):
         [(t, by_tag[t][0], set(np.unique(by_tag[t][1]['joints'][by_tag[t][1]['weights'] > 0]).tolist()))
          for t in merge_order])
     pos, nrm, tan, uvs, jnt, wts, sections = [], [], [], [], [], [], []
-    base = 0
+    base, first = 0, {}
     for tag, m, geo in loaded:
         n = len(geo['positions'])
+        first[tag] = base
         pos.append(geo['positions'])
         nrm.append(geo['normals'])
         tan.append(geo['tangents'])
@@ -239,7 +241,8 @@ def load_tekken7_model(paks, parts, merge_order):
     ibm = np.linalg.inv(_ue_to_ttt2_matrix(g)).astype(np.float32)
     world = np.linalg.inv(ibm.astype(np.float64))
     world[:, :3, 3] *= M_TO_MM
-    skeletons = {tag: dict(names=m.skeleton['names'], parents=m.skeleton['parents'], remap=remaps[tag])
+    skeletons = {tag: dict(names=m.skeleton['names'], parents=m.skeleton['parents'], remap=remaps[tag],
+                           mesh=m, first=first[tag])
                  for tag, m, _ in loaded}
     return {'bones': dict(names=merged['names'], parents=merged['parents'], world=world), 'prims': prims,
             'parts': skeletons}
@@ -549,10 +552,11 @@ LAYER_OFFSET = 1.0              # mm: how far the 2P colour layer sits outside t
                                 # the depth buffer cannot tell them apart at fighting distance)
 
 
-def convert(paks, archives, d, slot=0, log=print):
-    """d: the character definition, slot: its number (pack.place). -> (nud bytes, nut bytes, bon bytes, colours):
+def convert(paks, archives, d, slot=0, log=print, standing=None):
+    """d: the character definition, slot: its number (pack.place), standing: the fighter's standing pose
+    (cloth.standing; the cloth rests outside its legs there). -> (nud bytes, nut bytes, bon bytes, colours, cloth):
     colours = None without 2P colour layers (colours.py), else {palette number: (player 1's rgb, player 2's rgb)}
-    (shared.py puts them in the colour grid)."""
+    (shared.py puts them in the colour grid); cloth = None, else the cloth's spring entries (cloth.springs)."""
     t7 = d.TEKKEN7
     follow = getattr(d, 'DEPENDENCY_ITEMS', False)     # (a definition's: items worn with others, Noctis's trousers)
     items = costume_items(paks, t7['costume'], follow)
@@ -568,18 +572,51 @@ def convert(paks, archives, d, slot=0, log=print):
     chains = [(part, hanging.find(k, part, root), directions) for part, root, directions in getattr(d, 'CHAINS', [])]
     if chains:                                   # hair and tails Tekken 7 simulates: posed hanging (chains.py)
         moved = hanging.drape(k, [(bones, directions) for _, bones, directions in chains])
+    # cloth Tekken 7 simulates: chains of bones like Lars's coat tails (cloth.py); a definition's CLOTH = False: none
+    cloths = cloth.find(paks, k, worn, log) if getattr(d, 'CLOTH', True) else []
     donor = bone.read(archives.read_name(d.DONOR + '.bon'))
+    if cloths:                                   # (the room the other extra bones leave: weapons up to 4 each)
+        room = cloth.SKELETON - len(donor['names']) - sum(len(bones) for _, bones, _ in chains) - 4 * len(
+            getattr(d, 'WEAPONS', [])) - (len(t7mesh.SkeletalMesh(load(paks, d.TIGER['mesh'])).skeleton['names'])
+                                          if getattr(d, 'TIGER', None) else 0)
+        cloth_chains = cloth.add(k, cloths, room, log)
+    else:
+        cloth_chains = []
     skel = skeleton.build(k['bones'], donor)
     weight_maps = {tag: skeleton.weight_map(k['bones'], skel['names'], lambda i, tag=tag: tag)[0]
                    for tag, _ in worn}
     if chains:                                   # ... and swinging extra bones
         parents = [int(weight_maps[part][k['bones']['parents'][bones[0]]]) for part, bones, _ in chains]
         skel, made = hanging.append_bones(skel, k, [bones for _, bones, _ in chains], parents)
+        if hanging.OPT_FIRST + sum(map(len, made)) > cloth.OPT_FIRST:
+            raise ValueError('more hanging chain bones than OPT %d..%d hold' % (hanging.OPT_FIRST, cloth.OPT_FIRST))
         for (_, bones, _), new in zip(chains, made):
             for wm in weight_maps.values():
                 wm[bones] = new
         log('  hanging chains: %s (%d bones, OPT %d..; %d vertices moved)' % (
             ', '.join(root for _, root, _ in d.CHAINS), sum(map(len, made)), hanging.OPT_FIRST, moved))
+    cloth_springs = None
+    if cloth_chains:                             # ... and the cloth's
+        parents = [int(weight_maps[c['part']][c['parent']]) for c in cloth_chains]
+        s0 = k['prims'][0]
+        body = np.zeros(len(s0['pos']), bool)
+        body[np.concatenate([p['tris'].reshape(-1) for p in k['prims']])] = True
+        for c in cloths:
+            body[c['vertices']] = False
+        body = s0['pos'][body]
+        if standing is not None:                 # (resting outside the legs as the fighter stands)
+            turned, moved = cloth.settle(k, cloth_chains, skel, parents, standing, body)
+            log('  cloth: %d links turned off the legs in the standing pose (%d vertices moved)' % (turned, moved))
+        skel, made = hanging.append_bones(skel, k, [c['bones'] for c in cloth_chains], parents, cloth.OPT_FIRST)
+        for c, new in zip(cloth_chains, made):
+            for wm in weight_maps.values():
+                wm[c['bones']] = new
+        cloth_springs = cloth.springs(skel, made, cloth_chains, body)
+        log('  cloth: %d chains, %d bones (OPT %d..), %d capsules (%s), %d pairs, %d links between chains' % (
+            len(made), sum(map(len, made)), cloth.OPT_FIRST, len(cloth_springs['capsules']),
+            ', '.join('%s %s' % (skel['names'][b][4:], '/'.join('%.0f' % x for x in size))
+                      for b, _, size in cloth_springs['capsules']),
+            len(cloth_springs['pairs']), len(cloth_springs['links'])))
     hidden = None
     if getattr(d, 'HIDE', None):                 # chains left out: the triangles skinned to them
         bones = [b for part, root in d.HIDE for b in hanging.find(k, part, root)]
@@ -962,4 +999,4 @@ def convert(paks, archives, d, slot=0, log=print):
     if layers:
         log('  2P colours: layers over %s; palette numbers %s' % (', '.join(sorted(layers)), sorted(palettes)))
     out = palettes if layers else None
-    return nud.write(model), nut.write(bank.textures), bone.write(skel), out
+    return nud.write(model), nut.write(bank.textures), bone.write(skel), out, cloth_springs

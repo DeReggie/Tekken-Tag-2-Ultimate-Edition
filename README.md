@@ -362,7 +362,8 @@ share them.** The importer refuses to write them inside this repository, and
 Each has their own model with both players' colours (skin tones matched to
 Tekken Tag Tournament 2's own fighters), moves, voice, command list, and their
 pictures and name on the menus' screens and in fights; Kazumi's tiger appears
-in the moves that summon it, long hair and tails hang and swing, their moves'
+in the moves that summon it, long hair and tails hang and swing, coats, robes,
+ribbons and headscarves swing like Lars's coat tails, their moves'
 effects (Eliza's and Akuma's fireballs, auras, smoke) are Tekken 7's own,
 converted to Tekken Tag Tournament 2's effect files (close, not the same:
 Tekken 7's glow and some of its shading are left out), Negan swings his bat

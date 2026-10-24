@@ -856,8 +856,28 @@ their colours 0.02-0.06 of the textures'): a definition can give a material
 kind or a material a gain (`GAIN`, measured against a Tekken 7 screenshot
 relative to the skin) and take a texture's brightness alone (`GREY`: his
 outfit is blue-grey where its textures are mauve); his hair's lighter tips
-come from a gradient texture its material samples beside its parameters. An
-item that another item of the costume depends on (`DependencyItems`:
+come from a gradient texture its material samples beside its parameters.
+Tekken 7 simulates cloth (coats, robes, ribbons, headscarves) with APEX
+clothing assets serialised after the mesh, whose physical mesh gives each
+vertex how far the cloth may move from its skinned place; TTT2 has no cloth
+simulation for fighters, only chains of spring bones (Lars's coat tails:
+nine chains of six bones, angle limits, ellipsoid capsules round his legs,
+links between neighbouring chains), so the importer makes the same from
+each asset whose cloth hangs: chains rooted along the line the free part
+hangs from, bones at its mean every 15-20 cm down it, the drawn vertices
+skinned to two neighbouring chains, cloth modelled flowing (ribbons,
+scarf tails) hung down, and capsules fitted to the fighter's hips, legs and
+trunk. The game pushes a bone that crosses a capsule's surface, not one
+wholly inside it, and a round starts with the cloth at rest on its parent
+bones, so cloth hanging where a thigh stands forward would start inside it
+and stay there: the chains' rest is draped over the fighter's own standing
+pose (its standing move's first frame), every link of cloth closed round a
+leg turned out of the thigh and shin capsules and a ball round each knee (an
+open coat's edges are left: the leg passes through the opening). The chains
+may swing out up to 1.2 rad (Lars's coat's 0.2 rad at the top held the cloth
+inside a leg), and those draped off a leg no further in than that rest: it lies
+inside the capsules, where nothing would push cloth sagging back into the leg.
+An item that another item of the costume depends on (`DependencyItems`:
 Noctis's trousers and boots, worn with his jacket) is worn too when the
 definition says so (`DEPENDENCY_ITEMS`). A fighter's character effects are found by bare names its item
 database lists, which the title expands to `<code>/alo/<name>.alo` with the
