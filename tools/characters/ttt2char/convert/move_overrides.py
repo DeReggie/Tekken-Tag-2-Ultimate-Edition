@@ -3,6 +3,8 @@ from . import tagsystem as TS
 
 
 def apply(c):
+    for source in c.defn.MOVESET.get('hitgrab_followups', ()):
+        restore_hitgrab_followups(c, source)
     for source, target in c.defn.MOVESET.get('on_hit_followups', {}).items():
         on_hit_followup(c, source, target)
     for name, reaction in c.defn.MOVESET.get('counterhit_reactions', {}).items():
@@ -355,3 +357,33 @@ def on_hit_followup(c, source, target):
     rows.insert(len(rows)-1, row)
     move['cancel'] = TS.write(c.T, 'cancels', rows)
     c.stats['explicit on-hit continuations restored'] += 1
+
+
+def restore_hitgrab_followups(c, source):
+    """Restore only attack-to-throw + on-hit rows from an explicit move.
+
+    T7 editor requirements 2/51 are attack-to-throw/on-hit. Native 2 tests
+    attack-to-throw eligibility; 47 is the verified native contact predicate.
+    All other source requirements, facing, input and timing remain converted.
+    """
+    from . import idmaps as M
+    original=c.k.tables['moves'][c.kn[source]]
+    move=c.T['moves'][c.newidx[c.kn[source]]]
+    rows=[dict(row) for row in TS.cancels(c.T,move['cancel'])]
+    added=[]
+    for row in M.cancels(c.k,original['cancel']):
+        required=M.reqs(c.k,row['req'])
+        if (2,0) not in required or (51,0) not in required:
+            continue
+        target=c.k.resolve_alias(row['move_id'])
+        if target not in c.newidx:
+            raise ValueError('missing hit-grab target: ' + source)
+        req,ok=c.conv_reqs(row['req'],overrides={2:2,51:47})
+        if not ok:
+            raise ValueError('unmapped hit-grab gate: ' + source)
+        new=dict(row,req=req,move_id=c.newidx[target],extradata=c.extradata(row['extradata']))
+        if new not in rows:added.append(new)
+    if not added:
+        raise ValueError('no missing hit-grab continuations: ' + source)
+    move['cancel']=TS.write(c.T,'cancels',rows[:-1]+added+rows[-1:])
+    c.stats['scoped hit-grab continuations restored'] += len(added)

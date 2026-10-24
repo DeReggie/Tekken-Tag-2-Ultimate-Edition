@@ -20,6 +20,19 @@ constexpr bool ground_hit(uint32_t flags, uint32_t stance) {
     return !(flags & (0x80000000u | 0x00200000u)) && stance != 18 && stance != 19;
 }
 
+// A hit-grab's flat-damage continuation may consume its initiating hit's
+// scaling once, and only for the same attacker. A new collision invalidates it.
+struct HitGrabContinuation {
+    uint32_t owner = 0, percent = 100;
+    void clear() { owner = 0; percent = 100; }
+    void remember(uint32_t attacker, uint32_t scale) { owner = attacker; percent = scale; }
+    uint32_t take(uint32_t attacker) {
+        const uint32_t result = owner && owner == attacker ? percent : 0;
+        clear();
+        return result;
+    }
+};
+
 constexpr int32_t scale_hit(int32_t points, uint32_t percent) {
     // As in T7's damage calculation: truncate, with a one-point minimum
     // for a positive hit. Preserve zero damage and non-damage values.

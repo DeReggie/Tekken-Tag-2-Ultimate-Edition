@@ -408,11 +408,11 @@ class Converter:
         return self.donor_states.get(tagsystem.state_name(self.k.move_name(i)), self.d.resolve_alias(0x8001))
 
     # --- lists ------------------------------------------------------------------------------------------
-    def conv_reqs(self, i):
+    def conv_reqs(self, i, overrides=None):
         """A Tekken 7 requirement list -> (the new list's index, ok); ok False: the list can never be true."""
         if i is None:
             return None, True
-        key = ('req', i)
+        key = ('req', i, tuple(sorted(overrides.items()))) if overrides else ('req', i)
         if key in self.cache:
             return self.cache[key]
         rows, res = [], None
@@ -447,7 +447,7 @@ class Converter:
                     self.stats['character requirement "is X" -> false'] += 1
                     res = (None, False)
                     break
-            c2 = self.map_req(c)
+            c2 = overrides[c] if overrides and c in overrides else self.map_req(c)
             if c >= 0x8000 and c not in (T7_END, 0x81dc) and c not in REQ_PROP_KEEP:
                 p2 = self.conv_value(c, p) if c2 is not None else None
                 if p2 is None:                    # an action TTT2 cannot take: left out, the list kept

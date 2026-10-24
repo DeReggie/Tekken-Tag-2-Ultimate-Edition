@@ -1,3 +1,7 @@
+## Second autonomous batch — 2026-10-24
+
+Noctis b+2 follow-ups restored with scoped attack-to-throw/contact gates; airborne f+2 delayed damage inherits native juggle scaling once. Installed and rebuilt; 4/4 targeted CTests, 229 Python tests (one skipped, launcher excluded). Gameplay confirmation pending. Prior Noctis fixes and 2,222 other character files verified preserved.
+
 # Consolidated gameplay bug list
 
 Updated 2026-10-24. Branch: `codex/all-local-changes`. Merges the full pasted chat report, all visible screenshot rows, and earlier tracked work. Repeated reports are combined; distinct moves, symptoms and test routes remain separate. Existing IDs are preserved.
@@ -61,14 +65,14 @@ Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` mea
 | ID | Report / requested behavior | Current status | Source / notes |
 |---|---|---|---|
 | NOC-01 | u/f+1 counter-hit reaction is broken (reported twice) | Same CH crumple correction installed; needs gameplay check | Earlier tracker; repeated in full text where applicable |
-| NOC-02 | f+2 deals unscaled combo damage | Open | Earlier tracker; repeated in full text where applicable |
+| NOC-02 | f+2 deals unscaled combo damage | Correction installed — automated validation passed; gameplay check pending | Earlier tracker; repeated in full text where applicable |
 | NOC-03 | Sword impact effects and sounds are incorrect (e.g. 2,2,2,2); 2,2 effects appear in the wrong location | Open | Full text + screenshot “2,2 effects are in the wrong spot” |
 | NOC-04 | 2,2 fails in combos when opponent was launched on their back | Open | Full text + screenshot “2,2 (second hit) hitbox issues” |
 | NOC-05 | Freezes airborne on block instead of teleporting forward: f+2, 2,2,b+2, d/f+1,2 | Open | Earlier tracker; repeated in full text where applicable |
 | NOC-06 | Airborne 2,2,2 stops after its first hit in combos | Open | Earlier tracker; repeated in full text where applicable |
 | NOC-07 | u/f+3 plays only its first kick rather than the full animation | Correction installed — automated validation passed; gameplay check pending | Earlier tracker; repeated in full text where applicable |
 | NOC-08 | Emoman unexpectedly launches; establish exact input and expected reaction | Open | Earlier tracker; repeated in full text where applicable |
-| NOC-09 | Missing b+2,1+2 follow-up | Open | Earlier tracker; repeated in full text where applicable |
+| NOC-09 | Missing b+2,1+2 follow-up | Correction installed — automated validation passed; gameplay check pending | Earlier tracker; repeated in full text where applicable |
 | NOC-10 | d/f+4,2 fails against female characters at the wall | Open | Full text + screenshot “Missing SS2, DF4,2 hitbox issues” |
 | NOC-11 | Emoman does not work as a wall combo | Open | Earlier tracker; repeated in full text where applicable |
 | NOC-12 | WS 1,2 second-hit hitbox unreliable, especially at tip range | Open | Earlier tracker; repeated in full text where applicable |

@@ -3427,6 +3427,14 @@ void arc_property(uint32_t player, uint32_t id, uint32_t value) {
 }
 } // namespace
 
+namespace {
+std::map<uint32_t, damage::HitGrabContinuation> g_warp_strike_scaling;
+std::string_view damage_move_name(uint32_t player) {
+    const uint32_t move = player ? load(player + kPlayerMove) : 0;
+    return move && load(move) ? reinterpret_cast<const char*>(guest_pointer(load(move))) : "";
+}
+}
+
 // Geese has a character-specific grounded combo curve in T7's executable,
 // rather than in its MVLT/move damage rows. TTT2 has no corresponding fighter.
 // Keep its native hit accounting/reset logic, then scale this hit's output
@@ -3437,16 +3445,34 @@ PPC_FUNC(sub_03AE1704_orig);
 PPC_FUNC(sub_03AE1704) { // defender r3, attacker r4, damage result r5
     const uint32_t defender = ctx.r[3], attacker = ctx.r[4], result = ctx.r[5];
     const int k = attacker ? slot_of_id(load(attacker + kPlayerSelectId)) : -1;
-    if (k < 0 || g_added[k].code != "mry" || !defender || !result ||
-        !damage::ground_hit(load(result + 0x3c), load8(defender + 0x36b))) {
+    if (!defender || !result) {
         sub_03AE1704_orig(ctx, base);
         return;
     }
-    // The same native side record feeds the HUD and clears when hitstun ends.
-    // Its +0x50 is the combo hits already registered before this collision.
-    const uint32_t stats = guest_call(ctx, base, sub_04E184D0, {attacker});
-    const uint32_t prior_hits = stats ? load(stats + 0x50) : 0;
-    const uint32_t percent = damage::geese_ground_percent(prior_hits);
+    const uint32_t flags = load(result + 0x3c);
+    uint32_t percent = 100;
+    auto& warp = g_warp_strike_scaling[defender];
+    const bool noctis = k >= 0 && g_added[k].code == "mrz";
+    if (load(result + 0x40) != 4) {
+        warp.clear(); // any intervening collision invalidates the continuation
+        if (noctis && damage_move_name(attacker) == "Mz_rp00F" &&
+            (flags & 0x00200000u) && !(flags & 0x80000000u)) {
+            // sub_03AE1704 @03AE1C30 uses this defender counter and table.
+            // Preserve the initiating hit's native curve through the forced
+            // victim state, whose flat property otherwise bypasses the curve.
+            const uint32_t count = load(defender + 0x1cc);
+            const uint32_t native_percent = count <= 8 ? load8(0x101ce884 + count) : 30;
+            warp.remember(attacker, native_percent);
+        }
+    } else if (noctis && damage_move_name(defender) == "Mz_rp01F_n") {
+        if (const uint32_t inherited = warp.take(attacker)) percent = inherited;
+    }
+    if (k >= 0 && g_added[k].code == "mry" &&
+        damage::ground_hit(flags, load8(defender + 0x36b))) {
+        const uint32_t stats = guest_call(ctx, base, sub_04E184D0, {attacker});
+        const uint32_t prior_hits = stats ? load(stats + 0x50) : 0;
+        percent = damage::geese_ground_percent(prior_hits);
+    }
     std::array<int32_t, 4> before;
     for (size_t i = 0; i < before.size(); ++i) before[i] = static_cast<int32_t>(load(result + 0x2c + 4 * i));
     sub_03AE1704_orig(ctx, base);

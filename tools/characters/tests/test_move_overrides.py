@@ -208,3 +208,17 @@ class OnHitFollowup(unittest.TestCase):
         self.assertEqual(row['move_id'],1)
         k.tables['requirements'][0]['condition']=52
         with self.assertRaises(ValueError):O.on_hit_followup(c,'first','second')
+
+class ScopedRequirementConversion(unittest.TestCase):
+    def test_override_does_not_poison_normal_requirement_cache(self):
+        from ttt2char.convert.moveset import Converter
+        from ttt2char.movesets import Moveset
+        c=Converter.__new__(Converter);k=Moveset();k.game='t7'
+        k.tables={'requirements':[dict(condition=2,param=0),dict(condition=51,param=0),dict(condition=96,param=0),dict(condition=881,param=0)]}
+        c.k=k;c.k_id=8;c.newid=70;c.cache={};c.T={'requirements':[]};c.stats=collections.Counter();c.defn=types.SimpleNamespace(MOVESET={})
+        c.map_req=lambda x:{96:93}.get(x)
+        self.assertEqual(c.conv_reqs(0),(None,False))
+        at,ok=c.conv_reqs(0,overrides={2:2,51:47})
+        self.assertTrue(ok)
+        self.assertEqual(T.reqs(c.T,at),[(2,0),(47,0),(93,0)])
+        self.assertEqual(c.conv_reqs(0),(None,False))
