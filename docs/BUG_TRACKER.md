@@ -10,7 +10,7 @@ The repeated Noctis u/f+1 report is consolidated. Related reaction/projectile re
 
 | ID | Fighter | Report | Status |
 |---|---|---|---|
-| NEG-01 | Negan | 1,2: second hit does not connect | Candidate installed; needs gameplay check |
+| NEG-01 | Negan | 1,2: second hit does not connect | False positive — closed at user request |
 | NEG-02 | Negan | 4,2: second hit does not connect | Open |
 | NEG-03 | Negan | 1,4,2: final hit does not connect | Open |
 | NEG-04 | Negan | INT 4 fails mid-combo | Open |
@@ -57,11 +57,11 @@ The repeated Noctis u/f+1 report is consolidated. Related reaction/projectile re
 
 ### NEG-01 — Negan 1,2
 
-Status: Candidate rebuilt, validated and installed; gameplay confirmation pending.
+Status: False positive — closed at user request. The player reports that 1,2 usually connects and only sometimes misses.
 
-Evidence: `Na_lp00` dispatches into `Na_lprp`; source and installed follow-up active frames are 17–18 with 9 base damage. Original and converted pushback data agree. The bat's hit locations map to valid native point slots. However, Negan's weapon definition selected extra animation pair 1. In both `Na_lprp` and `Na_rkrp`, pair 1 retains its parked rotation while pair 0 animates the bat swing. Corrected Negan's weapon to pair 0, and added a local-export regression check. All four costume skeletons were regenerated consistently. Installation changed 11 Negan setup/skeleton/spring files, preserving moveset, motion, textures, voices and costume entries. All other installed pack files were hash-checked unchanged. No executable rebuild or move-data change was needed. Restart the game to load the correction.
+The weapon-animation pair change was an unconfirmed candidate, not an established diagnosis. Reverted that source change and its candidate regression test, and restored all 11 installed Negan files from their verified original backups. No executable rebuild is required; restart the game to reload the restored pack if it was already running.
 
-NEG-02 and NEG-03 may share this cause, but remain open until their own routes are checked in game.
+NEG-02 and NEG-03 remain open independently; no common cause has been confirmed.
 
 ## Carry-over validation
 

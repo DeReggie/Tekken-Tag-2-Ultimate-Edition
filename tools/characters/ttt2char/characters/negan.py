@@ -78,10 +78,10 @@ MOVESET = {
                (r'^la_w', 'anim', ['na_w%02d' % k for k in range(4)])],         # win poses
 }
 
-# his bat (Lucille) in his right hand, posed by his animations' first extra pair (pair 1 parks the unused copy;
-# checked on Na_lprp and Na_rkrp active frames; weapons.py); the points it hits with (Tekken 7 hit locations: its tip, Tekken 7's own point;
+# his bat (Lucille) in his right hand, posed by his animations' second extra pair (the first poses the copy for his
+# left hand, not drawn; weapons.py); the points it hits with (Tekken 7 hit locations: its tip, Tekken 7's own point;
 # the others along the bat, in cm from Tekken 7's grip)
 WEAPONS = [{'mesh': _ITEM + '/Meshes/nsa/extra/nsa_exp_1p/Meshes/SK_CH_nsa_exp_1p', 'bone': 'ATH_R_weapon001',
-            'parent': 'TE_R_jnt', 'pair': 0, 'points': {0x70: 'ATH_R_weapon001_top', 0x72: 70, 0x6f: 45}}]
+            'parent': 'TE_R_jnt', 'pair': 1, 'points': {0x70: 'ATH_R_weapon001_top', 0x72: 70, 0x6f: 45}}]
 # the knife and the bat in his left hand (not drawn) hit next to the hand
 HIT_LOCATIONS = {0x6b: 0x0d, 0x6e: 0x0d}
