@@ -263,7 +263,8 @@ class Converter:
         self.extra_index = {}
         for j, e in enumerate(T['cancel_extras']):
             self.extra_index.setdefault(e['value'], j)
-        self.drop_moves = re.compile(DROP_MOVES + '|' + d.MOVESET['drop_moves'])
+        dropped = DROP_MOVES.replace(r'|_EX\d?$', '') if d.MOVESET.get('free_meter_specials') else DROP_MOVES
+        self.drop_moves = re.compile(dropped + '|' + d.MOVESET['drop_moves'])
         self.ground_arcs = {}           # Tekken 7 move -> (frame, value) of its 0x8226 to bake (convert/arcs.py)
 
     # --- helpers ----------------------------------------------------------------------------------------
@@ -300,6 +301,10 @@ class Converter:
         return None
 
     def map_prop(self, p):
+        # T7's meter delta (negative on EX/super entry); free-meter opt-ins
+        # must not remap it onto an unrelated native property.
+        if p == 0x81c2 and self.defn.MOVESET.get('free_meter_specials'):
+            return None
         if p == TIGER_PROP and self.opt_anims:
             return OPT_ANIM_PROP
         if p in PROP_OVERRIDE:
@@ -400,6 +405,9 @@ class Converter:
             return self.cache[key]
         rows, res = [], None
         for c, p in M.reqs(self.k, i):
+            if c in (629, 0x81c2) and self.defn.MOVESET.get('free_meter_specials'):
+                self.stats['meter requirements/costs removed (opt-in)'] += 1
+                continue
             if c in CHAR_IS or c in CHAR_IS_NOT:
                 if p == self.k_id:
                     p = self.newid

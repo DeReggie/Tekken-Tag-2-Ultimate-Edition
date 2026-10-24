@@ -1,5 +1,5 @@
 """Character opt-ins for special inputs and native tag-launch exits."""
-from . import idmaps as M
+from . import idmaps as M, tagsystem as TS
 from ..ttt2 import motion
 
 SEQ0 = 0x800D
@@ -7,7 +7,9 @@ SEQ0 = 0x800D
 
 def apply(c):
     rules = c.defn.MOVESET
+    restore_jump_specials(c)
     restore_normal_strings(c)
+    restore_secondary_strings(c)
     for source, targets in rules.get('special_cancels', {}).items():
         if rules.get('buffered_special_cancels'):
             buffered_special(c, source, targets)
@@ -181,21 +183,26 @@ def buffered_special(c, source, targets):
 
     i = c.kn[source]
     rows = M.cancels(c.k, c.k.tables['moves'][i]['cancel'])
-    dispatch, codes = [], set()
+    dispatch, codes, capture_ends = [], set(), {}
     for row in rows:
         values = M.reqs(c.k, row['req'])
-        if row['direction'] != 0 or any(a == 629 for a, _ in values):
+        if row['direction'] != 0 or (not c.defn.MOVESET.get('free_meter_specials') and
+                                    any(a == 629 for a, _ in values)):
             continue
         target = c.k.resolve_alias(row['move_id'])
         if c.k.move_name(target) not in targets:
             continue
         code = next((b for a, b in values if a == 346 and b), None)
         contact = next((a for a, _ in values if a in (49, 50)), None)
-        if code is None or contact is None:
+        if code is None or (contact is None and source not in
+                            c.defn.MOVESET.get('noncontact_special_cancels', ())):
             continue
         codes.add(code)
-        dispatch.append(dict(row, req=req([(SPECIAL_VAR, code),
-                                           (CONTACT_VAR, 1)]),
+        capture_ends[code] = max(capture_ends.get(code, 0), min(32767, row['win_end'] + late))
+        checks = [(SPECIAL_VAR, code)]
+        if contact is not None:
+            checks.append((CONTACT_VAR, 1))
+        dispatch.append(dict(row, req=req(checks),
                              extradata=extra(0x182), move_id=c.newidx[target],
                              win_end=min(32767, row['win_end'] + late), start_frame=1, option=0))
     captures, captured = [], set()
@@ -204,22 +211,26 @@ def buffered_special(c, source, targets):
         code = next((b for a, b in values if a == 0x80c5 and b in codes), None)
         if code is None or (346, 0) not in values:
             continue
-        if not SEQ0 <= row['direction'] < SEQ0 + len(c.k.tables['input_sequences']):
+        is_sequence = SEQ0 <= row['direction'] < SEQ0 + len(c.k.tables['input_sequences'])
+        if not is_sequence and not (row['direction'] < 0x400 and row['button']):
             continue
         # These are input-only rows: native 0x2800 runs requirement actions
         # without leaving the normal. Never add a hit/block gate here.
-        sequence = c.conv_seq(row['direction'] - SEQ0)
-        if motion_window:
+        sequence = c.conv_seq(row['direction'] - SEQ0) if is_sequence else None
+        if motion_window and is_sequence:
             key = ('buffered_motion_window', sequence, motion_window)
             if key not in c.cache:
                 original = c.T['input_sequences'][sequence]
                 c.cache[key] = c.add('input_sequences', dict(
                     original, window=max(original['window'], motion_window)))
             sequence = c.cache[key]
-        captures.append(dict(row, direction=SEQ0 + sequence,
+        captures.append(dict(row, direction=SEQ0 + sequence if is_sequence else row['direction'],
                              req=req([(SPECIAL_VAR, 0), (SPECIAL_SET, code)]),
                              extradata=extra(0x2800), move_id=0x8001,
-                             win_end=min(32767, row['win_end'] + late), start_frame=1, option=0))
+                             # A few strings capture well before dispatch;
+                             # allow late motions throughout the dispatch window.
+                             win_end=max(min(32767, row['win_end'] + late), capture_ends[code]),
+                             start_frame=1, option=0))
         captured.add(code)
     if not dispatch or captured != codes:
         raise ValueError('incomplete special buffer for ' + source)
@@ -233,7 +244,8 @@ def buffered_special(c, source, targets):
     latch = [dict(direction=0, button=0,
                   req=req([(CONTACT_VAR, 0), (contact, 0), (CONTACT_SET, 1)]),
                   extradata=extra(0x2800), win_start=1, win_end=last,
-                  start_frame=1, move_id=0x8001, option=0) for contact in (46, 47)]
+                  start_frame=1, move_id=0x8001, option=0) for contact in (46, 47)
+             if source not in c.defn.MOVESET.get('noncontact_special_cancels', ())]
     c.T['cancels'] += latch + captures + dispatch + body[:end + 1]
     # Reset at move entry, including repeated normals and the next string hit.
     # TTT2 runs end_props every frame; clearing there destroys early captures.
@@ -283,3 +295,101 @@ def restore_normal_strings(c):
         move['cancel'] = len(c.T['cancels'])
         c.T['cancels'] += added + body[:end + 1]
         c.stats['normal string follow-ups restored'] += len(added)
+
+
+def restore_secondary_strings(c):
+    """Restore opted-in follow-ups using T7's second string buffer (353/0x80a9).
+
+    These inputs are direct in TTT2. Timing and native cancel mode come from
+    the original capture/dispatch pair; no new route is invented.
+    """
+    for source, targets in c.defn.MOVESET.get('secondary_string_followups', {}).items():
+        original = M.cancels(c.k, c.k.tables['moves'][c.kn[source]]['cancel'])
+        captures = {}
+        for row in original:
+            values = M.reqs(c.k, row['req'])
+            code = next((b for a, b in values if a == 0x80a9 and b), None)
+            if row['button'] and (353, 0) in values and code is not None:
+                captures.setdefault(code, []).append(row)
+        added, found, seen = [], set(), set()
+        empty = c.add('requirements', dict(condition=M.END_REQ['ttt2'], param=0))
+        for row in original:
+            target = c.k.resolve_alias(row['move_id'])
+            if target is None or c.k.move_name(target) not in targets:
+                continue
+            code = next((b for a, b in M.reqs(c.k, row['req']) if a == 353 and b), None)
+            branches = [M.reqs(c.k, r['req']) for r in original
+                        if c.k.resolve_alias(r['move_id']) == target and
+                        (353, code) in M.reqs(c.k, r['req'])]
+            allowed = {(352, 0), (352, 1), (353, code), (0x82ea, 0)}
+            if (not all(set(branch) <= allowed for branch in branches) or
+                    {b for branch in branches for a, b in branch if a == 352} != {0, 1}):
+                raise ValueError('unsupported secondary string gates: ' + source)
+            for inp in captures.get(code, ()):
+                key = (target, inp['direction'], inp['button'])
+                if key in seen:
+                    continue
+                seen.add(key)
+                # The original branches cover the hit-buffer's 0 and 1 cases.
+                # A single direct input supports both, without a missing buffer.
+                added.append(dict(row, direction=inp['direction'], button=inp['button'],
+                                  req=empty, extradata=c.extradata(row['extradata']),
+                                  move_id=c.newidx[target], win_start=inp['win_start'],
+                                  win_end=inp['win_end'], option=0))
+                found.add(c.k.move_name(target))
+        if found != set(targets):
+            raise ValueError('missing secondary string follow-up: ' + source)
+        move = c.T['moves'][c.newidx[c.kn[source]]]
+        body = TS.cancels(c.T, move['cancel'])
+        move['cancel'] = TS.write(c.T, 'cancels', added + [dict(r) for r in body])
+        c.stats['secondary string follow-ups restored'] += len(added)
+
+
+def restore_jump_specials(c):
+    """Restore opted-in air specials from baked jumps, using their native air window.
+
+    T7 630/631 and action 0x822d refer to its physics. The port carries the
+    jump in a baked animation and continues it through the runtime air markers.
+    These routes are limited to the original jump's airborne frames instead.
+    """
+    targets = c.defn.MOVESET.get('jump_special_inputs', ())
+    if not targets:
+        return
+    for name, index in c.kn.items():
+        if not name.startswith('Vp_sJUMP') or index not in c.newidx:
+            continue
+        original = c.k.tables['moves'][index]
+        move = c.T['moves'][c.newidx[index]]
+        added, seen = [], set()
+        for row in M.cancels(c.k, original['cancel']):
+            target = c.k.resolve_alias(row['move_id'])
+            if target is None or c.k.move_name(target) not in targets:
+                continue
+            values = M.reqs(c.k, row['req'])
+            if not any(a in (630, 631) for a, _ in values):
+                raise ValueError('missing T7 air gate: ' + name)
+            if any(a not in (629, 630, 631, 0x822d) for a, _ in values):
+                raise ValueError('unsupported jump special gate: ' + name)
+            if any(a == 629 for a, _ in values) and not c.defn.MOVESET.get('free_meter_specials'):
+                continue
+            if not SEQ0 <= row['direction'] < SEQ0 + len(c.k.tables['input_sequences']):
+                raise ValueError('missing jump special input sequence: ' + name)
+            # Original order prefers EX for 3+4; rising/falling branches share
+            # inputs. Keep one route per command, rather than overlapping it.
+            key = row['direction'], row['button']
+            if key in seen:
+                continue
+            seen.add(key)
+            empty = c.add('requirements', dict(condition=M.END_REQ['ttt2'], param=0))
+            delta = move['airborne_end'] - original['airborne_end']
+            start = max(row['win_start'], move['airborne_start'])
+            end = min(row['win_end'] + delta, move['airborne_end'] - 1)
+            if start > end:
+                raise ValueError('empty jump special air window: ' + name)
+            added.append(dict(row, direction=SEQ0 + c.conv_seq(row['direction'] - SEQ0),
+                              req=empty, extradata=c.extradata(row['extradata']),
+                              move_id=c.newidx[target], win_start=start, win_end=end, option=0))
+        if added:
+            rows = [dict(r) for r in TS.cancels(c.T, move['cancel'])]
+            move['cancel'] = TS.write(c.T, 'cancels', added + rows)
+            c.stats['jump special inputs restored'] += len(added)
