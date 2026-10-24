@@ -67,3 +67,5 @@ scaling and title tests, and regenerated pack move/animation/metadata audits.
 Game files and generated packs are not committed.
 
 - Grounded counter-hit Screw launch reactions preserve the juggle Bound allowance; airborne Bound conversions remain unchanged. Shared conversion and 13 affected installed packs updated.
+
+- Eliza gameplay pack rebuilt from consolidated source after discovering the preserved installed pack lacked special-cancel fixes. All 16 configured source routes verified in the rebuilt pack; all eight costume assets preserved. Gameplay confirmation pending.

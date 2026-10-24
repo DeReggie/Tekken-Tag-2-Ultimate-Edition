@@ -79,3 +79,7 @@ Geese standing 4 (`My_rk00`) has a distinct grounded CH reaction `sDw_screwL`, s
 Applied the same correction to 13 affected installed packs, preserving attack data, cancels, animations, costumes and all other tables. Backups and binary round-trip checks completed; 2,210 other installed files hash-verified unchanged. Restart required, no executable rebuild. Test CH standing 4 into a combo ending in a known Bound attack; the later Bound should remain available. Gameplay confirmation pending.
 
 Player confirmed SYS-03: Geese CH standing 4 now preserves the subsequent Bound. Other affected routes share the corrected reactions but have not all been individually tested.
+
+### Eliza — special cancels absent from installed pack
+
+Player reported all cancels failing. Compared with the pre-Screw-fix backup: cancel/requirement tables were identical, so SYS-03 did not overwrite them. Source retained all Eliza fixes, but the preserved installed pack lacked buffered-special capture/dispatch routes. Rebuilt Eliza from consolidated source and installed only `elz.moveset` and `elz.motion`, with backups. Verified all 16 configured special-cancel sources have capture and dispatch rows; all base move names retained, eight costumes and pack metadata unchanged, CH Screw correction retained, 2,221 other files unchanged. Six obsolete Bound Tag Assault twin/exit moves disappear consistently with the existing three `bounds: False` source settings. Twelve special-cancel tests and three local-customization tests passed. Restart required; gameplay confirmation pending.
