@@ -26,6 +26,28 @@ class OutfitTests(unittest.TestCase):
         self.assertTrue(all(len(code) == 3 and code.islower() and code.isalpha() for code in codes))
         self.assertTrue(all(len(definition(name).PRESETS) <= 14 for name in CHARACTERS))
 
+    def test_katarina_face_with_omitted_mesh_type_is_kept(self):
+        from ttt2char.characters import katarina
+        face = dict(SourceSkeletalMesh=katarina.TEKKEN7['parts'][0][1])
+        with patch.object(outfits.model, 'costume_items', return_value=[face]):
+            variant = outfits.definition(None, katarina, '/Game/Test')
+        self.assertIn(katarina.TEKKEN7['parts'][0], variant.TEKKEN7['parts'])
+        self.assertEqual(variant.MESHES['fac'], katarina.MESHES['fac'])
+
+    def test_explicit_static_mesh_is_not_treated_as_skeletal(self):
+        parts = [dict(item('/Game/Meshes/Face/face'), MeshType='StaticMeshSocket'),
+                 item('/Game/Meshes/Upper/body')]
+        with patch.object(outfits.model, 'costume_items', return_value=parts):
+            variant = outfits.definition(None, fahkumram, '/Game/Test')
+        self.assertEqual([tag for tag, _ in variant.TEKKEN7['parts']], ['bdu'])
+
+    def test_alias_prefixes_do_not_depend_on_roster_order(self):
+        expected = {'kazumi': 'kza', 'akuma': 'oea', 'katarina': 'oha',
+                    'kunimitsu2': 'ona', 'noctis': 'oqa'}
+        for name, first in expected.items():
+            self.assertEqual(outfits.codes(definition(name))[0], first)
+        self.assertEqual(set(outfits.PREFIXES), {definition(name).CODE for name in CHARACTERS})
+
     def test_wearable_blueprint_keeps_skeletal_tail_and_glasses_offsets(self):
         tail = dict(ItemBlueprint="BlueprintGeneratedClass'/Game/Tail.Tail_C'")
         glasses = dict(ItemBlueprint="BlueprintGeneratedClass'/Game/Glasses.Glasses_C'",

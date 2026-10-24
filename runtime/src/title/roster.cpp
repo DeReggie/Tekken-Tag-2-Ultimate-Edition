@@ -226,7 +226,7 @@ std::map<uint32_t, int> g_outfit_ids;
 // (06686418); this separate space can hold the whole imported roster.
 constexpr uint32_t kFirstOutfitId = 0x10000, kOutfitIdEnd = kFirstOutfitId + 128 * 14;
 uint32_t g_outfit_picks[2][2] = {};
-uint32_t g_outfit_bodies[5] = {}; // requested registry body, by native PLAYER slot
+outfit_menu::BodySelections g_outfit_bodies;
 uint32_t g_outfit_cursor = 0, g_outfit_choice = 0;
 bool g_active = false; // any
 
@@ -1254,6 +1254,12 @@ void prepare_roster() {
                          pack.directory.c_str(), kMaxFighters);
         }
     }
+    outfit_menu::CodeOwners codes;
+    for (size_t k = 0; k < at.size(); ++k) {
+        if (!at[k] || at[k]->format != kPackFormat) continue;
+        codes.add(k, at[k]->code);
+        for (const auto& code : at[k]->outfits) codes.add(k, code);
+    }
     g_added.assign(at.size(), Added{});
     g_outfit_ids.clear();
     g_voice.assign(at.size(), Voice{});
@@ -1262,6 +1268,11 @@ void prepare_roster() {
     for (size_t k = 0; k < at.size(); ++k) {
         if (!at[k]) continue;
         const Pack& pack = *at[k];
+        if (codes.conflicts(k)) {
+            std::fprintf(stderr, "ttt2: warning: %s: duplicate fighter/outfit code; skipped\n",
+                         pack.directory.c_str());
+            continue;
+        }
         if (pack.format < kPackFormat) {
             std::fprintf(stderr,
                          "ttt2: warning: %s was made by an older importer (pack format %d, this game loads %d): add "
@@ -1437,7 +1448,7 @@ PPC_FUNC(sub_0209506C) {
 PPC_FUNC(sub_02091898_orig);
 PPC_FUNC(sub_02091898) {
     const uint32_t recipe = ctx.r[3], tuple = ctx.r[4], slot = load(recipe + 20);
-    const uint32_t body_id = slot < 5 ? g_outfit_bodies[slot] : 0;
+    const uint32_t body_id = g_outfit_bodies.resolve(slot, load(tuple));
     const int k = body_id ? slot_of_id(body_id) : -1;
     const Outfit* selected = nullptr;
     if (k >= 0 && outfit_menu::matches_fighter(load(tuple), g_added[k].id) &&
@@ -1662,19 +1673,19 @@ PPC_FUNC(sub_044BE1EC_orig);
 PPC_FUNC(sub_044BE1EC) {
     const int k = slot_of_record(ctx.r[5]);
     if (k < 0) {
-        if (ctx.r[4] < 5) g_outfit_bodies[ctx.r[4]] = 0;
+        g_outfit_bodies.remember(ctx.r[4], 0, 0);
         sub_044BE1EC_orig(ctx, base);
         return;
     }
     const uint32_t loader = ctx.r[3], slot = ctx.r[4], record = ctx.r[5], paul_code = load(kCodes);
     uint32_t code_string = g_added[k].code_string;
-    if (slot < 5) g_outfit_bodies[slot] = 0;
+    g_outfit_bodies.remember(slot, g_added[k].id, 0);
     // Native loader slots are side + 2 * member (the mode manager uses the same ordering).
     if (slot < 4 && !g_added[k].outfits.empty()) {
         const size_t outfit = g_outfit_picks[slot & 1][slot / 2];
         if (outfit < g_added[k].outfits.size()) {
             code_string = g_added[k].outfits[outfit].code_string;
-            g_outfit_bodies[slot] = g_added[k].outfits[outfit].id;
+            g_outfit_bodies.remember(slot, g_added[k].id, g_added[k].outfits[outfit].id);
         }
     }
     // The native cache compares records only. Different outfits deliberately

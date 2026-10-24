@@ -10,10 +10,16 @@ from . import art, chains, model, tiger, weapons
 from ..tekken7.material import short_ref
 from ..ttt2 import bone, nud, nut
 from ..ttt2.archive import key_of
-from ..characters import CHARACTERS, definition as fighter_definition
 
 MAX_PRESETS = 14  # native builder caps total rows at fourteen, including customization rows
 TEXTURE_STRIDE = 16
+# Pack metadata persists these codes: never derive them from roster ordering.
+PREFIXES = {
+    'kzm': 'kz', 'dnc': 'ob', 'elz': 'oc', 'ita': 'od', 'mrx': 'oe',
+    'crz': 'of', 'mut': 'og', 'ltn': 'oh', 'frv': 'oi', 'arb': 'oj',
+    'nsc': 'fk', 'nsb': 'ol', 'nsd': 'om', 'kmi': 'on', 'nsa': 'oo',
+    'mry': 'op', 'mrz': 'oq',
+}
 
 
 def blueprint_items(paks, items):
@@ -47,7 +53,8 @@ def definition(paks, base, costume):
                   'Full_Head': 'hef', 'Glasses': 'gla', 'Hair_Acc': 'oph', 'Lower_Acc': 'tail', 'Extra': 'ext'}
     seen = set()
     for item in items:
-        if item.get('MeshType') != 'SkeletalMeshAnim':
+        # Some T7 items (Katarina's face) omit the default MeshType.
+        if item.get('MeshType') not in (None, 'SkeletalMeshAnim'):
             continue
         ref = short_ref(item.get('SourceSkeletalMesh'))
         if not ref:
@@ -96,14 +103,11 @@ def definition(paks, base, costume):
 
 def codes(base):
     """Reserved three-letter body codes; these are not additional roster fighters."""
-    prefixes = {fighter_definition(name).CODE: 'o' + chr(ord('a') + i)
-                for i, name in enumerate(CHARACTERS)}
-    prefixes.update({'nsc': 'fk', 'kzm': 'kz'})
-    if base.CODE not in prefixes:
+    if base.CODE not in PREFIXES:
         raise ValueError('preset body codes have not been assigned for %s' % base.CODE)
     if not 1 <= len(base.PRESETS) <= MAX_PRESETS:
         raise ValueError('expected one to fourteen preset outfits')
-    return [prefixes[base.CODE] + chr(ord('a') + i) for i, _ in enumerate(base.PRESETS)]
+    return [PREFIXES[base.CODE] + chr(ord('a') + i) for i, _ in enumerate(base.PRESETS)]
 
 
 def check_tiger_skeleton(skeleton, reference):
