@@ -11,7 +11,7 @@ item moves carry the very same animations as TTT2's (Co_IHomeRun). So the weapon
 pairs' resting values are the bind poses' (Kunimitsu II's right sword, hip sword: within 2 degrees and 1 mm; Negan's
 right bat: its rotation), Kunimitsu II's kunai flies straight at the opponent, Negan's bat strikes reach in front.
 The bone's frame is Tekken 7's bone's with y reversed (M below; TTT2's frames are Tekken 7's so, the hands' bind poses
-show). Which pair poses which bone: Tekken 7's order (Negan: 0 the left bat, 1 the right; Kunimitsu II: 0..2 her
+show). Which pair poses which bone: Tekken 7's order (Negan: 0 the active right bat, 1 the parked copy; Kunimitsu II: 0..2 her
 left hand's, 3 the right sword, 4 the hip sword), found by the resting values.
 
 TTT2 samples those channels for every fighter but uses them only for some fighters' extra bones; the runtime poses
