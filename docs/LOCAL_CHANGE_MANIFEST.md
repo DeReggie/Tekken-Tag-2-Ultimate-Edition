@@ -74,4 +74,6 @@ Game files and generated packs are not committed.
 - Shared CH crumple conversion preserves `sDm_nkdoBxC` and `sDm_nkd2BxC` instead of remapping them to a normal stagger. Negan and Noctis gameplay packs regenerated and installed; player testing pending.
 - Eliza restored cancels confirmed working by the player.
 
-- Eliza Moon Glide assist continuation candidate opts in only the three empty Glide states (`Vp_dash_C`, `Vp_dash_EX`, `Vp_dash_EX2`) to hitlevel 0x200000, retaining all attacks and input timing. Source and installed pack updated; player test pending.
+- Eliza Moon Glide hitlevel candidate was reverted after the player reported it prevented entry. The verified pre-candidate cancel-restored pack is installed; Tag Assault Glide follow-ups remain unresolved.
+
+- Negan 4,2 and 1,4,2 bat-tip correction confirmed working by the player.

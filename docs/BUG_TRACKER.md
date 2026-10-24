@@ -11,8 +11,8 @@ The repeated Noctis u/f+1 report is consolidated. Related reaction/projectile re
 | ID | Fighter | Report | Status |
 |---|---|---|---|
 | NEG-01 | Negan | 1,2: second hit does not connect | False positive — closed at user request |
-| NEG-02 | Negan | 4,2: second hit does not connect | Bat-tip candidate installed; needs gameplay check |
-| NEG-03 | Negan | 1,4,2: final hit does not connect | Same bat-tip candidate installed; needs gameplay check |
+| NEG-02 | Negan | 4,2: second hit does not connect | Fixed — confirmed by player |
+| NEG-03 | Negan | 1,4,2: final hit does not connect | Fixed — confirmed by player |
 | NEG-04 | Negan | INT 4 fails mid-combo | Open |
 | NEG-05 | Negan | Hit effects should be red | Open |
 | NEG-06 | Negan | d/b+1+2 counter-hit reaction is broken; resembles Noctis u/f+1 problem | CH crumple correction installed; needs gameplay check |
@@ -52,7 +52,7 @@ The repeated Noctis u/f+1 report is consolidated. Related reaction/projectile re
 | SYS-01 | General | Game becomes extremely slow after hours; reboot resolves it. Memory leak is a hypothesis, not a diagnosis. | Open |
 | SYS-03 | General | Grounded counter-hit Screw launches consume Bound (e.g. Geese standing 4) | Fixed — Geese standing 4 confirmed by player |
 | SYS-02 | General | Fighters keep running indefinitely after starting a run. Referenced video was not attached in this message. | Open |
-| ELZ-01 | Eliza | Tag Assault b+4 can enter Glide, but attacks out of Glide fail | Assist-continuation candidate installed; needs gameplay check |
+| ELZ-01 | Eliza | Tag Assault b+4 can enter Glide, but attacks out of Glide fail | Reopened — flag candidate regressed entry and was reverted |
 | GEE-01 | Geese (carry-over) | Special cancels fail when entering as Tag Assault partner; Akuma works | Open |
 
 ## Investigation log
@@ -106,3 +106,7 @@ Regenerated and installed Negan and Noctis gameplay moveset/motion files, retain
 Player confirms ordinary special cancels work, but b+4 into Glide during Tag Assault cannot perform any attacks from Glide. Installed `Vp_dash_C`, `Vp_dash_EX` and `Vp_dash_EX2` all retain five attack input rows, but their hitlevel is 0. Working Kunimitsu SET uses hitlevel flag 0x200000 to retain an empty state's assist continuation. Opted in these three non-attacking Glide states to the same flag, guarded against active attacks or a nonzero low hit level. This is a candidate based on the working stance convention; gameplay confirmation is required.
 
 Changed only those three hitlevel fields in the installed Eliza moveset. All cancel/input/requirement tables, timing, damage, animations and other tables are unchanged; 2,222 other files hash-verified unchanged, including costumes, other packs and the executable. Source override retained for future rebuilds, backup saved and binary round-trip verified. Twelve move-override tests passed, including new empty-state preservation and attacking-state rejection coverage. Restart required; no executable rebuild or reimport needed for this installation. Test Tag Assault → Eliza b+4 → Glide → 1, 2, 3, 4 or 1+2, then verify ordinary Glide still works.
+
+### Player test update — Negan confirmed, Eliza flag candidate reverted
+
+Player reports Negan's moves are fixed after the prior batch. NEG-02 and NEG-03 are marked confirmed; Noctis CH still requires its own confirmation. Eliza's Glide hitlevel candidate instead prevented entry, so restored the exact pre-candidate moveset from its hash-verified backup and removed the candidate source option/helper/tests. Prior restored special cancels and other fighter fixes remain intact. ELZ-01 remains open: before the candidate, b+4 could enter Glide but no attacks followed. The assumption that Kunimitsu's stance flag transfers directly to Eliza was disproved in gameplay. Trace the actual b+4 entry and assist cancel gate before any replacement change.
