@@ -301,7 +301,8 @@ Chloe, Eliza, Claudio Serafino, Akuma, Gigas, Josie Rizal, Katarina Alves,
 Master Raven, Shaheen, Fahkumram, Leroy Smith, Lidia Sobieska, Kunimitsu II,
 Negan, Geese Howard and Noctis. Each gets a cell of its own on the select
 screen: the free ends of the top row first, then new columns beyond the rows'
-ends (19 cells; the order follows the order of import).
+ends (19 cells; the order follows the order of import). The costume chooser
+offers each one's Tekken 7 preset outfits (4 to 10 per fighter).
 
 Nothing of them is in this repository: an importer makes them from **your own
 copies of both games** and writes character packs on your computer. You need:

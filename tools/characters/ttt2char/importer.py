@@ -7,8 +7,8 @@ import time
 
 from . import InputError, pack, shared
 from .characters import CHARACTERS, definition
-from .convert import art, chains, cloth, effects as fx, idmaps, itemdb, model, movelist, moveset, particles, tagsystem, \
-    tiger, voice, weapons
+from .convert import art, chains, cloth, effects as fx, idmaps, itemdb, model, movelist, moveset, outfits, particles, \
+    tagsystem, tiger, voice, weapons
 from .tekken7 import tkmvst
 from .tekken7.autodump import FILES
 from .tekken7.pak import EncryptedError, Paks, pak_names
@@ -132,6 +132,31 @@ def _shared(paks, archives, rpx, out, log, step):
     return together
 
 
+def spring_file(archives, d, bon, cloth_springs):
+    """The spring entries (.mop) of a body's extra bones (bon: its .bon), on the donor's: the tiger's, the hanging
+    chains', the cloth's (cloth_springs: model.convert's) and the weapons' still ones. -> bytes, or None without any."""
+    skel = bone.read(bon)
+    donor_mop = archives.read_name(d.DONOR + '.mop') if archives.has(key_of(d.DONOR + '.mop')) else None
+    mop = None
+    if getattr(d, 'TIGER', None):
+        mop = tiger.spring_file(archives.read_name(d.DONOR + '.mop'),
+                                archives.read_name(tiger.SPRING_TEMPLATE[0] + '.mop'),
+                                sum(1 for n in skel['opt'] if tiger.OPT_FIRST <= n < weapons.OPT_FIRST))
+    swinging = [n for n in skel['opt'] if chains.OPT_FIRST <= n < cloth.OPT_FIRST]
+    if swinging:
+        template = archives.read_name(chains.SPRING_TEMPLATE[0] + '.mop')
+        mop = chains.spring_file(mop or donor_mop or chains.empty_spring_file(template), template, swinging)
+    if cloth_springs:                             # cloth: Lars's coat tails' entries, leg capsules, pairs and links
+        template = cloth.template(archives)
+        mop = cloth.spring_file(mop or donor_mop or chains.empty_spring_file(template), template, cloth_springs)
+    still = [n for n in skel['opt'] if n >= weapons.OPT_FIRST]
+    if still:                                     # weapons: still extra bones (Devil Jin's wing entry, flag 8)
+        template = archives.read_name(tiger.SPRING_TEMPLATE[0] + '.mop')
+        mop = chains.spring_file(mop or donor_mop or chains.empty_spring_file(template), template, still,
+                                 template=tiger.SPRING_TEMPLATE[1], links=False)
+    return mop
+
+
 def _run(name, tekken7, movesets, game, out, log, make_shared, files):
     d = definition(name)
     paks_dir = tekken7_paks(tekken7)
@@ -159,35 +184,18 @@ def _run(name, tekken7, movesets, game, out, log, make_shared, files):
 
     step('model: %s (place %d)' % (d.NAME, slot))
     own_moveset = tkmvst.read(own)
+    standing = cloth.standing(own_moveset)
     nud, nut, bon, palettes, cloth_springs = model.convert(paks, archives, d, slot,
                                                            log=lambda s: log('         ' + s.strip()),
-                                                           standing=cloth.standing(own_moveset))
+                                                           standing=standing)
     donor_xml = archives.read_name(d.DONOR + '.xml')
     effect_files, _, _ = fx.copy_files(archives, d.DONOR, itemdb.effect_names(donor_xml), {},
                                        log=lambda s: log('         ' + s))
-    part3, opt_anims, mop = None, {}, None
+    part3, opt_anims = None, {}
     if getattr(d, 'TIGER', None):
         step('tiger: its animations and its bones\' spring entries')
-        skel = bone.read(bon)
-        part3, opt_anims = tiger.animations(paks, d, skel, log=lambda s: log('         ' + s.strip()))
-        mop = tiger.spring_file(archives.read_name(d.DONOR + '.mop'),
-                                archives.read_name(tiger.SPRING_TEMPLATE[0] + '.mop'),
-                                sum(1 for n in skel['opt'] if tiger.OPT_FIRST <= n < weapons.OPT_FIRST))
-    swinging = [n for n in bone.read(bon)['opt'] if chains.OPT_FIRST <= n < cloth.OPT_FIRST]
-    if swinging:
-        template = archives.read_name(chains.SPRING_TEMPLATE[0] + '.mop')
-        donor_mop = archives.read_name(d.DONOR + '.mop') if archives.has(key_of(d.DONOR + '.mop')) else None
-        mop = chains.spring_file(mop or donor_mop or chains.empty_spring_file(template), template, swinging)
-    if cloth_springs:                             # cloth: Lars's coat tails' entries, leg capsules, pairs and links
-        template = cloth.template(archives)
-        donor_mop = archives.read_name(d.DONOR + '.mop') if archives.has(key_of(d.DONOR + '.mop')) else None
-        mop = cloth.spring_file(mop or donor_mop or chains.empty_spring_file(template), template, cloth_springs)
-    still = [n for n in bone.read(bon)['opt'] if n >= weapons.OPT_FIRST]
-    if still:                                     # weapons: still extra bones (Devil Jin's wing entry, flag 8)
-        template = archives.read_name(tiger.SPRING_TEMPLATE[0] + '.mop')
-        donor_mop = archives.read_name(d.DONOR + '.mop') if archives.has(key_of(d.DONOR + '.mop')) else None
-        mop = chains.spring_file(mop or donor_mop or chains.empty_spring_file(template), template, still,
-                                 template=tiger.SPRING_TEMPLATE[1], links=False)
+        part3, opt_anims = tiger.animations(paks, d, bone.read(bon), log=lambda s: log('         ' + s.strip()))
+    mop = spring_file(archives, d, bon, cloth_springs)
 
     step('pictures: %s\'s Tekken 7 pictures for the loading and VS screens and the costume chooser' % d.NAME)
     pictures = art.pack_files(paks, archives, rpx, d, slot, log=lambda s: log('         ' + s))
@@ -270,8 +278,16 @@ def _run(name, tekken7, movesets, game, out, log, make_shared, files):
         files['.mop'] = mop
     if palettes:
         files['colours.json'] = json.dumps({str(nn): v for nn, v in sorted(palettes.items())}).encode('utf-8')
+    outfit_codes = []
+    if getattr(d, 'PRESETS', ()):
+        step('preset outfits: complete bodies for the in-game costume chooser')
+        files.update(outfits.build(paks, archives, rpx, d, slot, xml,
+                                   lambda bon, cloth_springs: spring_file(archives, d, bon, cloth_springs),
+                                   (nud, nut, bon, mop), standing=standing,
+                                   log=lambda s: log('         ' + s.strip()), reference_bon=bon))
+        outfit_codes = outfits.codes(d)
     target = pack.write(out, d, files, slot, chr_tones=chr_tones, voice_extra=voice_extra,
-                        weapons=weapons.of_skeleton(bone.read(bon), getattr(d, 'WEAPONS', ())))
+                        weapons=weapons.of_skeleton(bone.read(bon), getattr(d, 'WEAPONS', ())), outfits=outfit_codes)
     step('wrote %s' % target)
 
     if make_shared:

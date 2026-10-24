@@ -691,6 +691,27 @@ fighter in a mode the added fighter is not in). Opening the chooser notes the
 fighter under the cursor (`sub_02669380`, which asserts an id below 63): an
 added fighter is noted as its donor.
 
+**Its outfits.** A pack may hold up to 14 complete bodies besides its own
+(`character.ini`'s `outfits = <code> ...`, each code's `.nud .nut .bon .xml
+.mop`, one picture each in `art/costumes.nut`): the importer makes one from
+each of Tekken 7's preset sets for the fighter (a definition's `PRESETS`,
+`convert/outfits.py`); the preset of the fighter's own costume is its own body,
+the only one with 2P colour layers (palette entries go by select id, which
+outfits share). The chooser then lists the donor's costume 1 once per outfit
+and the pick (`sub_033E265C`) chooses the body; 14 entries is the chooser's
+room (its customisation rows stop there, `033E379C`). Each outfit is
+registered as a body of its own (registry and chara master) under a private
+32-bit key from 0x10000, never a select id: the chara master's lookup by code
+(`sub_0209506C`) gives back the fighter's id, the loader (`sub_044BE1EC`) asks
+for the outfit's code and drops a finished body when only the code changed
+(outfits share a record), and the recipe initialiser (`sub_02091898`) gets the
+outfit's code strings while the fighter's id and motion row stay; a slot's
+remembered outfit is dropped when its fighter changes (going back to the menu
+reuses a slot without a load). Outfit textures have ids of their own
+(`0x10500000 + (place × 16 + outfit) × 0x1000`): two outfits of one fighter
+meet in a match. A code that clashes with a fighter's or another outfit's
+leaves out both packs.
+
 **Its extra bones (Kazumi's tiger).** A skeleton's OPT list names extra
 bones (`cha:OPT<number>_<name>`); the fighter's spring file (`<code>.mop`,
 one 0x60-byte entry per bone number) swings them, and a bone in the list
