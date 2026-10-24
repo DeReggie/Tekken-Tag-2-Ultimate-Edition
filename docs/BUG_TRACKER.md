@@ -1,59 +1,230 @@
-# Gameplay bug tracker
+# Consolidated gameplay bug list
 
-Branch: `codex/all-local-changes`.
+Updated 2026-10-24. Branch: `codex/all-local-changes`. Merges the full pasted chat report, all visible screenshot rows, and earlier tracked work. Repeated reports are combined; distinct moves, symptoms and test routes remain separate. Existing IDs are preserved.
 
-These are player reports, not yet confirmed diagnoses. Work through one issue at a time in the order below. For each, record the exact internal move and input route, source-vs-installed evidence, minimal change, validation, installed files/backups, and whether gameplay confirmation is still needed. A passing build or metadata test alone does not make a gameplay issue resolved. Preserve all existing costumes and unrelated fixes.
+## Status rules
 
-The repeated Noctis u/f+1 report is consolidated. Related reaction/projectile reports remain individually tracked until a common cause is demonstrated. Earlier reports of missing moves may already be addressed in source or installed packs; verify both before changing anything.
+- **Open / Untriaged:** a reported issue, not a verified diagnosis.
+- **Reported resolved:** the screenshot says Resolved; current installed behavior was not independently rechecked for this inventory.
+- **Installed / Partial:** a change exists, but the full reported behavior still needs gameplay confirmation.
+- **Fixed — confirmed:** the player confirmed the relevant behavior. Later conversation evidence takes precedence over stale screenshot statuses.
+- **False positive:** closed at the player’s request; not queued for another fix.
+- **Requested behavior change:** design request rather than an established defect.
 
-## Queue
+The screenshot still marks universal CH Screw consumption Open, but the player subsequently confirmed Geese CH 4 preserves Bound. That specific confirmation is retained; universal airborne double-Bound accounting remains separate. Eliza ordinary cancels are confirmed working; her Tag Assault Glide string/handoff update remains awaiting testing. Gigas’s broad resolved screenshot row does not specifically name FC d/f+2, so that route needs verification before calling it confirmed.
 
-| ID | Fighter | Report | Status |
+Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` means hold/transition forward; CH = counter hit; FC = full crouch; WS = while standing; WR = while running; BT = back-turned; SET/INT = named stances.
+
+## Items needing clarification
+
+- LID-02: the fighter and exact `qcf+2,2,b,f,f+1+2` notation are provisional.
+- NOC-14 / ELZ-03: later text names Noctis **d/b+2 CH**, while the original shared crumple report names **u/f+1 CH**. Do not silently treat them as one move.
+- NOC-08 / NOC-11 / NOC-16: confirm the exact “emoman” input and test launch reaction, wall combo and Bound behavior separately.
+- ELZ-04: screenshot says generic missing hitboxes are resolved, but does not identify whether qcb+2 was included.
+- Suggested Noctis d/b+2 reaction references for Claudio/Katarina are reporter proposals, not verified implementation instructions.
+
+## General
+
+| ID | Report / requested behavior | Current status | Source / notes |
 |---|---|---|---|
-| NEG-01 | Negan | 1,2: second hit does not connect | False positive — closed at user request |
-| NEG-02 | Negan | 4,2: second hit does not connect | Fixed — confirmed by player |
-| NEG-03 | Negan | 1,4,2: final hit does not connect | Fixed — confirmed by player |
-| NEG-04 | Negan | INT 4 fails mid-combo | Open |
-| NEG-05 | Negan | Hit effects should be red | Open |
-| NEG-06 | Negan | d/b+1+2 counter-hit reaction is broken; resembles Noctis u/f+1 problem | CH crumple correction installed; needs gameplay check |
-| NEG-07 | Negan | qcf+1 knife is not visible | Open |
-| NEG-08 | Negan | Missing sidestep 2 | Open |
-| NOC-01 | Noctis | u/f+1 counter-hit reaction is broken (reported twice) | Same CH crumple correction installed; needs gameplay check |
-| NOC-02 | Noctis | f+2 deals unscaled combo damage | Open |
-| KUN-01 | Kunimitsu II | f+2 deals unscaled combo damage | Open |
-| TAG-01 | Noctis / Kunimitsu II | Dagger attacks fail during Tag Assault; inspect each fighter separately | Open |
-| FAH-01 | Fahkumram | f,f+1+2 does not hit a grounded opponent | Open |
-| FAH-02 | Fahkumram | Missing sidestep 4 | Open |
-| FAH-03 | Fahkumram | b+1 hitbox unreliable in combos | Open |
-| FAH-04 | Fahkumram | d/f+1 hitbox sometimes fails, e.g. after d/f+2,3 launch | Open |
-| LID-01 | Lidia | Cat Foot Stance II (b+3+4) 4,4 has an incorrect hit reaction | Open |
-| LID-02 | Lidia (provisional attribution) | qcf+2,2,b,f,f+1+2: last-hit animation is wrong; confirm fighter/notation | Needs clarification |
-| LID-03 | Lidia | Missing full-crouch d/f+3 | Open |
-| LID-04 | Lidia | Missing sidestep 2 | Open |
-| LID-05 | Lidia | Missing sidestep 4 | Open |
-| NOC-03 | Noctis | Sword hit effects and impact sounds wrong, e.g. 2,2,2,2 | Open |
-| NOC-04 | Noctis | 2,2 fails in combos when opponent was launched on their back | Open |
-| NOC-05 | Noctis | Freezes airborne on block instead of teleporting forward: f+2, 2,2,b+2, d/f+1,2 | Open |
-| NOC-06 | Noctis | Airborne 2,2,2 stops after its first hit in combos | Open |
-| NOC-07 | Noctis | u/f+3 plays only its first kick rather than the full animation | Open |
-| NOC-08 | Noctis | Emoman unexpectedly launches; establish exact input and expected reaction | Open |
-| NOC-09 | Noctis | Missing b+2,1+2 follow-up | Open |
-| NOC-10 | Noctis | d/f+4,2 fails against female characters at the wall | Open |
-| NOC-11 | Noctis | Emoman does not work as a wall combo | Open |
-| NOC-12 | Noctis | WS 1,2 second-hit hitbox unreliable, especially at tip range | Open |
-| NOC-13 | Noctis | Missing sidestep 2 | Open |
-| KAZ-01 | Kazumi | 3,2 should Bound | Open |
-| KAZ-02 | Kazumi | f,f+2 tiger is not visible | Open |
-| GIG-01 | Gigas | f+1+2 counter-hit reaction breaks at the wall | Open |
-| GIG-02 | Gigas | Missing d/b+1 crouch jab | Open |
-| GIG-03 | Gigas | Missing full-crouch 1,2 | Open |
-| GIG-04 | Gigas | Missing full-crouch d+3 | Open |
-| GIG-05 | Gigas | Missing full-crouch d/f+2 | Open |
-| SYS-01 | General | Game becomes extremely slow after hours; reboot resolves it. Memory leak is a hypothesis, not a diagnosis. | Open |
-| SYS-03 | General | Grounded counter-hit Screw launches consume Bound (e.g. Geese standing 4) | Fixed — Geese standing 4 confirmed by player |
-| SYS-02 | General | Fighters keep running indefinitely after starting a run. Referenced video was not attached in this message. | Open |
-| ELZ-01 | Eliza | Tag Assault b+4 can enter Glide, but attacks out of Glide fail | Open — entry works; follow-ups fail; native trace prepared |
-| GEE-01 | Geese (carry-over) | Special cancels fail when entering as Tag Assault partner; Akuma works | Open |
+| SYS-01 | Game becomes extremely slow after hours; reboot resolves it. Memory leak is a hypothesis, not a diagnosis. | Open | Earlier tracker; repeated in full text where applicable |
+| SYS-03 | Grounded counter-hit Screw launches consume Bound (e.g. Geese standing 4) | Fixed — Geese CH 4 confirmed; other affected routes need individual checks | Earlier gameplay confirmation + screenshot (screenshot still says Open) |
+| SYS-02 | Fighters keep running indefinitely after starting a run. Referenced video was not attached in this message. | Open | Earlier tracker; repeated in full text where applicable |
+| TAG-02 | Female characters always perform Jun’s b+4,2 during Tag Assault | Open | Screenshot |
+| SYS-04 | Remove wall bounce from everyone | Requested behavior change — not a confirmed defect | Screenshot |
+| TAG-03 | Male characters always perform Lars’s b+1+2 during Tag Assault | Open | Screenshot |
+| SYS-05 | Converted T7 Screw attacks prevent a later Bound, whereas native Tag 2 Bound attacks permit two Bounds | Open — distinguish airborne Screw/Bound accounting from fixed grounded CH Screw launches | Screenshot |
+| SYS-06 | Wall flip-over behavior is missing; example Shaheen b+4 at a low wall slump | Open | Screenshot |
+| SYS-07 | Preserve complete costumes and prior fixes across both PRs and subsequent rebuilds | Consolidated branch and costume restoration completed; ongoing preservation requirement | Earlier conversation / existing tracker and manifest |
+
+## Shared: Noctis / Kunimitsu II
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| TAG-01 | Dagger attacks fail during Tag Assault; inspect each fighter separately | Open | Earlier tracker; repeated in full text where applicable |
+
+## Negan
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| NEG-01 | 1,2: second hit does not connect | False positive — closed at user request | Earlier tracker; repeated in full text where applicable |
+| NEG-02 | 4,2: second hit does not connect | Fixed — confirmed by player | Earlier tracker; repeated in full text where applicable |
+| NEG-03 | 1,4,2: final hit does not connect | Fixed — confirmed by player | Earlier tracker; repeated in full text where applicable |
+| NEG-04 | INT 4 fails mid-combo | Open | Earlier tracker; repeated in full text where applicable |
+| NEG-05 | Hit effects should be red | Open | Earlier tracker; repeated in full text where applicable |
+| NEG-06 | d/b+1+2 counter-hit reaction is broken; resembles Noctis u/f+1 problem | CH crumple correction installed; needs gameplay check | Earlier tracker; repeated in full text where applicable |
+| NEG-07 | qcf+1 knife is not visible | Open | Earlier tracker; repeated in full text where applicable |
+| NEG-08 | Missing sidestep 2 | Open | Earlier tracker; repeated in full text where applicable |
+
+## Noctis
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| NOC-01 | u/f+1 counter-hit reaction is broken (reported twice) | Same CH crumple correction installed; needs gameplay check | Earlier tracker; repeated in full text where applicable |
+| NOC-02 | f+2 deals unscaled combo damage | Open | Earlier tracker; repeated in full text where applicable |
+| NOC-03 | Sword impact effects and sounds are incorrect (e.g. 2,2,2,2); 2,2 effects appear in the wrong location | Open | Full text + screenshot “2,2 effects are in the wrong spot” |
+| NOC-04 | 2,2 fails in combos when opponent was launched on their back | Open | Full text + screenshot “2,2 (second hit) hitbox issues” |
+| NOC-05 | Freezes airborne on block instead of teleporting forward: f+2, 2,2,b+2, d/f+1,2 | Open | Earlier tracker; repeated in full text where applicable |
+| NOC-06 | Airborne 2,2,2 stops after its first hit in combos | Open | Earlier tracker; repeated in full text where applicable |
+| NOC-07 | u/f+3 plays only its first kick rather than the full animation | Open | Earlier tracker; repeated in full text where applicable |
+| NOC-08 | Emoman unexpectedly launches; establish exact input and expected reaction | Open | Earlier tracker; repeated in full text where applicable |
+| NOC-09 | Missing b+2,1+2 follow-up | Open | Earlier tracker; repeated in full text where applicable |
+| NOC-10 | d/f+4,2 fails against female characters at the wall | Open | Full text + screenshot “Missing SS2, DF4,2 hitbox issues” |
+| NOC-11 | Emoman does not work as a wall combo | Open | Earlier tracker; repeated in full text where applicable |
+| NOC-12 | WS 1,2 second-hit hitbox unreliable, especially at tip range | Open | Earlier tracker; repeated in full text where applicable |
+| NOC-13 | Missing sidestep 2 | Open | Earlier tracker; repeated in full text where applicable |
+| NOC-14 | d/b+2 counter-hit animation is referenced as broken; confirm whether distinct from u/f+1 report | Needs clarification | Full text, comparison in Eliza stance 4 report |
+| NOC-15 | 1+2 should not Bound | Open | Screenshot |
+| NOC-16 | Emoman should not Bound | Open — separate from unexpected launch and wall-combo reports | Screenshot |
+
+## Kunimitsu II
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| KUN-01 | f+2 deals unscaled combo damage | Open | Earlier tracker; repeated in full text where applicable |
+| KUN-02 | Missing weapons | Open | Screenshot |
+| KUN-03 | SET 1,2,3 should Bound | Open | Screenshot |
+| KUN-04 | u/f+3+4 has no hitbox | Open | Screenshot |
+| KUN-05 | f+4~F → SET continuation during Tag Assault | Existing fix retained and installed metadata verified; user recalls this as fixed | Earlier conversation / existing tracker and manifest |
+
+## Fahkumram
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| FAH-01 | f,f+1+2 does not hit a grounded opponent | Open | Earlier tracker; repeated in full text where applicable |
+| FAH-02 | Missing sidestep 4 | Open | Earlier tracker; repeated in full text where applicable |
+| FAH-03 | b+1 hitbox unreliable in combos | Open | Earlier tracker; repeated in full text where applicable |
+| FAH-04 | d/f+1 hitbox sometimes fails, e.g. after d/f+2,3 launch | Open | Earlier tracker; repeated in full text where applicable |
+| FAH-05 | Previously missing d+4 | Reported resolved — screenshot; not independently rechecked | Screenshot |
+| FAH-06 | Previously missing WR 3 | Reported resolved — screenshot; not independently rechecked | Screenshot |
+
+## Lidia
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| LID-01 | Cat Foot Stance II (b+3+4) 4,4 has an incorrect hit reaction | Open | Earlier tracker; repeated in full text where applicable |
+| LID-02 | qcf+2,2,b,f,f+1+2: last-hit animation is wrong; confirm fighter/notation | Needs clarification | Earlier tracker; repeated in full text where applicable |
+| LID-03 | Missing full-crouch d/f+3 | Open | Earlier tracker; repeated in full text where applicable |
+| LID-04 | Missing sidestep 2 | Open | Earlier tracker; repeated in full text where applicable |
+| LID-05 | Missing sidestep 4 | Open | Earlier tracker; repeated in full text where applicable |
+
+## Kazumi
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| KAZ-01 | 3,2 should Bound | Open | Earlier tracker; repeated in full text where applicable |
+| KAZ-02 | f,f+2 tiger is not visible | Open | Earlier tracker; repeated in full text where applicable |
+
+## Gigas
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| GIG-01 | f+1+2 counter-hit reaction breaks at the wall | Open | Earlier tracker; repeated in full text where applicable |
+| GIG-02 | Missing d/b+1 crouch jab | Reported resolved — screenshot; verify installed behavior | Full text + screenshot “Missing dickjab and full crouch” (broad resolution; FC d/f+2 not individually named) |
+| GIG-03 | Missing full-crouch 1,2 | Reported resolved — screenshot; verify installed behavior | Full text + screenshot “Missing dickjab and full crouch” (broad resolution; FC d/f+2 not individually named) |
+| GIG-04 | Missing full-crouch d+3 | Reported resolved — screenshot; verify installed behavior | Full text + screenshot “Missing dickjab and full crouch” (broad resolution; FC d/f+2 not individually named) |
+| GIG-05 | Missing full-crouch d/f+2 | Reported resolved — screenshot; verify installed behavior | Full text + screenshot “Missing dickjab and full crouch” (broad resolution; FC d/f+2 not individually named) |
+
+## Master Raven
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| MRV-01 | b+2,4,2 fails during Tag Assault: disappears airborne and does not perform the move | Open | Full pasted report |
+| MRV-02 | BT f+2,4,2 has the same Tag Assault disappearance/failure | Open | Full pasted report |
+| MRV-03 | d/b+4 counter-hit behavior is broken; exact symptom needs reproduction | Open | Full pasted report |
+| MRV-04 | u/b+1,2 should Bound | Open | Full pasted report |
+| MRV-05 | qcf+4 has no hitbox | Open | Full pasted report |
+
+## Leroy
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| LER-01 | d/b+2 hitbox is unreliable against grounded opponents | Open | Full pasted report |
+| LER-02 | Sugar is missing (2+3) | Open | Full pasted report |
+| LER-03 | d/f+2,1+2 does not launch high enough to combo | Open | Full pasted report |
+| LER-04 | qcf+2 fails in combos, including after orbital | Open | Full pasted report |
+| LER-05 | Missing sidestep 4 | Open | Full pasted report |
+| LER-06 | Cane is missing (d/f+2+3) | Open | Full pasted report |
+
+## Eliza
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| ELZ-01 | Tag Assault b+4 → f+3+4 → Glide: first 3 now works; full 3,3 / 3,4 and premature main-character control need verification | Partial fix confirmed; full 3,3 / 3,4 and main-control handoff update installed, awaiting test | Current conversation; latest installed continuation update |
+| ELZ-02 | qcb+2 does not hit grounded opponents | Open | Full pasted report |
+| ELZ-03 | Stance 4 has a broken reaction, described as the same problem as Noctis d/b+2 CH | Open | Full pasted report |
+| ELZ-04 | General missing hitboxes; exact affected moves unspecified | Reported resolved — screenshot; relationship to qcb+2 unconfirmed | Screenshot |
+| ELZ-05 | Ordinary special cancels were broken | Fixed — confirmed by player; screenshot also says Resolved | Screenshot |
+| ELZ-06 | EX divekick consumes Bound | Open | Screenshot |
+
+## Akuma
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| AKU-01 | Cannot initiate Tag Assault out of d/f+1,2 | Open | Screenshot |
+| AKU-02 | Missing f,f+2:1 | Open — notation retained as reported | Screenshot |
+| AKU-03 | f+1+2 should Bound | Open | Screenshot |
+| AKU-04 | All meter actions should be free, matching Eliza | Restored in consolidated branch/build — no fresh audit in this list | Earlier conversation / existing tracker and manifest |
+
+## Claudio
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| CLA-01 | Sidestep 4 CH behavior is missing; reporter suggests Noctis d/b+2 as reaction reference | Open — proposed reference needs verification | Screenshot |
+| CLA-02 | Starburst does not exist / is unavailable | Open | Screenshot |
+| CLA-03 | Missing d+1,2 | Open | Screenshot |
+| CLA-04 | d/b+2,1 is available only from crouch, not standing | Open | Screenshot |
+
+## Katarina
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| KAT-01 | FC d/f+4 has a bad CH reaction; reporter suggests Noctis d/b+2 reference | Open — proposed reference needs verification | Screenshot |
+| KAT-02 | d/f+3+4 has a bad CH reaction; same proposed reference | Open — proposed reference needs verification | Screenshot |
+| KAT-03 | Hopkick can cause two Bounds | Open | Screenshot |
+| KAT-04 | d/f+3,3 second hit has a strange effect | Open | Screenshot |
+| KAT-05 | d/b+3 also needs inspection for a strange effect | Open — symptom not specified beyond comparison | Screenshot |
+| KAT-06 | b+4,1+2 should Bound | Open | Screenshot |
+| KAT-07 | f,f+2,4 looks visually wrong | Open — exact animation/effect symptom needs reproduction | Screenshot |
+| KAT-08 | d+2 → Harrier 1 is inconsistent in combos; slides through the opponent | Open | Screenshot |
+| KAT-09 | d/f+1 → 3,3,3,3 does not work at the wall | Open | Screenshot |
+
+## Shaheen
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| SHA-01 | Stance 4,1 is broken on counter hit | Open | Screenshot |
+
+## Josie
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| JOS-01 | f+3+4 has unnatural forward momentum | Open | Screenshot |
+
+## Lucky Chloe
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| LCH-01 | f+4,4 second hit does not connect, e.g. against Fahkumram | Untriaged — screenshot status blank | Screenshot |
+| LCH-02 | Sometimes performs standing moves while back-turned | Untriaged — screenshot status blank | Screenshot |
+| LCH-03 | After d/b+3+4 → 2, gets standing 2 instead of back-turned 2 | Untriaged — may reproduce LCH-02; retained as a concrete route | Screenshot |
+
+## Geese
+
+| ID | Report / requested behavior | Current status | Source / notes |
+|---|---|---|---|
+| GEE-01 | Special cancels fail when entering as Tag Assault partner; Akuma works | Open | Earlier tracker; repeated in full text where applicable |
+| GEE-02 | Grounded strings / combo damage scaling is excessive | Correction installed — needs gameplay confirmation | Earlier conversation / existing tracker and manifest |
+| GEE-03 | f+1+2 should allow d+4 pickup against an airborne opponent | Float and recovery correction installed — needs gameplay confirmation | Earlier conversation / existing tracker and manifest |
+| GEE-04 | CD+2 should Bound on the final hit of the two-hit move | Implemented — retained from earlier work; no fresh audit in this list | Earlier conversation / existing tracker and manifest |
+
+## Scope and history
+
+This inventory contains **100 tracked entries**. A combined report may have been split into independently testable moves; this is not a count of confirmed defects. Conversation chatter and the speculative memory-leak diagnosis are excluded as separate bugs. The long-session slowdown report keeps the memory-leak theory explicitly unproven.
+
+No gameplay changes were made for this inventory. Existing investigation history is retained below in the repository tracker.
+
+---
 
 ## Investigation log
 
