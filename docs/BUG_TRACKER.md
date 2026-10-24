@@ -132,3 +132,10 @@ Player confirms the failing recorded Glide attempt was during Tag Assault with 3
 ### Eliza Glide assist controller routing candidate
 
 The 16:58:52 trace confirms `Vp_dash_EX` has assist=1, owner=0, human control=0, and raw controller activity, yet native inactive routing replaces every input with synthesized TAG (`03FE0100`). Added a scoped runtime exception at `sub_03F53238`: only Eliza, only the three exact Glide states, only active Tag Assault with human control, and only frames 1–24 (the existing Glide attack-input window) use native active-controller decoding `sub_03F52F20`. All other states and frames retain the original inactive handler, including normal assist exit after the window. No masks copied, move IDs invented, or moveset flags changed. This candidate addresses the observed discarded input directly; gameplay confirmation remains required. Kunimitsu and other characters are unaffected.
+
+
+### Eliza Glide 3 string continuation and main-controller handoff
+
+Player confirms the routing exception enables the first Glide 3, but not 3,3 / 3,4, and the main fighter becomes controllable too soon. Installed metadata identifies `Vp_6rklk` as the first Glide 3: direct 3 and 4 follow-up rows accept input frames 1–18 and enter `Vp_66lklk` / `Vp_6rklkrk` at frame 18. The previous exception covered only the empty Glide state, so it stopped at that first kick.
+
+A latched Tag Assault Glide session now follows precisely these string states, including `Vp_66lklk_H` on hit. Native active decoding remains available to the assist through the string; the shared controller decodes neutral buttons/directions for the main fighter meanwhile. The session ends on leaving this graph, interruption/tag-out, or the existing neutral recovery endpoint: first kick 46, 3,3 58, its hit state 54, 3,4 50. It can only begin during human-controlled Eliza Tag Assault Glide, so normal strings and other fighters cannot start it. No attack timing, hitbox, damage, pack or costume edits. This extends the user-confirmed partial fix; full gameplay verification is pending.

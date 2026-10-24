@@ -3518,7 +3518,34 @@ const char* assist_move_name(uint32_t player) {
 bool trace_glide_move(uint32_t player) {
     const std::string_view name(assist_move_name(player));
     return name == "Vp_rk00B" || name.starts_with("Vp_dash_") ||
-           name == "Kt_rk00F" || name == "Kt_shoryu02";
+           name == "Kt_rk00F" || name == "Kt_shoryu02" ||
+           name == "Vp_6rklk" || name == "Vp_66lklk" ||
+           name == "Vp_66lklk_H" || name == "Vp_6rklkrk";
+}
+// Latch only a Tag Assault Glide sequence, then follow the actual Glide 3
+// string states. Leaving this small graph (including tag-out or a reaction)
+// immediately restores normal controller ownership.
+bool eliza_assist_glide_sequence(uint32_t player) {
+    static std::map<uint32_t, bool> sequences;
+    if (!player) return false;
+    const int slot = slot_of_id(load(player + kPlayerSelectId));
+    if (slot < 0 || g_added[slot].code != "elz" || load(player + 0x408) != 0) {
+        sequences.erase(player);
+        return false;
+    }
+    const std::string_view name(assist_move_name(player));
+    const uint32_t frame = load(player + kPlayerFrame);
+    const bool glide = name == "Vp_dash_C" || name == "Vp_dash_EX" || name == "Vp_dash_EX2";
+    bool& active = sequences[player];
+    if (glide && frame >= 1 && frame <= 24 && load(player + 0x1e88) == 1)
+        active = true;
+    const bool continuation =
+        (name == "Vp_6rklk" && frame < 46) ||
+        (name == "Vp_66lklk" && frame < 58) ||
+        (name == "Vp_66lklk_H" && frame < 54) ||
+        (name == "Vp_6rklkrk" && frame < 50);
+    if ((!glide || frame > 24) && !continuation) active = false;
+    return active;
 }
 void trace_eliza_move(uint32_t player) {
     if (!trace_eliza_assist(player)) return;
@@ -3534,26 +3561,26 @@ void trace_eliza_move(uint32_t player) {
 }
 } // namespace
 
-// Diagnostic only: retain the native decision, including failures, to locate
-// the assist lockout before changing any more stance or attack flags.
-// Retain controller input through Eliza's empty Tag Assault Glide states.
-// Trace this boundary for comparison with native stance continuation.
+// An assist continuation owns the shared human controller until it leaves the
+// sequence. Decode neutral input for the main fighter during that interval.
 PPC_FUNC(sub_03F52F20_orig);
+PPC_FUNC(sub_03F52F20) {
+    const uint32_t player = ctx.r[3];
+    const uint32_t partner = player ? load(player + 0xac) : 0;
+    if (eliza_assist_glide_sequence(partner)) {
+        ctx.r[5] = 0;
+        ctx.r[6] = 0;
+    }
+    sub_03F52F20_orig(ctx, base);
+}
 PPC_FUNC(sub_03F53238_orig);
 PPC_FUNC(sub_03F53238) {
     const uint32_t player = ctx.r[3];
     const bool trace = trace_eliza_assist(player) && trace_glide_move(player);
     const uint32_t controller = ctx.r[4], raw = ctx.r[5], pressed = ctx.r[6];
-    const int slot = player ? slot_of_id(load(player + kPlayerSelectId)) : -1;
-    const std::string_view name = player ? assist_move_name(player) : "";
-    // Native inactive-partner routing synthesizes TAG instead of reading the
-    // controller in these empty special-cancel states. Keep human control only
-    // through Glide's existing attack-input window; normal assist exit resumes
-    // immediately afterwards. Use the native input decoder, not copied masks.
-    const bool glide_input = slot >= 0 && g_added[slot].code == "elz" &&
-        (name == "Vp_dash_C" || name == "Vp_dash_EX" || name == "Vp_dash_EX2") &&
-        load(player + 0x1e88) == 1 && load(player + 0x408) == 0 &&
-        load(player + kPlayerFrame) >= 1 && load(player + kPlayerFrame) <= 24;
+    // Continue native input decoding after Glide enters its first kick, so
+    // the existing 3,3 and 3,4 input windows can choose their second attack.
+    const bool glide_input = eliza_assist_glide_sequence(player);
     if (glide_input)
         sub_03F52F20_orig(ctx, base);
     else
