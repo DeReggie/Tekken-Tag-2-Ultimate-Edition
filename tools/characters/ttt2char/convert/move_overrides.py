@@ -3,6 +3,21 @@ from . import tagsystem as TS
 
 
 def apply(c):
+    # Explicit neutral inputs only: do not add attack cancels or alter recovery.
+    for name, (direction, button) in c.defn.MOVESET.get('neutral_inputs', {}).items():
+        target = c.newidx[c.kn[name]]
+        empty = c.add('requirements', dict(condition=690, param=0))
+        extra = c.add('cancel_extras', dict(value=0x182))
+        for alias in (1, 2):  # standing and fully crouched
+            move = c.T['moves'][c.aliases[alias]]
+            rows = [dict(row) for row in TS.cancels(c.T, move['cancel'])]
+            # Keep native tag/throw checks first; precede attack dispatch groups.
+            at = next(i for i, row in enumerate(rows) if row['direction'] == 0x800B)
+            rows.insert(at, dict(direction=direction, button=button, req=empty,
+                                 extradata=extra, win_start=1, win_end=32767,
+                                 start_frame=1, move_id=target, option=0))
+            move['cancel'] = TS.write(c.T, 'cancels', rows)
+        c.stats['explicit neutral inputs restored'] += 1
     for name, frames in c.defn.MOVESET.get('recovery_trim', {}).items():
         trim_recovery(c, name, frames)
     for name, frames in c.defn.MOVESET.get('startup_trim', {}).items():

@@ -11,6 +11,7 @@
 
 #include <csignal>
 #include <cstdlib>
+#include <cstring>
 
 namespace launcher {
 namespace {
@@ -261,7 +262,16 @@ void Launcher::task_exited(int code) {
     if (t.ended) t.ended(t, code);
     const bool ok = code == 0 && !t.cancelled;
     std::string title, detail;
-    std::string why = t.error.empty() ? "It stopped with code " + std::to_string(code) + " (see Details)" : t.error;
+    std::string why = t.error;
+    if (why.empty()) {
+        // (Process: 128 + the signal that ended it, as a shell says; a crash
+        // before it could say why, such as an instruction this processor
+        // does not have, then has at least a name.)
+        why = code > 128 && code < 128 + NSIG
+                  ? std::string("It was stopped: ") + ::strsignal(code - 128) + " (code " + std::to_string(code) +
+                        ", see Details)"
+                  : "It stopped with code " + std::to_string(code) + " (see Details)";
+    }
     if (why[0] >= 'a' && why[0] <= 'z') why[0] = static_cast<char>(why[0] - 'a' + 'A'); // (as a sentence)
     std::vector<std::string> added;
     for (const std::string& name : t.added) {

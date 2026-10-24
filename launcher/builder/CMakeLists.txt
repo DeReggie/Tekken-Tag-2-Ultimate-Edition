@@ -19,7 +19,7 @@
 #
 # The same layout is installed to <prefix>/lib/ttt2/kit.
 
-set(TTT2_LAUNCHER_VERSION 0.1.0)
+set(TTT2_LAUNCHER_VERSION 0.1.1)
 set(TTT2_LAUNCHER_VERSION ${TTT2_LAUNCHER_VERSION} PARENT_SCOPE)
 set(TTT2_KIT_DIR ${CMAKE_BINARY_DIR}/launcher/kit)
 set(TTT2_KIT_DIR ${TTT2_KIT_DIR} PARENT_SCOPE)
@@ -213,18 +213,6 @@ target_compile_features(ttt2-build PRIVATE cxx_std_20)
 target_link_libraries(ttt2-build PRIVATE ZArchive::zarchive OpenSSL::Crypto)
 target_compile_options(ttt2-build PRIVATE -Wall -Wextra -Wpedantic)
 set_target_properties(ttt2-build PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${TTT2_KIT_DIR}/bin)
-
-# The kit's programs run on the player's PC, whose libstdc++ may be older
-# than this build's (cafe-recomp's std::format calls need GCC 16's): they
-# carry their own, where this compiler has it as an archive.
-include(CheckLinkerFlag)
-check_linker_flag(CXX -static-libstdc++ TTT2_KIT_STATIC_LIBSTDCXX)
-if(TTT2_KIT_STATIC_LIBSTDCXX)
-    target_link_options(cafe-recomp PRIVATE -static-libstdc++ -static-libgcc)
-    target_link_options(ttt2-build PRIVATE -static-libstdc++ -static-libgcc)
-else()
-    message(WARNING "no static libstdc++ here: the launcher's kit's programs need this system's libstdc++ or newer")
-endif()
 
 add_custom_target(ttt2_kit ALL DEPENDS ${kit_files} ttt2_kit_runtime ttt2-build)
 

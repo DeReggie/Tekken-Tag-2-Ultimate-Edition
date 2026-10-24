@@ -1044,16 +1044,21 @@ system's `Scrt1.o` is marked with into every program, and on a system built
 for its own processor (CachyOS's znver4 packages) that is x86-64-v4, which
 glibc refuses to start on a processor without AVX-512 ("CPU ISA level is
 lower than required", a Steam Deck's Zen 2); LLD writes none, and the script
-refuses an AppDir with any file marked above the baseline. The kit's
-programs link libstdc++ statically (where the compiler has it as an archive;
-cafe-recomp's `std::format` calls need GCC 16's), the launcher is held to
+refuses an AppDir with any file marked above the baseline. Nor may any
+file hold an AVX-512 instruction: such a system's own static libraries are
+compiled for its processor (the kit's programs once linked CachyOS's
+x86-64-v4 `libstdc++.a` and `libgcc_eh.a`, and a Steam Deck stopped them at
+start-up with SIGILL, "exit code 132"), so the kit's programs use the
+system's libstdc++, like the launcher. cafe-recomp is C++23: GCC 16's
+libstdc++ declares `std::format`'s code an extern template only in C++20,
+which made C++20 programs need GCC 16's libstdc++. The launcher is held to
 the API of GTK 4.10 and the GLib it needs (2.76), and the script refuses
 any of the programs, and the game program as the kit links it
 (`kit_check`), that needs a newer glibc or libstdc++ than Ubuntu 24.04 has
 (2.39, GCC 14's). Now the launcher needs glibc 2.38 and GCC 13's libstdc++,
 and the game program glibc 2.38 and GCC 13.2's (`kit.ini`'s `needs`); the
-kit's programs need libcrypto 3, zstd and zlib, which such distributions
-all have. (GCC 16's libstdc++ exports std::string's C++20 members, so a
+kit's programs need libstdc++ (as the launcher), libcrypto 3, zstd and zlib,
+which such distributions all have. (GCC 16's libstdc++ exports std::string's C++20 members, so a
 call to one that is not inlined makes a program need it: `install.cpp`
 calls string_view's.) It is about 4 MB.
 

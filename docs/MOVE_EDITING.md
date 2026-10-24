@@ -1,8 +1,8 @@
 # Small move edits for Tekken Tag 2 Ultimate Edition
 
-This guide is for the customized Linux checkout used in this project. The helper changes **source overrides**, then you rebuild the affected imported fighter. It does not edit Tekken 7's files or patch the running game's memory.
+This guide covers the move override helpers in the character importer. The helper changes **source overrides**, then you rebuild the affected imported fighter. It does not edit Tekken 7's files or patch the running game's memory.
 
-Your current checkout already has the required converter additions. The new toolkit itself does not change any move settings or installed character packs. Damage editing adds an opt-in converter feature; no damage changes are enabled by installing it.
+This checkout includes the required converter additions. The new toolkit itself does not change any move settings or installed character packs. Damage editing adds an opt-in converter feature; no damage changes are enabled by installing it.
 
 ## 1. Open a terminal and choose the toolkit
 
@@ -157,6 +157,20 @@ tail -f "$HOME/fahk-rebuild.log"
 
 After successful conversion, inspect the installed result, restart the game, and test grounded, airborne, wall, and tag behavior. File checks do not prove that the animation or gameplay feels right.
 
+To rebuild a selected list, pass multiple fighter names (or a Bash array):
+
+```bash
+fighters=(akuma eliza fahkumram noctis kunimitsu2)
+python3 tools/move_edit.py --repo "$PWD" --game "$HOME/Tekken Tag Tournament 2/game" rebuild "${fighters[@]}"
+python3 tools/move_edit.py --repo "$PWD" --game "$HOME/Tekken Tag Tournament 2/game" rebuild "${fighters[@]}" --apply
+```
+
+Use your actual installed game path. `fighters` lists the supported names.
+All names are validated before any backup or rebuild. Duplicate names run once,
+in the supplied order. Rebuilds run sequentially, back up each existing pack,
+and stop on the first failure; earlier successful rebuilds remain installed.
+The single-fighter form still works.
+
 ## 6. Backups and undo
 
 Every applied source edit prints its backup location under:
@@ -202,28 +216,17 @@ The converter also restores native TTT2 grounded back-roll routes when Tekken 7-
 
 The player confirmed Fahk's f+3 string and Kuni's f+4~F SET transition during Tag Assault after the continuation fixes. Keep the buffer normalization and Kuni stance overrides when merging upstream. Avoid blanket cancel-window/flag changes as a general editing method; those can change unrelated behavior.
 
-## 8. Sharing or installing on another machine
+## 8. Sharing changes
 
-The ZIP includes the editor, convenience shell wrappers, tests, this guide, and a source-only `local-customizations.patch` based on upstream commit **d6930e9**. The patch contains **all our current character/converter customizations**, not merely the editor. It includes the buffer fixes and character changes, so review it before sharing or applying it. It contains no game assets, packs, or T7 exports.
+Commit the source overrides and converter changes, not generated character packs or game assets. Other players must regenerate their own packs from their own game files. After pulling updates, inspect the configuration and rebuild only the affected imports.
 
-On this existing machine, the customizations are already present: **do not reapply that patch**. The script is already installed as `tools/move_edit.py`.
-
-On a separate clean checkout of that matching base, review the patch and check applicability before applying:
+The optional shell wrappers in `tools/` run the same CLI:
 
 ```bash
-git apply --check /path/to/move-tools/local-customizations.patch
-git apply /path/to/move-tools/local-customizations.patch
+bash tools/find_move.sh fahkumram 66rk
+bash tools/inspect_move.sh fahkumram Nc_66rklkrp --source installed
+bash tools/make_bound.sh fahkumram Nc_3rplp
+bash tools/rebuild_fighter.sh fahkumram --apply
 ```
 
-If the check fails, stop and resolve the differences; do not reset away your local work. New upstream versions may already implement some changes or need different edits. Each user must provide their own game assets and saved movesets, then regenerate the relevant imports.
-
-Convenience wrappers run the same CLI from the extracted toolkit folder:
-
-```bash
-bash /path/to/move-tools/find_move.sh fahkumram 66rk
-bash /path/to/move-tools/inspect_move.sh fahkumram Nc_66rklkrp --source installed
-bash /path/to/move-tools/make_bound.sh fahkumram Nc_3rplp
-bash /path/to/move-tools/rebuild_fighter.sh fahkumram --apply
-```
-
-Use the main Python script when overriding global paths. Test the helper with `python -m unittest discover -s /path/to/move-tools -p 'test_*.py'`.
+Use the main Python script when overriding global paths. The helper's source-edit tests are in `tools/characters/tests/test_move_edit_tool.py`.

@@ -2,9 +2,9 @@
 
 #include "mid_hooks.h"
 #include "ppc.h"
+#include "text.h"
 
 #include <algorithm>
-#include <format>
 #include <iterator>
 #include <stdexcept>
 
@@ -13,7 +13,7 @@ namespace {
 
 using ppc::Op;
 
-std::string hex(uint32_t v) { return std::format("0x{:08X}u", v); }
+std::string hex(uint32_t v) { return text::format("0x{:08X}u", v); }
 
 uint32_t rotate_mask(uint32_t mb, uint32_t me) {
     const uint32_t begin = 0xFFFFFFFFu >> mb;
@@ -31,37 +31,37 @@ public:
 
     std::string run(const Entry& entry) {
         const std::string name = function_name(entry.address);
-        out_ += std::format("// {} body {:08X}+{:X}{}\n", name, function_.address,
-                            function_.size,
-                            entry.address != function_.address ? " (alternate entry)"
-                                                                : "");
-        out_ += std::format("PPC_FUNC({}_orig) {{\n", name);
+        out_ += text::format("// {} body {:08X}+{:X}{}\n", name, function_.address,
+                             function_.size,
+                             entry.address != function_.address ? " (alternate entry)"
+                                                                 : "");
+        out_ += text::format("PPC_FUNC({}_orig) {{\n", name);
         if (entry.address != function_.address) {
-            line(std::format("goto loc_{:08X};", entry.address));
+            line(text::format("goto loc_{:08X};", entry.address));
         }
         const uint32_t end = function_.address + function_.size;
         for (uint32_t a = function_.address; a < end; a += 4) {
             const uint32_t w = program_.word(a);
             if (function_.labels.count(a)) {
-                out_ += std::format("loc_{:08X}:\n", a);
+                out_ += text::format("loc_{:08X}:\n", a);
             }
             if (options_.comments) {
-                out_ += std::format("\t// {:08X} {:08X}  {}\n", a, w,
-                                    ppc::disassemble(w, a));
+                out_ += text::format("\t// {:08X} {:08X}  {}\n", a, w,
+                                     ppc::disassemble(w, a));
             }
             if (options_.mid_hooks && std::find(std::begin(kMidHooks), std::end(kMidHooks), a) != std::end(kMidHooks)) {
                 referenced_.insert(mid_hook_name(a));
-                line(std::format("{}(ctx, base);", mid_hook_name(a)));
+                line(text::format("{}(ctx, base);", mid_hook_name(a)));
             }
             instruction(a, w);
         }
         if (program_.falls_off_end(function_)) {
             if (program_.entries.count(end)) {
-                line(std::format("PPC_TAIL_CALL({});", callee(end)));
+                line(text::format("PPC_TAIL_CALL({});", callee(end)));
             } else {
-                line(std::format("cafe_ppc_illegal(ctx, {}, 0, \"ran off the end of a "
-                                 "function\");",
-                                 hex(end)));
+                line(text::format("cafe_ppc_illegal(ctx, {}, 0, \"ran off the end of a "
+                                  "function\");",
+                                  hex(end)));
             }
         }
         out_ += "}\n\n";
@@ -71,17 +71,17 @@ public:
 private:
     void line(const std::string& text) { out_ += "\t" + text + "\n"; }
 
-    static std::string r(uint32_t n) { return std::format("ctx.r[{}]", n); }
-    static std::string f0(uint32_t n) { return std::format("ctx.f[{}].ps0", n); }
-    static std::string f1(uint32_t n) { return std::format("ctx.f[{}].ps1", n); }
-    static std::string crf(uint32_t n) { return std::format("ctx.cr[{}]", n); }
+    static std::string r(uint32_t n) { return text::format("ctx.r[{}]", n); }
+    static std::string f0(uint32_t n) { return text::format("ctx.f[{}].ps0", n); }
+    static std::string f1(uint32_t n) { return text::format("ctx.f[{}].ps1", n); }
+    static std::string crf(uint32_t n) { return text::format("ctx.cr[{}]", n); }
     static std::string crbit(uint32_t bit) {
         static const char* names[] = {"lt", "gt", "eq", "so"};
-        return std::format("ctx.cr[{}].{}", bit / 4, names[bit % 4]);
+        return text::format("ctx.cr[{}].{}", bit / 4, names[bit % 4]);
     }
     static std::string signed_offset(int32_t value) {
-        return value < 0 ? std::format(" - {}", -int64_t{value})
-                         : std::format(" + {}", value);
+        return value < 0 ? text::format(" - {}", -int64_t{value})
+                         : text::format(" + {}", value);
     }
     // D-form effective address: (rA|0) + d.
     static std::string ea_d(uint32_t ra, int32_t d) {
@@ -96,14 +96,14 @@ private:
     }
 
     void record(const std::string& value) {
-        line(std::format("ppc::cmp_signed(ctx.cr[0], static_cast<int32_t>({}), 0, "
-                         "ctx.xer_so);",
-                         value));
+        line(text::format("ppc::cmp_signed(ctx.cr[0], static_cast<int32_t>({}), 0, "
+                          "ctx.xer_so);",
+                          value));
     }
 
     void illegal(uint32_t a, uint32_t w, const char* reason) {
-        line(std::format("cafe_ppc_illegal(ctx, {}, {}, \"{}\");", hex(a), hex(w),
-                         reason));
+        line(text::format("cafe_ppc_illegal(ctx, {}, {}, \"{}\");", hex(a), hex(w),
+                          reason));
     }
 
     // C call target for a guest address, or empty when there is none.
@@ -133,7 +133,7 @@ private:
         if (cond.empty()) {
             line(body);
         } else {
-            line(std::format("if ({}) {{ {} }}", cond, body));
+            line(text::format("if ({}) {{ {} }}", cond, body));
         }
     }
 
@@ -145,7 +145,7 @@ private:
         const bool local = target >= function_.address && target < end;
         // LR is written whether or not a conditional branch is taken.
         if (link) {
-            line(std::format("ctx.lr = {};", hex(a + 4)));
+            line(text::format("ctx.lr = {};", hex(a + 4)));
             if (target == a + 4) {
                 condition(bo, ppc::ra(w));
                 return;
@@ -153,21 +153,21 @@ private:
         }
         const std::string cond = condition(bo, ppc::ra(w));
         if (!link && local) {
-            guarded(cond, std::format("goto loc_{:08X};", target));
+            guarded(cond, text::format("goto loc_{:08X};", target));
             return;
         }
         const std::string symbol = callee(target);
         std::string body;
         if (target == 0) {
-            body = std::format("cafe_ppc_null_call(ctx, {});", hex(a));
+            body = text::format("cafe_ppc_null_call(ctx, {});", hex(a));
         } else if (symbol.empty()) {
-            body = std::format("cafe_ppc_illegal(ctx, {}, {}, \"branch to code with no "
-                               "entry\");",
-                               hex(a), hex(w));
+            body = text::format("cafe_ppc_illegal(ctx, {}, {}, \"branch to code with no "
+                                "entry\");",
+                                hex(a), hex(w));
         } else if (link) {
-            body = std::format("{}(ctx, base); PPC_CHECK_RETURN({});", symbol, hex(a + 4));
+            body = text::format("{}(ctx, base); PPC_CHECK_RETURN({});", symbol, hex(a + 4));
         } else {
-            body = std::format("PPC_TAIL_CALL({});", symbol);
+            body = text::format("PPC_TAIL_CALL({});", symbol);
         }
         guarded(cond, body);
     }
@@ -178,10 +178,10 @@ private:
         if (op == Op::bclr) {
             if (link) {
                 line("{");
-                line(std::format("\tconst uint32_t target = ctx.lr; ctx.lr = {};", hex(a + 4)));
+                line(text::format("\tconst uint32_t target = ctx.lr; ctx.lr = {};", hex(a + 4)));
                 const std::string cond = condition(bo, ppc::ra(w));
-                guarded(cond, std::format("PPC_CALL_INDIRECT(target); PPC_CHECK_RETURN({});",
-                                          hex(a + 4)));
+                guarded(cond, text::format("PPC_CALL_INDIRECT(target); PPC_CHECK_RETURN({});",
+                                           hex(a + 4)));
                 line("}");
             } else {
                 guarded(condition(bo, ppc::ra(w)), "return;");
@@ -194,16 +194,16 @@ private:
             return;
         }
         if (link) {
-            line(std::format("ctx.lr = {};", hex(a + 4)));
+            line(text::format("ctx.lr = {};", hex(a + 4)));
             guarded(condition(bo, ppc::ra(w)),
-                    std::format("PPC_CALL_INDIRECT(ctx.ctr); PPC_CHECK_RETURN({});", hex(a + 4)));
+                    text::format("PPC_CALL_INDIRECT(ctx.ctr); PPC_CHECK_RETURN({});", hex(a + 4)));
             return;
         }
         std::string body;
         if (!function_.switch_targets.empty()) {
             body = "switch (ctx.ctr) {";
             for (const uint32_t target : function_.switch_targets) {
-                body += std::format(" case {}: goto loc_{:08X};", hex(target), target);
+                body += text::format(" case {}: goto loc_{:08X};", hex(target), target);
             }
             body += " default: break; } ";
         }
@@ -219,22 +219,22 @@ private:
         if (!sets_ca && !oe) {
             // Plain forms: add, subf, neg.
             if (carry_in == "0") {
-                line(std::format("{} = {} + {};", r(d), x, y));
+                line(text::format("{} = {} + {};", r(d), x, y));
             } else if (y == "0u") {
-                line(std::format("{} = -{};", r(d), r(ppc::ra(w))));
+                line(text::format("{} = -{};", r(d), r(ppc::ra(w))));
             } else {
-                line(std::format("{} = {} - {};", r(d), y, r(ppc::ra(w))));
+                line(text::format("{} = {} - {};", r(d), y, r(ppc::ra(w))));
             }
         } else {
             line("{");
-            line(std::format("\tconst uint32_t x = {}, y = {};", x, y));
-            line(std::format("\tconst uint64_t t = uint64_t{{x}} + y + {};", carry_in));
-            line(std::format("\t{} = static_cast<uint32_t>(t);", r(d)));
+            line(text::format("\tconst uint32_t x = {}, y = {};", x, y));
+            line(text::format("\tconst uint64_t t = uint64_t{{x}} + y + {};", carry_in));
+            line(text::format("\t{} = static_cast<uint32_t>(t);", r(d)));
             if (sets_ca) {
                 line("\tctx.xer_ca = static_cast<uint8_t>(t >> 32);");
             }
             if (oe) {
-                line(std::format("\tctx.xer_ov = (((x ^ {0}) & (y ^ {0})) >> 31) != 0;", r(d)));
+                line(text::format("\tctx.xer_ov = (((x ^ {0}) & (y ^ {0})) >> 31) != 0;", r(d)));
                 line("\tctx.xer_so |= ctx.xer_ov;");
             }
             line("}");
@@ -245,16 +245,16 @@ private:
     }
 
     void fp_unary_bits(uint32_t w, const char* op) {
-        line(std::format("{} = ppc::from_bits(ppc::bits({}) {});", f0(ppc::rd(w)),
-                         f0(ppc::rb(w)), op));
+        line(text::format("{} = ppc::from_bits(ppc::bits({}) {});", f0(ppc::rd(w)),
+                          f0(ppc::rb(w)), op));
     }
     void fill(uint32_t frd, const std::string& value) {
-        line(std::format("{{ const double v = {}; {} = v; {} = v; }}", value, f0(frd),
-                         f1(frd)));
+        line(text::format("{{ const double v = {}; {} = v; {} = v; }}", value, f0(frd),
+                          f1(frd)));
     }
     void pair(uint32_t frd, const std::string& p0, const std::string& p1) {
-        line(std::format("{{ const double p0 = {}; const double p1 = {}; {} = p0; {} = p1; }}",
-                         p0, p1, f0(frd), f1(frd)));
+        line(text::format("{{ const double p0 = {}; const double p1 = {}; {} = p0; {} = p1; }}",
+                          p0, p1, f0(frd), f1(frd)));
     }
 
     void instruction(uint32_t a, uint32_t w) {
@@ -275,20 +275,20 @@ private:
         switch (op) {
         // ---------------------------------------------------------- integer
         case Op::addi:
-            line(std::format("{} = {};", r(d),
-                             ra ? r(ra) + signed_offset(simm) : hex(static_cast<uint32_t>(simm))));
+            line(text::format("{} = {};", r(d),
+                              ra ? r(ra) + signed_offset(simm) : hex(static_cast<uint32_t>(simm))));
             return;
         case Op::addis: {
             const uint32_t v = static_cast<uint32_t>(simm) << 16;
-            line(std::format("{} = {};", r(d), ra ? std::format("{} + {}", r(ra), hex(v)) : hex(v)));
+            line(text::format("{} = {};", r(d), ra ? text::format("{} + {}", r(ra), hex(v)) : hex(v)));
             return;
         }
         case Op::addic:
         case Op::addic_rc:
             line("{");
-            line(std::format("\tconst uint32_t x = {};", r(ra)));
-            line(std::format("\t{} = x + {};", r(d), hex(static_cast<uint32_t>(simm))));
-            line(std::format("\tctx.xer_ca = {} < x;", r(d)));
+            line(text::format("\tconst uint32_t x = {};", r(ra)));
+            line(text::format("\t{} = x + {};", r(d), hex(static_cast<uint32_t>(simm))));
+            line(text::format("\tctx.xer_ca = {} < x;", r(d)));
             line("}");
             if (op == Op::addic_rc) {
                 record(r(d));
@@ -296,14 +296,14 @@ private:
             return;
         case Op::subfic:
             line("{");
-            line(std::format("\tconst uint64_t t = uint64_t{{~{}}} + {} + 1;", r(ra),
-                             hex(static_cast<uint32_t>(simm))));
-            line(std::format("\t{} = static_cast<uint32_t>(t);", r(d)));
+            line(text::format("\tconst uint64_t t = uint64_t{{~{}}} + {} + 1;", r(ra),
+                              hex(static_cast<uint32_t>(simm))));
+            line(text::format("\t{} = static_cast<uint32_t>(t);", r(d)));
             line("\tctx.xer_ca = static_cast<uint8_t>(t >> 32);");
             line("}");
             return;
         case Op::mulli:
-            line(std::format("{} = {} * {};", r(d), r(ra), hex(static_cast<uint32_t>(simm))));
+            line(text::format("{} = {} * {};", r(d), r(ra), hex(static_cast<uint32_t>(simm))));
             return;
         case Op::add: add_family(w, r(ra), r(rb), "0", false); return;
         case Op::addc: add_family(w, r(ra), r(rb), "0", true); return;
@@ -319,27 +319,27 @@ private:
         case Op::mullw:
             if (ppc::oe(w)) {
                 line("{");
-                line(std::format("\tconst int64_t p = int64_t{{static_cast<int32_t>({})}} * "
-                                 "static_cast<int32_t>({});",
-                                 r(ra), r(rb)));
-                line(std::format("\t{} = static_cast<uint32_t>(p);", r(d)));
+                line(text::format("\tconst int64_t p = int64_t{{static_cast<int32_t>({})}} * "
+                                  "static_cast<int32_t>({});",
+                                  r(ra), r(rb)));
+                line(text::format("\t{} = static_cast<uint32_t>(p);", r(d)));
                 line("\tctx.xer_ov = p != static_cast<int32_t>(p);");
                 line("\tctx.xer_so |= ctx.xer_ov;");
                 line("}");
             } else {
-                line(std::format("{} = {} * {};", r(d), r(ra), r(rb)));
+                line(text::format("{} = {} * {};", r(d), r(ra), r(rb)));
             }
             if (ppc::rc(w)) record(r(d));
             return;
         case Op::mulhw:
-            line(std::format("{} = static_cast<uint32_t>((int64_t{{static_cast<int32_t>({})}} * "
-                             "static_cast<int32_t>({})) >> 32);",
-                             r(d), r(ra), r(rb)));
+            line(text::format("{} = static_cast<uint32_t>((int64_t{{static_cast<int32_t>({})}} * "
+                              "static_cast<int32_t>({})) >> 32);",
+                              r(d), r(ra), r(rb)));
             if (ppc::rc(w)) record(r(d));
             return;
         case Op::mulhwu:
-            line(std::format("{} = static_cast<uint32_t>((uint64_t{{{}}} * {}) >> 32);", r(d),
-                             r(ra), r(rb)));
+            line(text::format("{} = static_cast<uint32_t>((uint64_t{{{}}} * {}) >> 32);", r(d),
+                              r(ra), r(rb)));
             if (ppc::rc(w)) record(r(d));
             return;
         case Op::divw:
@@ -347,42 +347,42 @@ private:
             const char* fn = op == Op::divw ? "divw" : "divwu";
             if (ppc::oe(w)) {
                 line("{");
-                line(std::format("\tconst uint32_t x = {}, y = {};", r(ra), r(rb)));
-                line(std::format("\tctx.xer_ov = {};", op == Op::divw ? "ppc::divw_overflows(x, y)"
-                                                                        : "y == 0"));
+                line(text::format("\tconst uint32_t x = {}, y = {};", r(ra), r(rb)));
+                line(text::format("\tctx.xer_ov = {};", op == Op::divw ? "ppc::divw_overflows(x, y)"
+                                                                         : "y == 0"));
                 line("\tctx.xer_so |= ctx.xer_ov;");
-                line(std::format("\t{} = ppc::{}(x, y);", r(d), fn));
+                line(text::format("\t{} = ppc::{}(x, y);", r(d), fn));
                 line("}");
             } else {
-                line(std::format("{} = ppc::{}({}, {});", r(d), fn, r(ra), r(rb)));
+                line(text::format("{} = ppc::{}({}, {});", r(d), fn, r(ra), r(rb)));
             }
             if (ppc::rc(w)) record(r(d));
             return;
         }
 
         case Op::cmp:
-            line(std::format("ppc::cmp_signed({}, static_cast<int32_t>({}), "
-                             "static_cast<int32_t>({}), ctx.xer_so);",
-                             crf(ppc::crfd(w)), r(ra), r(rb)));
+            line(text::format("ppc::cmp_signed({}, static_cast<int32_t>({}), "
+                              "static_cast<int32_t>({}), ctx.xer_so);",
+                              crf(ppc::crfd(w)), r(ra), r(rb)));
             return;
         case Op::cmpl:
-            line(std::format("ppc::cmp_unsigned({}, {}, {}, ctx.xer_so);", crf(ppc::crfd(w)),
-                             r(ra), r(rb)));
+            line(text::format("ppc::cmp_unsigned({}, {}, {}, ctx.xer_so);", crf(ppc::crfd(w)),
+                              r(ra), r(rb)));
             return;
         case Op::cmpi:
-            line(std::format("ppc::cmp_signed({}, static_cast<int32_t>({}), {}, ctx.xer_so);",
-                             crf(ppc::crfd(w)), r(ra), simm));
+            line(text::format("ppc::cmp_signed({}, static_cast<int32_t>({}), {}, ctx.xer_so);",
+                              crf(ppc::crfd(w)), r(ra), simm));
             return;
         case Op::cmpli:
-            line(std::format("ppc::cmp_unsigned({}, {}, {}, ctx.xer_so);", crf(ppc::crfd(w)),
-                             r(ra), hex(uimm)));
+            line(text::format("ppc::cmp_unsigned({}, {}, {}, ctx.xer_so);", crf(ppc::crfd(w)),
+                              r(ra), hex(uimm)));
             return;
 
         case Op::and_: logical(w, "{0} & {1}"); return;
         case Op::andc: logical(w, "{0} & ~{1}"); return;
         case Op::or_:
             if (d == rb) {
-                line(std::format("{} = {};", r(ra), r(d))); // mr
+                line(text::format("{} = {};", r(ra), r(d))); // mr
                 if (ppc::rc(w)) record(r(ra));
             } else {
                 logical(w, "{0} | {1}");
@@ -394,71 +394,71 @@ private:
         case Op::nor: logical(w, "~({0} | {1})"); return;
         case Op::eqv: logical(w, "~({0} ^ {1})"); return;
         case Op::andi_rc:
-            line(std::format("{} = {} & {};", r(ra), r(d), hex(uimm)));
+            line(text::format("{} = {} & {};", r(ra), r(d), hex(uimm)));
             record(r(ra));
             return;
         case Op::andis_rc:
-            line(std::format("{} = {} & {};", r(ra), r(d), hex(uimm << 16)));
+            line(text::format("{} = {} & {};", r(ra), r(d), hex(uimm << 16)));
             record(r(ra));
             return;
         case Op::ori:
             if (w == 0x60000000) {
                 line(";"); // nop
             } else {
-                line(std::format("{} = {} | {};", r(ra), r(d), hex(uimm)));
+                line(text::format("{} = {} | {};", r(ra), r(d), hex(uimm)));
             }
             return;
-        case Op::oris: line(std::format("{} = {} | {};", r(ra), r(d), hex(uimm << 16))); return;
-        case Op::xori: line(std::format("{} = {} ^ {};", r(ra), r(d), hex(uimm))); return;
-        case Op::xoris: line(std::format("{} = {} ^ {};", r(ra), r(d), hex(uimm << 16))); return;
+        case Op::oris: line(text::format("{} = {} | {};", r(ra), r(d), hex(uimm << 16))); return;
+        case Op::xori: line(text::format("{} = {} ^ {};", r(ra), r(d), hex(uimm))); return;
+        case Op::xoris: line(text::format("{} = {} ^ {};", r(ra), r(d), hex(uimm << 16))); return;
         case Op::extsb:
-            line(std::format("{} = static_cast<uint32_t>(static_cast<int8_t>({}));", r(ra), r(d)));
+            line(text::format("{} = static_cast<uint32_t>(static_cast<int8_t>({}));", r(ra), r(d)));
             if (ppc::rc(w)) record(r(ra));
             return;
         case Op::extsh:
-            line(std::format("{} = static_cast<uint32_t>(static_cast<int16_t>({}));", r(ra), r(d)));
+            line(text::format("{} = static_cast<uint32_t>(static_cast<int16_t>({}));", r(ra), r(d)));
             if (ppc::rc(w)) record(r(ra));
             return;
         case Op::cntlzw:
-            line(std::format("{} = static_cast<uint32_t>(std::countl_zero({}));", r(ra), r(d)));
+            line(text::format("{} = static_cast<uint32_t>(std::countl_zero({}));", r(ra), r(d)));
             if (ppc::rc(w)) record(r(ra));
             return;
 
         case Op::rlwinm: {
             const uint32_t m = rotate_mask(ppc::mb(w), ppc::me(w));
-            std::string v = rb ? std::format("ppc::rotl({}, {})", r(d), rb) : r(d);
+            std::string v = rb ? text::format("ppc::rotl({}, {})", r(d), rb) : r(d);
             if (m != 0xFFFFFFFFu) v += " & " + hex(m);
-            line(std::format("{} = {};", r(ra), v));
+            line(text::format("{} = {};", r(ra), v));
             if (ppc::rc(w)) record(r(ra));
             return;
         }
         case Op::rlwnm: {
             const uint32_t m = rotate_mask(ppc::mb(w), ppc::me(w));
-            line(std::format("{} = ppc::rotl({}, {}) & {};", r(ra), r(d), r(rb), hex(m)));
+            line(text::format("{} = ppc::rotl({}, {}) & {};", r(ra), r(d), r(rb), hex(m)));
             if (ppc::rc(w)) record(r(ra));
             return;
         }
         case Op::rlwimi: {
             const uint32_t m = rotate_mask(ppc::mb(w), ppc::me(w));
-            line(std::format("{} = (ppc::rotl({}, {}) & {}) | ({} & {});", r(ra), r(d), rb,
-                             hex(m), r(ra), hex(~m)));
+            line(text::format("{} = (ppc::rotl({}, {}) & {}) | ({} & {});", r(ra), r(d), rb,
+                              hex(m), r(ra), hex(~m)));
             if (ppc::rc(w)) record(r(ra));
             return;
         }
         case Op::slw:
-            line(std::format("{0} = ({2} & 0x20) ? 0u : {1} << ({2} & 31);", r(ra), r(d), r(rb)));
+            line(text::format("{0} = ({2} & 0x20) ? 0u : {1} << ({2} & 31);", r(ra), r(d), r(rb)));
             if (ppc::rc(w)) record(r(ra));
             return;
         case Op::srw:
-            line(std::format("{0} = ({2} & 0x20) ? 0u : {1} >> ({2} & 31);", r(ra), r(d), r(rb)));
+            line(text::format("{0} = ({2} & 0x20) ? 0u : {1} >> ({2} & 31);", r(ra), r(d), r(rb)));
             if (ppc::rc(w)) record(r(ra));
             return;
         case Op::sraw:
-            line(std::format("{} = ppc::sraw(ctx.xer_ca, {}, {} & 0x3F);", r(ra), r(d), r(rb)));
+            line(text::format("{} = ppc::sraw(ctx.xer_ca, {}, {} & 0x3F);", r(ra), r(d), r(rb)));
             if (ppc::rc(w)) record(r(ra));
             return;
         case Op::srawi:
-            line(std::format("{} = ppc::sraw(ctx.xer_ca, {}, {});", r(ra), r(d), rb));
+            line(text::format("{} = ppc::sraw(ctx.xer_ca, {}, {});", r(ra), r(d), rb));
             if (ppc::rc(w)) record(r(ra));
             return;
 
@@ -496,32 +496,32 @@ private:
         case Op::sthbrx: store(w, "ppc::st16_le(base, {}, static_cast<uint16_t>({}));", false, true); return;
         case Op::stwbrx: store(w, "ppc::st32_le(base, {}, {});", false, true); return;
         case Op::lmw:
-            line(std::format("ppc::lmw(ctx, base, {}, {});", d, ea_d(ra, simm)));
+            line(text::format("ppc::lmw(ctx, base, {}, {});", d, ea_d(ra, simm)));
             return;
         case Op::stmw:
-            line(std::format("ppc::stmw(ctx, base, {}, {});", d, ea_d(ra, simm)));
+            line(text::format("ppc::stmw(ctx, base, {}, {});", d, ea_d(ra, simm)));
             return;
         case Op::lswi:
-            line(std::format("ppc::lsw(ctx, base, {}, {}, {});", d, ra ? r(ra) : "0u",
-                             rb ? rb : 32));
+            line(text::format("ppc::lsw(ctx, base, {}, {}, {});", d, ra ? r(ra) : "0u",
+                              rb ? rb : 32));
             return;
         case Op::stswi:
-            line(std::format("ppc::stsw(ctx, base, {}, {}, {});", d, ra ? r(ra) : "0u",
-                             rb ? rb : 32));
+            line(text::format("ppc::stsw(ctx, base, {}, {}, {});", d, ra ? r(ra) : "0u",
+                              rb ? rb : 32));
             return;
         case Op::lswx:
-            line(std::format("ppc::lsw(ctx, base, {}, {}, ctx.xer_bc);", d, ea_x(ra, rb)));
+            line(text::format("ppc::lsw(ctx, base, {}, {}, ctx.xer_bc);", d, ea_x(ra, rb)));
             return;
         case Op::stswx:
-            line(std::format("ppc::stsw(ctx, base, {}, {}, ctx.xer_bc);", d, ea_x(ra, rb)));
+            line(text::format("ppc::stsw(ctx, base, {}, {}, ctx.xer_bc);", d, ea_x(ra, rb)));
             return;
         case Op::lwarx:
-            line(std::format("{} = ppc::lwarx(ctx, base, {});", r(d), ea_x(ra, rb)));
+            line(text::format("{} = ppc::lwarx(ctx, base, {});", r(d), ea_x(ra, rb)));
             return;
         case Op::stwcx:
             line("{");
-            line(std::format("\tconst bool stored = ppc::stwcx(ctx, base, {}, {});", ea_x(ra, rb),
-                             r(d)));
+            line(text::format("\tconst bool stored = ppc::stwcx(ctx, base, {}, {});", ea_x(ra, rb),
+                              r(d)));
             line("\tctx.cr[0] = {0, 0, static_cast<uint8_t>(stored), ctx.xer_so};");
             line("}");
             return;
@@ -540,27 +540,27 @@ private:
             const std::string x = r(ra);
             const std::string y = op == Op::tw ? r(rb) : hex(static_cast<uint32_t>(simm));
             if (d == 31) {
-                line(std::format("cafe_ppc_trap(ctx, {});", hex(a)));
+                line(text::format("cafe_ppc_trap(ctx, {});", hex(a)));
                 return;
             }
             std::string cond;
             const auto add = [&](uint32_t bit, const std::string& c) {
                 if (d & bit) cond += (cond.empty() ? "" : " || ") + c;
             };
-            add(16, std::format("static_cast<int32_t>({}) < static_cast<int32_t>({})", x, y));
-            add(8, std::format("static_cast<int32_t>({}) > static_cast<int32_t>({})", x, y));
-            add(4, std::format("{} == {}", x, y));
-            add(2, std::format("{} < {}", x, y));
-            add(1, std::format("{} > {}", x, y));
+            add(16, text::format("static_cast<int32_t>({}) < static_cast<int32_t>({})", x, y));
+            add(8, text::format("static_cast<int32_t>({}) > static_cast<int32_t>({})", x, y));
+            add(4, text::format("{} == {}", x, y));
+            add(2, text::format("{} < {}", x, y));
+            add(1, text::format("{} > {}", x, y));
             if (!cond.empty()) {
-                line(std::format("if ({}) cafe_ppc_trap(ctx, {});", cond, hex(a)));
+                line(text::format("if ({}) cafe_ppc_trap(ctx, {});", cond, hex(a)));
             }
             return;
         }
 
         // ------------------------------------------- condition register
         case Op::mcrf:
-            line(std::format("{} = {};", crf(ppc::crfd(w)), crf(ppc::crfs(w))));
+            line(text::format("{} = {};", crf(ppc::crfd(w)), crf(ppc::crfs(w))));
             return;
         case Op::crand: crlogic(w, "{0} & {1}"); return;
         case Op::crandc: crlogic(w, "{0} & !{1}"); return;
@@ -571,19 +571,19 @@ private:
         case Op::crorc: crlogic(w, "{0} | !{1}"); return;
         case Op::crxor:
             if (ra == rb) {
-                line(std::format("{} = 0;", crbit(d)));
+                line(text::format("{} = 0;", crbit(d)));
             } else {
                 crlogic(w, "{0} ^ {1}");
             }
             return;
         case Op::mfcr:
-            line(std::format("{} = ppc::mfcr(ctx);", r(d)));
+            line(text::format("{} = ppc::mfcr(ctx);", r(d)));
             return;
         case Op::mtcrf:
-            line(std::format("ppc::mtcrf(ctx, {}, {});", hex(ppc::crm(w)), r(d)));
+            line(text::format("ppc::mtcrf(ctx, {}, {});", hex(ppc::crm(w)), r(d)));
             return;
         case Op::mcrxr:
-            line(std::format("{} = {{ctx.xer_so, ctx.xer_ov, ctx.xer_ca, 0}};", crf(ppc::crfd(w))));
+            line(text::format("{} = {{ctx.xer_so, ctx.xer_ov, ctx.xer_ca, 0}};", crf(ppc::crfd(w))));
             line("ctx.xer_so = ctx.xer_ov = ctx.xer_ca = 0;");
             return;
 
@@ -594,33 +594,33 @@ private:
             if (spr == 1) v = "ppc::mfxer(ctx)";
             else if (spr == 8) v = "ctx.lr";
             else if (spr == 9) v = "ctx.ctr";
-            else if (spr >= 896 && spr < 904) v = std::format("ctx.gqr[{}]", spr - 896);
-            else if (spr >= 912 && spr < 920) v = std::format("ctx.gqr[{}]", spr - 912);
+            else if (spr >= 896 && spr < 904) v = text::format("ctx.gqr[{}]", spr - 896);
+            else if (spr >= 912 && spr < 920) v = text::format("ctx.gqr[{}]", spr - 912);
             else if (spr == 268) v = "static_cast<uint32_t>(cafe_ppc_timebase())";
             else if (spr == 269) v = "static_cast<uint32_t>(cafe_ppc_timebase() >> 32)";
             if (v.empty()) {
                 illegal(a, w, "mfspr of an unsupported register");
             } else {
-                line(std::format("{} = {};", r(d), v));
+                line(text::format("{} = {};", r(d), v));
             }
             return;
         }
         case Op::mtspr: {
             const uint32_t spr = ppc::spr(w);
-            if (spr == 1) line(std::format("ppc::mtxer(ctx, {});", r(d)));
-            else if (spr == 8) line(std::format("ctx.lr = {};", r(d)));
-            else if (spr == 9) line(std::format("ctx.ctr = {};", r(d)));
-            else if (spr >= 896 && spr < 904) line(std::format("ctx.gqr[{}] = {};", spr - 896, r(d)));
-            else if (spr >= 912 && spr < 920) line(std::format("ctx.gqr[{}] = {};", spr - 912, r(d)));
+            if (spr == 1) line(text::format("ppc::mtxer(ctx, {});", r(d)));
+            else if (spr == 8) line(text::format("ctx.lr = {};", r(d)));
+            else if (spr == 9) line(text::format("ctx.ctr = {};", r(d)));
+            else if (spr >= 896 && spr < 904) line(text::format("ctx.gqr[{}] = {};", spr - 896, r(d)));
+            else if (spr >= 912 && spr < 920) line(text::format("ctx.gqr[{}] = {};", spr - 912, r(d)));
             else illegal(a, w, "mtspr of an unsupported register");
             return;
         }
         case Op::mftb: {
             const uint32_t tbr = ppc::spr(w);
             if (tbr == 268) {
-                line(std::format("{} = static_cast<uint32_t>(cafe_ppc_timebase());", r(d)));
+                line(text::format("{} = static_cast<uint32_t>(cafe_ppc_timebase());", r(d)));
             } else if (tbr == 269) {
-                line(std::format("{} = static_cast<uint32_t>(cafe_ppc_timebase() >> 32);", r(d)));
+                line(text::format("{} = static_cast<uint32_t>(cafe_ppc_timebase() >> 32);", r(d)));
             } else {
                 illegal(a, w, "mftb of an unknown time-base register");
             }
@@ -645,7 +645,7 @@ private:
             return;
         case Op::dcbz:
         case Op::dcbz_l:
-            line(std::format("ppc::dcbz(base, {});", ea_x(ra, rb)));
+            line(text::format("ppc::dcbz(base, {});", ea_x(ra, rb)));
             return;
 
         // ---------------------------------------------- FP load/store
@@ -670,23 +670,23 @@ private:
             return;
 
         // ---------------------------------------------- FP arithmetic
-        case Op::fadd: line(std::format("{} = ppc::add({}, {});", f0(d), f0(ra), f0(rb))); return;
-        case Op::fsub: line(std::format("{} = ppc::sub({}, {});", f0(d), f0(ra), f0(rb))); return;
-        case Op::fmul: line(std::format("{} = ppc::mul({}, {});", f0(d), f0(ra), f0(rc))); return;
-        case Op::fdiv: line(std::format("{} = ppc::div({}, {});", f0(d), f0(ra), f0(rb))); return;
-        case Op::fadds: fill(d, std::format("ppc::round_single(ppc::add({}, {}))", f0(ra), f0(rb))); return;
-        case Op::fsubs: fill(d, std::format("ppc::round_single(ppc::sub({}, {}))", f0(ra), f0(rb))); return;
+        case Op::fadd: line(text::format("{} = ppc::add({}, {});", f0(d), f0(ra), f0(rb))); return;
+        case Op::fsub: line(text::format("{} = ppc::sub({}, {});", f0(d), f0(ra), f0(rb))); return;
+        case Op::fmul: line(text::format("{} = ppc::mul({}, {});", f0(d), f0(ra), f0(rc))); return;
+        case Op::fdiv: line(text::format("{} = ppc::div({}, {});", f0(d), f0(ra), f0(rb))); return;
+        case Op::fadds: fill(d, text::format("ppc::round_single(ppc::add({}, {}))", f0(ra), f0(rb))); return;
+        case Op::fsubs: fill(d, text::format("ppc::round_single(ppc::sub({}, {}))", f0(ra), f0(rb))); return;
         case Op::fmuls:
-            fill(d, std::format("ppc::round_single(ppc::mul({}, ppc::round_25bit({})))", f0(ra), f0(rc)));
+            fill(d, text::format("ppc::round_single(ppc::mul({}, ppc::round_25bit({})))", f0(ra), f0(rc)));
             return;
-        case Op::fdivs: fill(d, std::format("ppc::round_single(ppc::div({}, {}))", f0(ra), f0(rb))); return;
-        case Op::fmadd: line(std::format("{} = {};", f0(d), madd(false, false, f0(ra), f0(rc), f0(rb)))); return;
-        case Op::fmsub: line(std::format("{} = {};", f0(d), madd(false, true, f0(ra), f0(rc), f0(rb)))); return;
+        case Op::fdivs: fill(d, text::format("ppc::round_single(ppc::div({}, {}))", f0(ra), f0(rb))); return;
+        case Op::fmadd: line(text::format("{} = {};", f0(d), madd(false, false, f0(ra), f0(rc), f0(rb)))); return;
+        case Op::fmsub: line(text::format("{} = {};", f0(d), madd(false, true, f0(ra), f0(rc), f0(rb)))); return;
         case Op::fnmadd:
-            line(std::format("{} = ppc::negate_unless_nan({});", f0(d), madd(false, false, f0(ra), f0(rc), f0(rb))));
+            line(text::format("{} = ppc::negate_unless_nan({});", f0(d), madd(false, false, f0(ra), f0(rc), f0(rb))));
             return;
         case Op::fnmsub:
-            line(std::format("{} = ppc::negate_unless_nan({});", f0(d), madd(false, true, f0(ra), f0(rc), f0(rb))));
+            line(text::format("{} = ppc::negate_unless_nan({});", f0(d), madd(false, true, f0(ra), f0(rc), f0(rb))));
             return;
         case Op::fmadds: fill(d, "ppc::round_single(" + madd(true, false, f0(ra), f0(rc), f0(rb)) + ")"); return;
         case Op::fmsubs: fill(d, "ppc::round_single(" + madd(true, true, f0(ra), f0(rc), f0(rb)) + ")"); return;
@@ -696,23 +696,23 @@ private:
         case Op::fnmsubs:
             fill(d, "ppc::negate_unless_nan(ppc::round_single(" + madd(true, true, f0(ra), f0(rc), f0(rb)) + "))");
             return;
-        case Op::fsqrt: line(std::format("{} = std::sqrt({});", f0(d), f0(rb))); return;
-        case Op::fsqrts: fill(d, std::format("ppc::round_single(std::sqrt({}))", f0(rb))); return;
-        case Op::fres: fill(d, std::format("ppc::res({})", f0(rb))); return;
-        case Op::frsqrte: line(std::format("{} = ppc::rsqrte({});", f0(d), f0(rb))); return;
+        case Op::fsqrt: line(text::format("{} = std::sqrt({});", f0(d), f0(rb))); return;
+        case Op::fsqrts: fill(d, text::format("ppc::round_single(std::sqrt({}))", f0(rb))); return;
+        case Op::fres: fill(d, text::format("ppc::res({})", f0(rb))); return;
+        case Op::frsqrte: line(text::format("{} = ppc::rsqrte({});", f0(d), f0(rb))); return;
         case Op::fsel:
-            line(std::format("{} = ppc::fsel({}, {}, {});", f0(d), f0(ra), f0(rb), f0(rc)));
+            line(text::format("{} = ppc::fsel({}, {}, {});", f0(d), f0(ra), f0(rb), f0(rc)));
             return;
-        case Op::frsp: fill(d, std::format("ppc::round_single({})", f0(rb))); return;
-        case Op::fctiw: line(std::format("{} = ppc::fcti({}, false);", f0(d), f0(rb))); return;
-        case Op::fctiwz: line(std::format("{} = ppc::fcti({}, true);", f0(d), f0(rb))); return;
-        case Op::fmr: line(std::format("{} = {};", f0(d), f0(rb))); return;
+        case Op::frsp: fill(d, text::format("ppc::round_single({})", f0(rb))); return;
+        case Op::fctiw: line(text::format("{} = ppc::fcti({}, false);", f0(d), f0(rb))); return;
+        case Op::fctiwz: line(text::format("{} = ppc::fcti({}, true);", f0(d), f0(rb))); return;
+        case Op::fmr: line(text::format("{} = {};", f0(d), f0(rb))); return;
         case Op::fneg: fp_unary_bits(w, "^ ppc::kSign"); return;
         case Op::fabs: fp_unary_bits(w, "& ~ppc::kSign"); return;
         case Op::fnabs: fp_unary_bits(w, "| ppc::kSign"); return;
         case Op::fcmpu:
         case Op::fcmpo:
-            line(std::format("ppc::fcmp({}, {}, {});", crf(ppc::crfd(w)), f0(ra), f0(rb)));
+            line(text::format("ppc::fcmp({}, {}, {});", crf(ppc::crfd(w)), f0(ra), f0(rb)));
             return;
 
         // ------------------------------------------------ paired single
@@ -765,31 +765,31 @@ private:
                  "ppc::round_single(" + madd(true, false, f1(ra), f1(rc), f1(rb)) + ")");
             return;
         case Op::ps_muls0:
-            pair(d, std::format("ppc::round_single(ppc::mul({}, ppc::round_25bit({})))", f0(ra), f0(rc)),
-                 std::format("ppc::round_single(ppc::mul({}, ppc::round_25bit({})))", f1(ra), f0(rc)));
+            pair(d, text::format("ppc::round_single(ppc::mul({}, ppc::round_25bit({})))", f0(ra), f0(rc)),
+                 text::format("ppc::round_single(ppc::mul({}, ppc::round_25bit({})))", f1(ra), f0(rc)));
             return;
         case Op::ps_muls1:
-            pair(d, std::format("ppc::round_single(ppc::mul({}, ppc::round_25bit({})))", f0(ra), f1(rc)),
-                 std::format("ppc::round_single(ppc::mul({}, ppc::round_25bit({})))", f1(ra), f1(rc)));
+            pair(d, text::format("ppc::round_single(ppc::mul({}, ppc::round_25bit({})))", f0(ra), f1(rc)),
+                 text::format("ppc::round_single(ppc::mul({}, ppc::round_25bit({})))", f1(ra), f1(rc)));
             return;
         case Op::ps_sum0:
-            pair(d, std::format("ppc::round_single(ppc::add({}, {}))", f0(ra), f1(rb)),
-                 std::format("ppc::round_single({})", f1(rc)));
+            pair(d, text::format("ppc::round_single(ppc::add({}, {}))", f0(ra), f1(rb)),
+                 text::format("ppc::round_single({})", f1(rc)));
             return;
         case Op::ps_sum1:
-            pair(d, std::format("ppc::round_single({})", f0(rc)),
-                 std::format("ppc::round_single(ppc::add({}, {}))", f0(ra), f1(rb)));
+            pair(d, text::format("ppc::round_single({})", f0(rc)),
+                 text::format("ppc::round_single(ppc::add({}, {}))", f0(ra), f1(rb)));
             return;
         case Op::ps_sel:
-            pair(d, std::format("ppc::fsel({}, {}, {})", f0(ra), f0(rb), f0(rc)),
-                 std::format("ppc::fsel({}, {}, {})", f1(ra), f1(rb), f1(rc)));
+            pair(d, text::format("ppc::fsel({}, {}, {})", f0(ra), f0(rb), f0(rc)),
+                 text::format("ppc::fsel({}, {}, {})", f1(ra), f1(rb), f1(rc)));
             return;
         case Op::ps_res:
-            pair(d, std::format("ppc::res({})", f0(rb)), std::format("ppc::res({})", f1(rb)));
+            pair(d, text::format("ppc::res({})", f0(rb)), text::format("ppc::res({})", f1(rb)));
             return;
         case Op::ps_rsqrte:
-            pair(d, std::format("ppc::round_single(ppc::rsqrte({}))", f0(rb)),
-                 std::format("ppc::round_single(ppc::rsqrte({}))", f1(rb)));
+            pair(d, text::format("ppc::round_single(ppc::rsqrte({}))", f0(rb)),
+                 text::format("ppc::round_single(ppc::rsqrte({}))", f1(rb)));
             return;
         case Op::ps_mr: pair(d, f0(rb), f1(rb)); return;
         case Op::ps_neg: ps_bits(d, rb, "^ ppc::kSign"); return;
@@ -801,11 +801,11 @@ private:
         case Op::ps_merge11: pair(d, f1(ra), f1(rb)); return;
         case Op::ps_cmpu0:
         case Op::ps_cmpo0:
-            line(std::format("ppc::fcmp({}, {}, {});", crf(ppc::crfd(w)), f0(ra), f0(rb)));
+            line(text::format("ppc::fcmp({}, {}, {});", crf(ppc::crfd(w)), f0(ra), f0(rb)));
             return;
         case Op::ps_cmpu1:
         case Op::ps_cmpo1:
-            line(std::format("ppc::fcmp({}, {}, {});", crf(ppc::crfd(w)), f1(ra), f1(rb)));
+            line(text::format("ppc::fcmp({}, {}, {});", crf(ppc::crfd(w)), f1(ra), f1(rb)));
             return;
 
         // ------------------------------------- never valid in a game image
@@ -844,15 +844,15 @@ private:
         const uint32_t ra = ppc::ra(w);
         const std::string s = r(ppc::rd(w));
         const std::string b = r(ppc::rb(w));
-        line(std::format("{} = {};", r(ra), std::vformat(pattern, std::make_format_args(s, b))));
+        line(text::format("{} = {};", r(ra), text::format(pattern, s, b)));
         if (ppc::rc(w)) record(r(ra));
     }
 
     void crlogic(uint32_t w, const char* pattern) {
         const std::string a = crbit(ppc::ra(w));
         const std::string b = crbit(ppc::rb(w));
-        line(std::format("{} = {};", crbit(ppc::rd(w)),
-                         std::vformat(pattern, std::make_format_args(a, b))));
+        line(text::format("{} = {};", crbit(ppc::rd(w)),
+                          text::format(pattern, a, b)));
     }
 
     void load(uint32_t w, const char* pattern, bool update, bool indexed) {
@@ -860,12 +860,12 @@ private:
         const uint32_t ra = ppc::ra(w);
         const std::string ea = indexed ? ea_x(ra, ppc::rb(w)) : ea_d(ra, ppc::simm(w));
         if (!update) {
-            line(std::format("{} = {};", r(d), std::vformat(pattern, std::make_format_args(ea))));
+            line(text::format("{} = {};", r(d), text::format(pattern, ea)));
             return;
         }
         const std::string e = "ea";
-        line(std::format("{{ const uint32_t ea = {}; {} = {}; {} = ea; }}", ea, r(d),
-                         std::vformat(pattern, std::make_format_args(e)), r(ra)));
+        line(text::format("{{ const uint32_t ea = {}; {} = {}; {} = ea; }}", ea, r(d),
+                          text::format(pattern, e), r(ra)));
     }
 
     void store(uint32_t w, const char* pattern, bool update, bool indexed) {
@@ -874,27 +874,27 @@ private:
         const std::string ea = indexed ? ea_x(ra, ppc::rb(w)) : ea_d(ra, ppc::simm(w));
         const std::string value = r(s);
         if (!update) {
-            line(std::vformat(pattern, std::make_format_args(ea, value)));
+            line(text::format(pattern, ea, value));
             return;
         }
         const std::string e = "ea";
-        line(std::format("{{ const uint32_t ea = {}; {} {} = ea; }}", ea,
-                         std::vformat(pattern, std::make_format_args(e, value)), r(ra)));
+        line(text::format("{{ const uint32_t ea = {}; {} {} = ea; }}", ea,
+                          text::format(pattern, e, value), r(ra)));
     }
 
     void fload(uint32_t w, bool single, bool update, bool indexed) {
         const uint32_t d = ppc::rd(w);
         const uint32_t ra = ppc::ra(w);
         const std::string ea = indexed ? ea_x(ra, ppc::rb(w)) : ea_d(ra, ppc::simm(w));
-        std::string body = std::format("const uint32_t ea = {}; ", ea);
+        std::string body = text::format("const uint32_t ea = {}; ", ea);
         if (single) {
-            body += std::format("const double v = ppc::load_single(PPC_LOAD_U32(ea)); {} = v; {} = v;",
-                                f0(d), f1(d));
+            body += text::format("const double v = ppc::load_single(PPC_LOAD_U32(ea)); {} = v; {} = v;",
+                                 f0(d), f1(d));
         } else {
-            body += std::format("{} = ppc::from_bits(PPC_LOAD_U64(ea));", f0(d));
+            body += text::format("{} = ppc::from_bits(PPC_LOAD_U64(ea));", f0(d));
         }
         if (update) {
-            body += std::format(" {} = ea;", r(ra));
+            body += text::format(" {} = ea;", r(ra));
         }
         line("{ " + body + " }");
     }
@@ -905,37 +905,37 @@ private:
         const std::string ea = indexed ? ea_x(ra, ppc::rb(w)) : ea_d(ra, ppc::simm(w));
         const std::string e = "ea";
         const std::string value = f0(s);
-        std::string body = std::format("const uint32_t ea = {}; {}", ea,
-                                       std::vformat(pattern, std::make_format_args(e, value)));
+        std::string body = text::format("const uint32_t ea = {}; {}", ea,
+                                        text::format(pattern, e, value));
         if (update) {
-            body += std::format(" {} = ea;", r(ra));
+            body += text::format(" {} = ea;", r(ra));
         }
         line("{ " + body + " }");
     }
 
     static std::string madd(bool single, bool subtract, const std::string& a,
                             const std::string& c, const std::string& b) {
-        return std::format("ppc::madd<{}, {}>({}, {}, {})", single, subtract, a, c, b);
+        return text::format("ppc::madd<{}, {}>({}, {}, {})", single, subtract, a, c, b);
     }
 
     void ps2(uint32_t d, const char* pattern, uint32_t x, uint32_t y) {
         const std::string x0 = f0(x), y0 = f0(y), x1 = f1(x), y1 = f1(y);
-        pair(d, std::vformat(pattern, std::make_format_args(x0, y0)),
-             std::vformat(pattern, std::make_format_args(x1, y1)));
+        pair(d, text::format(pattern, x0, y0),
+             text::format(pattern, x1, y1));
     }
 
     void ps_bits(uint32_t d, uint32_t b, const char* op) {
-        pair(d, std::format("ppc::from_bits(ppc::bits({}) {})", f0(b), op),
-             std::format("ppc::from_bits(ppc::bits({}) {})", f1(b), op));
+        pair(d, text::format("ppc::from_bits(ppc::bits({}) {})", f0(b), op),
+             text::format("ppc::from_bits(ppc::bits({}) {})", f1(b), op));
     }
 
     void psq(bool load, bool update, const std::string& ea, uint32_t fr, bool w_bit,
              uint32_t gqr, uint32_t ra) {
-        std::string body = std::format("const uint32_t ea = {}; ", ea);
-        body += std::format("ppc::psq_{}<{}>(ctx, base, {}, ea, ctx.gqr[{}]);",
-                            load ? "load" : "store", w_bit, fr, gqr);
+        std::string body = text::format("const uint32_t ea = {}; ", ea);
+        body += text::format("ppc::psq_{}<{}>(ctx, base, {}, ea, ctx.gqr[{}]);",
+                             load ? "load" : "store", w_bit, fr, gqr);
         if (update) {
-            body += std::format(" {} = ea;", r(ra));
+            body += text::format(" {} = ea;", r(ra));
         }
         line("{ " + body + " }");
     }
@@ -949,7 +949,7 @@ private:
 
 } // namespace
 
-std::string mid_hook_name(uint32_t address) { return std::format("cafe_mid_hook_{:08X}", address); }
+std::string mid_hook_name(uint32_t address) { return text::format("cafe_mid_hook_{:08X}", address); }
 
 std::string emit_entry(const Program& program, const Entry& entry,
                        const EmitOptions& options,

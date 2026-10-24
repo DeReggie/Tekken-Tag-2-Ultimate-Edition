@@ -13,21 +13,23 @@
 # --runtime-cache DIR (else $TTT2_APPIMAGE_CACHE, else BUILD_DIR/appimage-cache):
 #             where the runtime is downloaded to, once
 #
-# Needs CMake 3.24+, Ninja, Clang, LLD, readelf, mksquashfs (with zstd), and
-# curl or wget for the first download; rsvg-convert for a PNG .DirIcon (else
-# the SVG).
+# Needs CMake 3.24+, Ninja, Clang, LLD, readelf, objdump, mksquashfs (with
+# zstd), and curl or wget for the first download; rsvg-convert for a PNG
+# .DirIcon (else the SVG).
 #
 # The programs are linked with LLD: GNU ld copies the x86 ISA level that the
 # system's startup files are marked with (Scrt1.o) into every program, and
 # on a system built for its own processor (CachyOS's znver4 and x86-64-v4
 # packages) that is x86-64-v4, which glibc then refuses to start on any
 # processor without AVX-512 ("CPU ISA level is lower than required"). LLD
-# writes no ISA level; the image is checked for one before it is packed.
+# writes no ISA level; the image is checked for one, and for AVX-512
+# instructions, before it is packed.
 #
-# The AppImage uses the system's GTK 4, GLib and C++ runtime; the kit's
-# programs carry their own libstdc++ (launcher/builder). It is checked to
-# need no newer glibc or libstdc++ than Ubuntu 24.04 has, also for the game
-# program the kit links (see below). AppRun changes nothing of the environment, as
+# The AppImage uses the system's GTK 4, GLib and C++ runtime (the kit's
+# programs too: a static libstdc++ would be this system's, compiled for its
+# processor). It is checked to need no newer glibc or libstdc++ than Ubuntu
+# 24.04 has, also for the game program the kit links (see below). AppRun
+# changes nothing of the environment, as
 # the programs the launcher starts (the compiler, Python, gamescope, Proton,
 # the game) must not load anything of the AppImage.
 
@@ -84,7 +86,7 @@ case $repo$build in
     *[[:space:]]*) die "the source and build folders' paths must not have spaces" ;;
 esac
 
-for tool in cmake ninja clang clang++ ld.lld readelf mksquashfs; do
+for tool in cmake ninja clang clang++ ld.lld readelf objdump mksquashfs; do
     command -v "$tool" >/dev/null || die "$tool is not installed"
 done
 
@@ -153,6 +155,17 @@ marked=$(cd "$appdir" && find . -type f -print | while IFS= read -r file; do
     if readelf -n "$file" 2>/dev/null | grep -q 'x86 ISA needed:.*x86-64-v[234]'; then echo "$file"; fi
 done)
 [ -z "$marked" ] || die "these need a newer processor than any x86-64 (their ISA level): $marked"
+
+# Nor may any hold an AVX-512 instruction (EVEX: in 64-bit code, one whose
+# first byte is 62). On such a system, static libraries are compiled for its
+# processor (CachyOS's x86-64-v4 libstdc++.a once stopped the kit's programs
+# with SIGILL on a Steam Deck), and nothing marks the code they bring.
+avx512=$(cd "$appdir" && find . -type f -print | while IFS= read -r file; do
+    if objdump -d -w "$file" 2>/dev/null | awk -F'\t' '$2 ~ /^62 / && $3 !~ /bad/ {found = 1; exit} END {exit !found}'; then
+        echo "$file"
+    fi
+done)
+[ -z "$avx512" ] || die "these hold AVX-512 instructions, which many x86-64 processors do not have: $avx512"
 
 # Nor may they, or the game program as the kit links it (kit_check), need a
 # newer glibc or libstdc++ than the oldest distributions it is for have
