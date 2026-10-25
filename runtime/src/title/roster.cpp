@@ -3433,6 +3433,28 @@ std::string_view damage_move_name(uint32_t player) {
     const uint32_t move = player ? load(player + kPlayerMove) : 0;
     return move && load(move) ? reinterpret_cast<const char*>(guest_pointer(load(move))) : "";
 }
+bool trace_noctis_player(uint32_t player) {
+    if (!player || !std::getenv("TTT2_TRACE_NOCTIS_AIR")) return false;
+    const int k = slot_of_id(load(player + kPlayerSelectId));
+    return k >= 0 && g_added[k].code == "mrz";
+}
+bool trace_noctis_air(uint32_t player) {
+    return trace_noctis_player(player) && damage_move_name(player).starts_with("Mz_jprp");
+}
+void trace_noctis_air_step(uint32_t player) {
+    if (!trace_noctis_player(player)) return;
+    static std::map<uint32_t, std::array<uint32_t, 6>> last;
+    const bool active = trace_noctis_air(player);
+    const std::array<uint32_t, 6> state = {load(player + kPlayerMove), load(player + kPlayerFrame),
+        load(player + 0x7f0), load(player + 0x63c), load(player + 0x628), load(player + 0x800)};
+    if (!last.count(player) || (last[player] != state && (active || last[player][0] != state[0]))) {
+        std::fprintf(stderr,"noctis-air FRAME player=%08X name=%.*s frame=%u held=%08X input_latch=%u hit_latch=%u lock=%u y=%.1f vy=%.1f owner=%u assist=%u\n",
+            player, int(damage_move_name(player).size()), damage_move_name(player).data(), state[1],state[2],
+            state[3],state[4],state[5],loadf(player+kPlayerY),loadf(player+kPlayerVy),
+            load(player+0x1e80),load(player+0x1e88));
+    }
+    last[player] = state;
+}
 }
 
 // Geese has a character-specific grounded combo curve in T7's executable,
@@ -3476,6 +3498,12 @@ PPC_FUNC(sub_03AE1704) { // defender r3, attacker r4, damage result r5
     std::array<int32_t, 4> before;
     for (size_t i = 0; i < before.size(); ++i) before[i] = static_cast<int32_t>(load(result + 0x2c + 4 * i));
     sub_03AE1704_orig(ctx, base);
+    if (trace_noctis_air(attacker))
+        std::fprintf(stderr,"noctis-air HIT player=%08X name=%.*s frame=%u defender=%08X victim=%.*s kind=%u flags=%08X damage=%d\n",
+            attacker,int(damage_move_name(attacker).size()),damage_move_name(attacker).data(),
+            load(attacker+kPlayerFrame),defender,int(damage_move_name(defender).size()),
+            damage_move_name(defender).data(),load(result+0x40),flags,
+            static_cast<int32_t>(load(result+0x2c))-before[0]);
     if (percent == 100) return;
     // The result contains four accumulated damage channels. Scale only the
     // contribution just computed, retaining earlier hits and native modifiers.
@@ -3503,7 +3531,13 @@ PPC_FUNC(sub_03AE86A0) { // a move property (player r3, {id, value} r4, pass r5)
                                (id == 0x8093 || id == 0x80a5) && ctx.r[5] == 0;
     const uint32_t trace_value = trace_special ? load(ctx.r[4] + 4) : 0;
     const uint32_t trace_frame = trace_special ? load(player + kPlayerFrame) : 0;
+    const bool noctis_trace = trace_noctis_air(player) && (id == 0x8093 || id == 0x80a5);
+    const uint32_t requested = noctis_trace ? load(ctx.r[4]+4) : 0;
+    const uint32_t pass = ctx.r[5];
     sub_03AE86A0_orig(ctx, base);
+    if (noctis_trace)
+        std::fprintf(stderr,"noctis-air SET player=%08X frame=%u prop=%04X requested=%u stored=%u pass=%u\n",
+            player,load(player+kPlayerFrame),id,requested,load(player+(id==0x80a5?0x628:0x63c)),pass);
     if (trace_special)
         std::fprintf(stderr, "akuma-buffer SET player=%08X frame=%u requested=%u stored=%u\n",
                      player, trace_frame, trace_value, load(player + (id == 0x80a5 ? 0x628 : 0x63c)));
@@ -3519,7 +3553,13 @@ PPC_FUNC(sub_0404FF30) {
     const uint32_t stored = trace ? load(player + (kind == 308 ? 0x628 : 0x63c)) : 0;
     const uint32_t frame = trace ? load(player + kPlayerFrame) : 0;
     const uint32_t move = trace ? load(player + kPlayerMove) : 0;
+    const bool noctis_trace = trace_noctis_air(player) &&
+        (kind == 307 || kind == 308 || kind == 46 || kind == 47 || kind == 457 || kind == 0x8093 || kind == 0x80a5);
+    const uint32_t noctis_wanted = noctis_trace ? load(requirement+4) : 0;
     sub_0404FF30_orig(ctx, base);
+    if (noctis_trace)
+        std::fprintf(stderr,"noctis-air CHECK player=%08X frame=%u req=%u wanted=%u input_latch=%u hit_latch=%u result=%u\n",
+            player,load(player+kPlayerFrame),kind,noctis_wanted,load(player+0x63c),load(player+0x628),ctx.r[3]);
     if (trace) {
         static std::map<uint32_t, std::pair<uint32_t, uint32_t>> last;
         const auto key = std::make_pair(move, frame);
@@ -3627,7 +3667,12 @@ PPC_FUNC(sub_03F51E70_orig);
 PPC_FUNC(sub_03F51E70) {
     const uint32_t player = ctx.r[3], row = ctx.r[4];
     const bool trace = trace_eliza_assist(player) && trace_glide_move(player) && row && load(row + 4);
+    const bool noctis_trace = trace_noctis_air(player) && row && load(row+4);
     sub_03F51E70_orig(ctx, base);
+    if (noctis_trace)
+        std::fprintf(stderr,"noctis-air INPUT player=%08X frame=%u buttons=%08X mode=%08X window=%u-%u start=%u held=%08X result=%u\n",
+            player,load(player+kPlayerFrame),load(row+4),load(load(row+12)),load(row+16),load(row+20),
+            load(row+24),load(player+0x7f0),ctx.r[3]);
     if (trace)
         std::fprintf(stderr, "eliza-assist INPUT player=%08X name=%s frame=%u row=%08X dir=%08X buttons=%08X mode=%08X target=%u window=%u-%u start=%u held=%08X dirheld=%08X dirpress=%08X lock=%u result=%u\n",
                      player, assist_move_name(player), load(player + kPlayerFrame), row, load(row), load(row + 4),
@@ -3639,7 +3684,14 @@ PPC_FUNC(sub_0414E7E4_orig);
 PPC_FUNC(sub_0414E7E4) {
     const uint32_t player = ctx.r[6];
     const bool trace = trace_eliza_assist(player) && trace_glide_move(player);
+    const bool noctis_trace = trace_noctis_air(player);
     sub_0414E7E4_orig(ctx, base);
+    if (noctis_trace && ctx.r[3]) {
+        const uint32_t row = ctx.r[3];
+        std::fprintf(stderr,"noctis-air SELECT player=%08X frame=%u buttons=%08X mode=%08X target=%u window=%u-%u start=%u\n",
+            player,load(player+kPlayerFrame),load(row+4),load(load(row+12)),load16(row+28),
+            load(row+16),load(row+20),load(row+24));
+    }
     if (trace && ctx.r[3]) {
         const uint32_t row = ctx.r[3];
         std::fprintf(stderr, "eliza-assist SELECT player=%08X name=%s frame=%u row=%08X dir=%08X buttons=%08X mode=%08X target=%u held=%08X lock=%u\n",
@@ -3652,6 +3704,7 @@ PPC_FUNC(sub_04336854_orig);
 PPC_FUNC(sub_04336854) { // a fighter's physics, once a frame (r3; it recurses into the objects at +164, +168)
     const uint32_t player = ctx.r[3];
     trace_eliza_move(player);
+    trace_noctis_air_step(player);
     const bool own = ctx.lr < 0x04336854 || ctx.lr >= 0x0433AF5C;
     const auto it = own ? g_arcs.find(player) : g_arcs.end();
     if (it == g_arcs.end() || it->second.mode == Arc2D::kNone) {
