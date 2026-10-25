@@ -1,4 +1,5 @@
 #include "title/roster.h"
+#include "title/eliza_assist.h"
 #include "title/damage_scaling.h"
 #include "outfit_menu.h"
 
@@ -3588,30 +3589,37 @@ bool trace_glide_move(uint32_t player) {
            name == "Vp_6rklk" || name == "Vp_66lklk" ||
            name == "Vp_66lklk_H" || name == "Vp_6rklkrk";
 }
-// Latch only a Tag Assault Glide sequence, then follow the actual Glide 3
-// string states. Leaving this small graph (including tag-out or a reaction)
-// immediately restores normal controller ownership.
+// Read the move's actual neutral recovery instead of a hard-coded timeout.
+uint32_t assist_recovery(uint32_t player) {
+    const uint32_t move = load(player + kPlayerMove);
+    if (!move) return 0;
+    uint32_t row = load(move + 0x14);
+    if (!row) return 0;
+    for (unsigned i = 0; i < 512; ++i, row += 32) {
+        if (load(row) != 0x8000) continue;
+        return load(row + 16);
+    }
+    return 0;
+}
 bool eliza_assist_glide_sequence(uint32_t player) {
-    static std::map<uint32_t, bool> sequences;
+    static std::map<uint32_t, eliza_assist::Session> sequences;
     if (!player) return false;
     const int slot = slot_of_id(load(player + kPlayerSelectId));
-    if (slot < 0 || g_added[slot].code != "elz" || load(player + 0x408) != 0) {
+    const bool eliza = slot >= 0 && g_added[slot].code == "elz";
+    if (!eliza) {
         sequences.erase(player);
         return false;
     }
-    const std::string_view name(assist_move_name(player));
-    const uint32_t frame = load(player + kPlayerFrame);
-    const bool glide = name == "Vp_dash_C" || name == "Vp_dash_EX" || name == "Vp_dash_EX2";
-    bool& active = sequences[player];
-    if (glide && frame >= 1 && frame <= 24 && load(player + 0x1e88) == 1)
-        active = true;
-    const bool continuation =
-        (name == "Vp_6rklk" && frame < 46) ||
-        (name == "Vp_66lklk" && frame < 58) ||
-        (name == "Vp_66lklk_H" && frame < 54) ||
-        (name == "Vp_6rklkrk" && frame < 50);
-    if ((!glide || frame > 24) && !continuation) active = false;
+    auto& state = sequences[player];
+    const bool active = state.update(true, load(player + 0x408) == 0,
+        load(player + 0x1e88) == 1, load(player + 0xac),
+        assist_move_name(player), load(player + kPlayerFrame), assist_recovery(player));
+    if (!active) sequences.erase(player);
     return active;
+}
+bool eliza_assist_pair(uint32_t player) {
+    return player && (eliza_assist_glide_sequence(player) ||
+                     eliza_assist_glide_sequence(load(player + 0xac)));
 }
 void trace_eliza_move(uint32_t player) {
     if (!trace_eliza_assist(player)) return;
@@ -3627,22 +3635,50 @@ void trace_eliza_move(uint32_t player) {
 }
 } // namespace
 
-// An assist continuation owns the shared human controller until it leaves the
-// sequence. Suppress duplicate attack buttons, retaining movement/analog input
-// and native assist-follow movement for the main fighter during that interval.
+// Keep the main fighter on its native inactive/assist route while Eliza
+// owns this continuation. Filtering attack buttons alone left the main
+// fighter on human movement, rather than the native waiting/follow route.
+PPC_FUNC(sub_03F53238_orig);
 PPC_FUNC(sub_03F52F20_orig);
 PPC_FUNC(sub_03F52F20) {
     const uint32_t player = ctx.r[3];
     const uint32_t partner = player ? load(player + 0xac) : 0;
-    if (eliza_assist_glide_sequence(partner)) {
-        // Use the native configurable LP/RP/LK/RK masks read by 03F52F20.
-        // Zeroing the whole pad also discarded the main fighter's movement.
-        const uint32_t attacks = load(0x10708aa0) | load(0x10708aac) |
-                                 load(0x10708aa4) | load(0x10708aa8);
-        ctx.r[5] &= ~attacks;
-        ctx.r[6] &= ~attacks;
-    }
-    sub_03F52F20_orig(ctx, base);
+    if (eliza_assist_glide_sequence(partner))
+        sub_03F53238_orig(ctx, base);
+    else
+        sub_03F52F20_orig(ctx, base);
+}
+void trace_assist_lifetime(const char* operation, uint32_t player, bool deferred) {
+    if (!std::getenv("TTT2_TRACE_ELIZA_ASSIST") || !player) return;
+    const uint32_t partner = load(player + 0xac);
+    if (!trace_eliza_assist(player) && !trace_eliza_assist(partner)) return;
+    std::fprintf(stderr, "eliza-assist LIFETIME op=%s deferred=%u player=%08X name=%s frame=%u owner=%u assist=%u partner=%08X partner_name=%s partner_owner=%u partner_assist=%u timer=%u\n",
+        operation, deferred, player, assist_move_name(player), load(player + kPlayerFrame),
+        load(player + 0x1e80), load(player + 0x1e88), partner,
+        partner ? assist_move_name(partner) : "?", partner ? load(partner + 0x1e80) : 0,
+        partner ? load(partner + 0x1e88) : 0, load(player + 0x7c0));
+}
+// Native assist expiry/ownership operations. Defer them while the actual
+// b+4 -> Glide -> 3,3/3,4 graph is still running, including b+4's special
+// input window. On recovery, interruption, tag-out or assist cancellation,
+// the original operations execute unchanged.
+PPC_FUNC(sub_04E185EC_orig);
+PPC_FUNC(sub_04E185EC) {
+    const bool deferred = eliza_assist_glide_sequence(ctx.r[3]);
+    trace_assist_lifetime("handoff", ctx.r[3], deferred);
+    if (!deferred) sub_04E185EC_orig(ctx, base);
+}
+PPC_FUNC(sub_04E187B8_orig);
+PPC_FUNC(sub_04E187B8) {
+    const bool deferred = eliza_assist_glide_sequence(ctx.r[3]);
+    trace_assist_lifetime("expiry", ctx.r[3], deferred);
+    if (!deferred) sub_04E187B8_orig(ctx, base);
+}
+PPC_FUNC(sub_04E19DE4_orig);
+PPC_FUNC(sub_04E19DE4) {
+    const bool deferred = ctx.r[4] == 0 && eliza_assist_pair(ctx.r[3]);
+    trace_assist_lifetime("end", ctx.r[3], deferred);
+    if (!deferred) sub_04E19DE4_orig(ctx, base);
 }
 PPC_FUNC(sub_03F53238_orig);
 PPC_FUNC(sub_03F53238) {
