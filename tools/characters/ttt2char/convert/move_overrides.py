@@ -3,6 +3,10 @@ from . import tagsystem as TS
 
 
 def apply(c):
+    for source in c.defn.MOVESET.get("source_air_reactions", ()):
+        restore_air_reaction(c, source)
+    for source in c.defn.MOVESET.get("air_hit_strings", ()):
+        air_hit_string(c, source)
     for source in c.defn.MOVESET.get('hitgrab_followups', ()):
         restore_hitgrab_followups(c, source)
     for source, target in c.defn.MOVESET.get('on_hit_followups', {}).items():
@@ -387,3 +391,82 @@ def restore_hitgrab_followups(c, source):
         raise ValueError('no missing hit-grab continuations: ' + source)
     move['cancel']=TS.write(c.T,'cancels',rows[:-1]+added+rows[-1:])
     c.stats['scoped hit-grab continuations restored'] += len(added)
+
+
+def air_hit_string(c, source):
+    """Replace the two T7 value-store buffers of an air hit string.
+
+    The source sets store 0x80a6 on hit against an airborne opponent, then
+    store 0x80a9 on the follow-up button. Native direct input keeps both hit
+    gates without converting a buffer capture into a real neutral cancel.
+    """
+    from . import idmaps as M
+    original = c.k.tables['moves'][c.kn[source]]
+    source_rows = M.cancels(c.k, original['cancel'])
+    capture = [r for r in source_rows if r['button'] and M.reqs(c.k, r['req']) == [(0x80a9, 1)]]
+    hit = [r for r in source_rows if M.reqs(c.k, r['req']) == [(44, 0), (607, 0), (0x80a6, 1)]]
+    follow = [r for r in source_rows if M.reqs(c.k, r['req']) == [(352, 1), (353, 1)]]
+    if len(capture) != 1 or len(hit) != 1 or len(follow) != 1:
+        raise ValueError('not a supported airborne hit string: ' + source)
+    target = c.k.resolve_alias(follow[0]['move_id'])
+    if target not in c.newidx:
+        raise ValueError('missing airborne string target: ' + source)
+    contact, airborne = c.map_req(44), c.map_req(607)
+    if contact is None or airborne is None:
+        raise ValueError('unmapped airborne hit gates: ' + source)
+    req = len(c.T['requirements'])
+    c.T['requirements'] += [dict(condition=contact, param=0), dict(condition=airborne, param=0),
+                            dict(condition=TS.TT_END, param=0)]
+    move = c.T['moves'][c.newidx[c.kn[source]]]
+    rows = [dict(r) for r in TS.cancels(c.T, move['cancel'])]
+    inp, dispatch = capture[0], follow[0]
+    # Remove the converted store capture (which may have an empty req list),
+    # and the contact/store row. Neither is a real transition to neutral.
+    def buffer_row(row):
+        for src in (inp, hit[0], dispatch):
+            if all(row[f] == src[f] for f in ('direction', 'button', 'win_start', 'win_end', 'start_frame')):
+                return True
+        return False
+    rows = [row for row in rows if not buffer_row(row)]
+    new = dict(dispatch, direction=inp['direction'], button=inp['button'], req=req,
+               win_start=inp['win_start'], win_end=inp['win_end'],
+               move_id=c.newidx[target], extradata=c.extradata(dispatch['extradata']))
+    rows.insert(0, new)
+    move['cancel'] = TS.write(c.T, 'cancels', rows)
+    c.stats['airborne hit string continuations restored'] += 1
+
+
+def restore_air_reaction(c, source):
+    """Keep an explicit move's original airborne reaction, never a global remap.
+
+    Copy its hit list and reaction row so other attacks sharing either list
+    retain their native mapping and Tag Assault behavior.
+    """
+    from . import idmaps as M
+    original = c.k.tables['moves'][c.kn[source]]
+    matches = [ri for req, _, ri in M.hitconds(c.k, original['hit_condition']) if req == [(614, 0)]]
+    if len(matches) != 1:
+        raise ValueError('no unique airborne reaction: ' + source)
+    ri = matches[0]
+    from ..movesets import REACTION_MOVE_FIELDS
+    names = {c.k.move_name(c.k.tables['reactions'][ri][f]) for f in REACTION_MOVE_FIELDS
+             if c.k.tables['reactions'][ri][f] < len(c.k.tables['moves'])}
+    saved = {name: c.react_remap.pop(name) for name in names if name in c.react_remap}
+    key = ('react', ri)
+    cached = c.cache.pop(key, None)
+    try:
+        reaction = c.conv_reaction(ri)
+    finally:
+        c.react_remap.update(saved)
+        c.cache.pop(key, None)
+        if cached is not None:
+            c.cache[key] = cached
+    c.link_queued({})
+    move = c.T['moves'][c.newidx[c.kn[source]]]
+    hits = [dict(h) for h in TS.hits(c.T, move['hit_condition'])]
+    air = [h for h in hits if TS.reqs(c.T, h['req']) == [(TS.AIR, 0)]]
+    if len(air) != 1:
+        raise ValueError('no unique native airborne hit: ' + source)
+    air[0]['reactions'] = reaction
+    move['hit_condition'] = TS.write(c.T, 'hit_conditions', hits)
+    c.stats['explicit airborne reactions restored'] += 1

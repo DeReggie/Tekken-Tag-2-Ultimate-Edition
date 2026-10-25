@@ -222,3 +222,54 @@ class ScopedRequirementConversion(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(T.reqs(c.T,at),[(2,0),(47,0),(93,0)])
         self.assertEqual(c.conv_reqs(0),(None,False))
+
+class AirHitString(unittest.TestCase):
+    def fixture(self):
+        from ttt2char.movesets import Moveset
+        k=Moveset();k.game='t7'
+        req=[]
+        def rq(*pairs):
+            at=len(req);req.extend(dict(condition=a,param=b) for a,b in pairs);req.append(dict(condition=881,param=0));return at
+        def row(button,condition,target,ws,we,sf):
+            return dict(direction=0,button=button,req=condition,move_id=target,extradata=0,win_start=ws,win_end=we,start_frame=sf,option=65)
+        hit=row(0,rq((44,0),(607,0),(0x80a6,1)),0,10,12,10)
+        capture=row(0x40000002,rq((0x80a9,1)),0,1,15,1)
+        dispatch=row(0,rq((352,1),(353,1)),1,14,15,14)
+        end=dict(row(0,rq(),0,30,30,30),direction=M.LIST_END)
+        k.tables={'requirements':req,'moves':[dict(cancel=0),dict(cancel=0)],'cancels':[hit,capture,dispatch,end]};k.resolve_alias=lambda n:n
+        c=types.SimpleNamespace(k=k,kn={'air2':0},newidx={0:0,1:1},stats=collections.Counter(),T={'moves':[dict(cancel=0)],'requirements':[dict(condition=690,param=0)],'cancels':[dict(capture,req=0),dict(end,req=0)]})
+        c.map_req=lambda n:{44:46,607:457}.get(n);c.extradata=lambda n:n
+        return c
+    def test_followup_requires_contact_and_airborne_target_and_keeps_timing(self):
+        c=self.fixture();O.air_hit_string(c,'air2');rows=T.cancels(c.T,c.T['moves'][0]['cancel'])
+        self.assertEqual(len(rows),2)
+        r=rows[0];self.assertEqual((r['move_id'],r['button'],r['win_start'],r['win_end'],r['start_frame']),(1,0x40000002,1,15,14))
+        self.assertEqual(T.reqs(c.T,r['req']),[(46,0),(457,0)])
+        self.assertFalse(any(row['button'] and row['move_id']==0 for row in rows))
+    def test_unrecognized_buffer_is_rejected(self):
+        c=self.fixture();c.k.tables['requirements'][0]['condition']=43
+        with self.assertRaises(ValueError):O.air_hit_string(c,'air2')
+
+class SourceAirReaction(unittest.TestCase):
+    def test_only_air_hit_gets_source_reaction_and_shared_cache_is_preserved(self):
+        from ttt2char.movesets import Moveset, REACTION_MOVE_FIELDS
+        k=Moveset();k.game='t7';k.move_name=lambda i:['slam','attack'][i]
+        k.tables={'moves':[{},dict(hit_condition=0)],'reactions':[{f:0 for f in REACTION_MOVE_FIELDS}],
+                  'requirements':[dict(condition=614,param=0),dict(condition=881,param=0),dict(condition=881,param=0)],
+                  'hit_conditions':[dict(req=0,damage=28,reactions=0),dict(req=2,damage=28,reactions=0)]}
+        c=types.SimpleNamespace(k=k,kn={'attack':1},newidx={1:0},react_remap={'slam':'rebound'},cache={('react',0):1},stats=collections.Counter())
+        old=[dict(req=0,damage=28,reactions=1),dict(req=2,damage=28,reactions=1)]
+        c.T={'moves':[dict(hit_condition=0)],'hit_conditions':old.copy(),
+             'requirements':[dict(condition=T.AIR,param=0),dict(condition=690,param=0),dict(condition=690,param=0)]}
+        def reaction(ri):
+            self.assertNotIn('slam',c.react_remap)
+            self.assertNotIn(('react',ri),c.cache)
+            c.cache['react',ri]=2
+            return 2
+        c.conv_reaction=reaction;c.link_queued=lambda _:None
+        O.restore_air_reaction(c,'attack')
+        new=T.hits(c.T,c.T['moves'][0]['hit_condition'])
+        self.assertEqual([h['reactions'] for h in new],[2,1])
+        self.assertEqual(c.T['hit_conditions'][:2],old)
+        self.assertEqual(c.react_remap,{'slam':'rebound'})
+        self.assertEqual(c.cache,{('react',0):1})
