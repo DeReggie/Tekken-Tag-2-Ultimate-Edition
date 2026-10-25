@@ -405,7 +405,7 @@ def air_hit_string(c, source):
     if len(capture) != 1 or len(hit) != 1 or len(follow) != 1:
         raise ValueError('not a supported airborne hit string: ' + source)
     target = c.k.resolve_alias(follow[0]['move_id'])
-    if target not in c.newidx or c.map_req(607) is None:
+    if target not in c.newidx or c.map_req(44) is None or c.map_req(607) is None:
         raise ValueError('missing airborne string target or gate: ' + source)
     def req(values):
         return TS.write(c.T,'requirements',[dict(condition=a,param=b) for a,b in values]
@@ -423,9 +423,11 @@ def air_hit_string(c, source):
     rows = [row for row in rows if not buffer_row(row)]
     # 0x2800 evaluates actions without changing the move; 0x182 is a
     # real buffered follow-up. Both are verified native cancel modes.
+    # Player trace: damage connects at frame 11 with native 46 true and
+    # 47 false. Latch the source 44's mapped predicate, not a guessed 47.
     latches = [dict(capture[0],req=req([(S.SPECIAL_SET,1)]),
                     extradata=extra(0x2800),move_id=0x8001,option=0),
-               dict(hit[0],req=req([(47,0),(c.map_req(607),0),(S.CONTACT_SET,1)]),
+               dict(hit[0],req=req([(c.map_req(44),0),(c.map_req(607),0),(S.CONTACT_SET,1)]),
                     extradata=extra(0x2800),move_id=0x8001,option=0)]
     dispatch = dict(follow[0],req=req([(S.SPECIAL_VAR,1),(S.CONTACT_VAR,1)]),
                     extradata=extra(0x182),move_id=c.newidx[target],option=0)

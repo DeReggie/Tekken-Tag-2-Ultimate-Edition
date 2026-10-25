@@ -72,7 +72,7 @@ Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` mea
 | NOC-03 | Sword impact effects and sounds are incorrect (e.g. 2,2,2,2); 2,2 effects appear in the wrong location | Open | Full text + screenshot “2,2 effects are in the wrong spot” |
 | NOC-04 | 2,2 fails in combos when opponent was launched on their back | Open | Full text + screenshot “2,2 (second hit) hitbox issues” |
 | NOC-05 | Freezes airborne on block instead of teleporting forward: f+2, 2,2,b+2, d/f+1,2 | Working — player confirmed 2026-10-25; no warp change applied | Earlier tracker; repeated in full text where applicable |
-| NOC-06 | Airborne 2,2,2 stops after its first hit in combos | Open — both candidates failed gameplay test; focused native trace installed | Earlier tracker; repeated in full text where applicable |
+| NOC-06 | Airborne 2,2,2 stops after its first hit in combos | Trace-backed hit-check correction installed — gameplay retest pending | Earlier tracker; repeated in full text where applicable |
 | NOC-07 | u/f+3 plays only its first kick rather than the full animation | Correction installed — automated validation passed; gameplay check pending | Earlier tracker; repeated in full text where applicable |
 | NOC-08 | Emoman unexpectedly launches; establish exact input and expected reaction | Player reports airborne launch issue fixed — 2026-10-25 | Earlier tracker; repeated in full text where applicable |
 | NOC-09 | Missing b+2,1+2 follow-up | Correction installed — source follow-up routes restored; gameplay check pending | Earlier tracker; repeated in full text where applicable |
@@ -402,3 +402,10 @@ NOC-18: WS 2,2 is Mz_s_trp00 → Mz_s_trp01. Final hit now uses private source a
 Player confirms all latest changes except airborne 2,2,2 are fixed; WS 2,2 free Screw and neutral 1+2 non-Bound marked confirmed. Player clarified Noctis himself is airborne and the sequence stops after the first hit. Both direct-input and native-latch candidates failed gameplay tests; keep issue open.
 
 Added opt-in TTT2_TRACE_NOCTIS_AIR logging for Noctis move/frame progression, input eligibility, requirement evaluation, latch setters, successful hit events and selected cancels. Logs only when enabled; no further gameplay edit. Workspace outputs/run-noctis-air-trace.sh saves the full output and displays filtered diagnostics. Build and 4/4 targeted CTests passed; executable launch paths synchronized, backup retained, all 2,223 character files hash-verified unchanged. A reproduction using the diagnostic launcher is the next evidence needed.
+
+
+### Noctis airborne 2,2,2 — trace-backed hit predicate correction, 2026-10-25
+
+Player trace records input latch 1 at frame 9 and an airborne hit dealing 7 damage at frame 11. At the successful hit, native 46 returns 1 while hardcoded 47 returns 0. Consequently the hit latch remains zero and frame-14 dispatch rejects the follow-up. Corrected only the three opted-in air-string latches to source requirement 44's actual mapping (46). Both latches, resets, source timing and opponent-airborne condition retained.
+
+Binary comparison confirms exactly three requirement changes; every other table and all motion bytes identical. Installed mrz.moveset only with backup, 2,222 other character files hash-verified unchanged. 233 Python tests ran (one skipped; launcher excluded), no failures; 4/4 targeted CTests passed. Restart only, no executable rebuild or reimport. Player retest pending; existing diagnostic launcher still available.

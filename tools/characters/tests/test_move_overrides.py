@@ -252,12 +252,32 @@ class AirHitString(unittest.TestCase):
         self.assertEqual((inp['button'],inp['win_start'],inp['win_end']),(0x40000002,1,15))
         self.assertEqual(c.T['cancel_extras'][inp['extradata']]['value'],0x2800)
         self.assertEqual(T.reqs(c.T,inp['req']),[(0x8093,1)])
-        self.assertEqual(T.reqs(c.T,hit['req']),[(47,0),(457,0),(0x80a5,1)])
+        self.assertEqual(T.reqs(c.T,hit['req']),[(46,0),(457,0),(0x80a5,1)])
         self.assertEqual((r['move_id'],r['button'],r['win_start'],r['win_end'],r['start_frame']),(1,0,14,15,14))
         self.assertEqual(T.reqs(c.T,r['req']),[(307,1),(308,1)])
         self.assertEqual(c.T['cancel_extras'][r['extradata']]['value'],0x182)
         entry=c.T['move_begin_props'][c.T['moves'][0]['begin_props']:]
         self.assertEqual([(p['id'],p['value']) for p in entry[:-1]],[(0x8093,0),(0x80a5,0)])
+    def test_observed_hit_is_remembered_after_contact_frame(self):
+        # Player trace: input stored at 9; damage at 11 where 46=1,47=0;
+        # dispatch at 14 must use the remembered hit, not live contact.
+        c=self.fixture();O.air_hit_string(c,'air2')
+        inp,hit,dispatch=T.cancels(c.T,c.T['moves'][0]['cancel'])[:3]
+        for contact,airborne,expected in [(True,True,True),(False,True,False),(True,False,False)]:
+            with self.subTest(contact=contact,airborne=airborne):
+                words={307:0,308:0}
+                def evaluate(row,flags):
+                    for kind,want in T.reqs(c.T,row['req']):
+                        if kind==0x8093:words[307]=want
+                        elif kind==0x80a5:words[308]=want
+                        elif kind in words:
+                            if words[kind]!=want:return False
+                        elif not flags.get(kind,False):return False
+                    return True
+                self.assertTrue(evaluate(inp,{}))
+                evaluate(hit,{46:contact,47:False,457:airborne})
+                self.assertEqual(evaluate(dispatch,{46:False,47:False,457:False}),expected)
+
     def test_unrecognized_buffer_is_rejected(self):
         c=self.fixture();c.k.tables['requirements'][0]['condition']=43
         with self.assertRaises(ValueError):O.air_hit_string(c,'air2')
