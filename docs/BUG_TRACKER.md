@@ -4,7 +4,7 @@ Noctis b+2 follow-ups restored with scoped attack-to-throw/contact gates; airbor
 
 # Consolidated gameplay bug list
 
-Updated 2026-10-24. Branch: `codex/all-local-changes`. Merges the full pasted chat report, all visible screenshot rows, and earlier tracked work. Repeated reports are combined; distinct moves, symptoms and test routes remain separate. Existing IDs are preserved.
+Updated 2026-10-25. Branch: `codex/all-local-changes`. Merges the full pasted chat report, all visible screenshot rows, and earlier tracked work. Repeated reports are combined; distinct moves, symptoms and test routes remain separate. Existing IDs are preserved.
 
 ## Status rules
 
@@ -46,6 +46,7 @@ Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` mea
 | ID | Report / requested behavior | Current status | Source / notes |
 |---|---|---|---|
 | TAG-01 | Dagger attacks fail during Tag Assault; inspect each fighter separately | Open | Earlier tracker; repeated in full text where applicable |
+| TAG-04 | Imported characters lose Tag Assault participation when entering stances; investigate shared assist lifetime and stance continuation | Open — newly reported; investigation pending | BH59 report supplied 2026-10-25 |
 
 ## Negan
 
@@ -59,20 +60,22 @@ Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` mea
 | NEG-06 | d/b+1+2 counter-hit reaction is broken; resembles Noctis u/f+1 problem | CH crumple correction installed; needs gameplay check | Earlier tracker; repeated in full text where applicable |
 | NEG-07 | qcf+1 knife is not visible | Open | Earlier tracker; repeated in full text where applicable |
 | NEG-08 | Missing sidestep 2 | Open — installed sidestep input routes present; gameplay reproduction needed | Earlier tracker; repeated in full text where applicable |
+| NEG-09 | d/f+4,2 second-hit hitbox is inconsistent | Open — newly reported; investigation pending | BH59 report supplied 2026-10-25 |
+| NEG-10 | Leaves Tag Assault when transitioning into INT stance, e.g. after d/f+4,2 | Open — newly reported; investigation pending | BH59 report supplied 2026-10-25 |
 
 ## Noctis
 
 | ID | Report / requested behavior | Current status | Source / notes |
 |---|---|---|---|
 | NOC-01 | u/f+1 counter-hit reaction is broken (reported twice) | Same CH crumple correction installed; needs gameplay check | Earlier tracker; repeated in full text where applicable |
-| NOC-02 | f+2 deals unscaled combo damage | Correction installed — automated validation passed; gameplay check pending | Earlier tracker; repeated in full text where applicable |
+| NOC-02 | f+2 deals unscaled combo damage | Correction installed — automated checks passed; gameplay check pending | Earlier tracker; repeated in full text where applicable |
 | NOC-03 | Sword impact effects and sounds are incorrect (e.g. 2,2,2,2); 2,2 effects appear in the wrong location | Open | Full text + screenshot “2,2 effects are in the wrong spot” |
 | NOC-04 | 2,2 fails in combos when opponent was launched on their back | Open | Full text + screenshot “2,2 (second hit) hitbox issues” |
-| NOC-05 | Freezes airborne on block instead of teleporting forward: f+2, 2,2,b+2, d/f+1,2 | Open | Earlier tracker; repeated in full text where applicable |
+| NOC-05 | Freezes airborne on block instead of teleporting forward: f+2, 2,2,b+2, d/f+1,2 | Open — block routes present; teleport behavior needs further investigation | Earlier tracker; repeated in full text where applicable |
 | NOC-06 | Airborne 2,2,2 stops after its first hit in combos | Open | Earlier tracker; repeated in full text where applicable |
 | NOC-07 | u/f+3 plays only its first kick rather than the full animation | Correction installed — automated validation passed; gameplay check pending | Earlier tracker; repeated in full text where applicable |
 | NOC-08 | Emoman unexpectedly launches; establish exact input and expected reaction | Open | Earlier tracker; repeated in full text where applicable |
-| NOC-09 | Missing b+2,1+2 follow-up | Correction installed — automated validation passed; gameplay check pending | Earlier tracker; repeated in full text where applicable |
+| NOC-09 | Missing b+2,1+2 follow-up | Correction installed — source follow-up routes restored; gameplay check pending | Earlier tracker; repeated in full text where applicable |
 | NOC-10 | d/f+4,2 fails against female characters at the wall | Open | Full text + screenshot “Missing SS2, DF4,2 hitbox issues” |
 | NOC-11 | Emoman does not work as a wall combo | Open | Earlier tracker; repeated in full text where applicable |
 | NOC-12 | WS 1,2 second-hit hitbox unreliable, especially at tip range | Open | Earlier tracker; repeated in full text where applicable |
@@ -80,6 +83,7 @@ Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` mea
 | NOC-14 | d/b+2 counter-hit animation is referenced as broken; confirm whether distinct from u/f+1 report | Reference identified — d/b+2 CH is distinct from u/f+1; no new change to reference | Full text, comparison in Eliza stance 4 report |
 | NOC-15 | 1+2 should not Bound | Correction installed — automated validation passed; gameplay check pending | Screenshot |
 | NOC-16 | Emoman should not Bound | Correction installed — automated validation passed; gameplay check pending | Screenshot |
+| NOC-17 | Sidestep 2 hitbox is unreliable; distinct from the earlier missing-input report | Open — newly reported; investigation pending | BH59 report supplied 2026-10-25 |
 
 ## Kunimitsu II
 
@@ -90,6 +94,8 @@ Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` mea
 | KUN-03 | SET 1,2,3 should Bound | Correction installed — automated validation passed; gameplay check pending | Screenshot |
 | KUN-04 | u/f+3+4 has no hitbox | Open | Screenshot |
 | KUN-05 | f+4~F → SET continuation during Tag Assault | Existing fix retained and installed metadata verified; user recalls this as fixed | Earlier conversation / existing tracker and manifest |
+| KUN-06 | Missing crouch jab / dickjab; exact input not supplied | Open — newly reported; investigation pending | BH59 report supplied 2026-10-25 |
+| KUN-07 | SET stance slides underneath airborne opponents during combos | Open — newly reported; investigation pending | BH59 report supplied 2026-10-25 |
 
 ## Fahkumram
 
@@ -117,7 +123,7 @@ Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` mea
 | ID | Report / requested behavior | Current status | Source / notes |
 |---|---|---|---|
 | KAZ-01 | 3,2 should Bound | Correction installed — automated validation passed; gameplay check pending | Earlier tracker; repeated in full text where applicable |
-| KAZ-02 | f,f+2 tiger is not visible | Open | Earlier tracker; repeated in full text where applicable |
+| KAZ-02 | f,f+2 tiger is not visible | Open — base f,f+2 and Rage follow-up distinguished | Earlier tracker; repeated in full text where applicable |
 
 ## Gigas
 
@@ -149,6 +155,7 @@ Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` mea
 | LER-04 | qcf+2 fails in combos, including after orbital | Open | Full pasted report |
 | LER-05 | Missing sidestep 4 | Open | Full pasted report |
 | LER-06 | Cane is missing (d/f+2+3) | Open | Full pasted report |
+| LER-07 | b+2 parry is missing or does not activate | Open — newly reported; investigation pending | BH59 report supplied 2026-10-25 |
 
 ## Eliza
 
@@ -213,6 +220,7 @@ Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` mea
 | LCH-01 | f+4,4 second hit does not connect, e.g. against Fahkumram | Untriaged — screenshot status blank | Screenshot |
 | LCH-02 | Sometimes performs standing moves while back-turned | Untriaged — screenshot status blank | Screenshot |
 | LCH-03 | After d/b+3+4 → 2, gets standing 2 instead of back-turned 2 | Untriaged — may reproduce LCH-02; retained as a concrete route | Screenshot |
+| LCH-04 | d/f+1 connects unreliably in combos, including after a Cali Roll combo | Open — newly reported; investigation pending | BH59 report supplied 2026-10-25 |
 
 ## Geese
 
@@ -223,9 +231,13 @@ Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` mea
 | GEE-03 | f+1+2 should allow d+4 pickup against an airborne opponent | Float and recovery correction installed — needs gameplay confirmation | Earlier conversation / existing tracker and manifest |
 | GEE-04 | CD+2 should Bound on the final hit of the two-hit move | Implemented — retained from earlier work; no fresh audit in this list | Earlier conversation / existing tracker and manifest |
 
+## Reports merged on 2026-10-25
+
+Added eight distinct reports. Master Raven, Leroy’s earlier six reports, Eliza qcb+2 and Glide 4 overlap existing entries; their statuses are preserved. The repeated text is not treated as a fresh test disproving an installed correction. TAG-04 tracks the shared stance/assist lifetime issue; NEG-10 retains its concrete Negan reproduction. Noctis SS2 hitbox and missing SS2 input remain separate reports.
+
 ## Scope and history
 
-This inventory contains **101 tracked entries**. A combined report may have been split into independently testable moves; this is not a count of confirmed defects. Conversation chatter and the speculative memory-leak diagnosis are excluded as separate bugs. The long-session slowdown report keeps the memory-leak theory explicitly unproven.
+This inventory contains **109 tracked entries**. A combined report may have been split into independently testable moves; this is not a count of confirmed defects. Conversation chatter and the speculative memory-leak diagnosis are excluded as separate bugs. The long-session slowdown report keeps the memory-leak theory explicitly unproven.
 
 An autonomous implementation batch now covers 16 tracked entries, with gameplay verification still pending. See `autonomous-fix-report.md` and `autonomous-bug-audit.md` alongside this document. Existing investigation history remains in the repository tracker.
 
