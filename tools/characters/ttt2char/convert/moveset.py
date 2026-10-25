@@ -91,7 +91,9 @@ WIN_QUOTE_PROP, WIN_QUOTE_VALUE = 0x82F9, 0x0E003000
 # tiger animation's index (opt_anims), else it is left out.
 TIGER_PROP = 0x828f
 OPT_ANIM_PROP, OPT_ANIM_BASE = 0x82de, 0x4000
-VALUE_KIND = {0x8331: 'reaction', 0x8332: 'reaction', 0x843c: 'throwcam', 0x843d: 'throwcam', 0x820b: 'projectile'}
+# Movement properties reference pushback rows, just like hit reactions. Relocate the index
+# for both extra properties and property actions embedded in cancel requirements.
+VALUE_KIND = {0x81e8: 'pushback', 0x8331: 'reaction', 0x8332: 'reaction', 0x843c: 'throwcam', 0x843d: 'throwcam', 0x820b: 'projectile'}
 # Projectiles (Kazumi's tiger). Tekken 7 spawns one with five properties on the same frame: limb 0x820c, offsets
 # 0x820d/0x820e/0x820f, then 0x820b = the projectile's index. TTT2 has the same set at 0x8169 (limb; resets the
 # offsets), 0x816a/0x816b/0x816c (offset = the value as a signed 16-bit number) and 0x8168 (spawn projectile
@@ -552,6 +554,8 @@ class Converter:
         if t7id == TIGER_PROP:
             return OPT_ANIM_BASE + self.opt_anims[v] if v in self.opt_anims else None
         kind = VALUE_KIND.get(t7id)
+        if kind == 'pushback':
+            return self.conv_pushback(v)
         if kind == 'throwcam':
             return self.conv_throwcam(v)
         if kind == 'reaction':

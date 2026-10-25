@@ -1,7 +1,3 @@
-## Second autonomous batch — 2026-10-24
-
-Noctis b+2 follow-ups restored with scoped attack-to-throw/contact gates; airborne f+2 delayed damage inherits native juggle scaling once. Installed and rebuilt; 4/4 targeted CTests, 229 Python tests (one skipped, launcher excluded). Gameplay confirmation pending. Prior Noctis fixes and 2,222 other character files verified preserved.
-
 # Consolidated gameplay bug list
 
 Updated 2026-10-25. Branch: `codex/all-local-changes`. Merges the full pasted chat report, all visible screenshot rows, and earlier tracked work. Repeated reports are combined; distinct moves, symptoms and test routes remain separate. Existing IDs are preserved.
@@ -72,7 +68,7 @@ Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` mea
 | NOC-03 | Sword impact effects and sounds are incorrect (e.g. 2,2,2,2); 2,2 effects appear in the wrong location | Open | Full text + screenshot “2,2 effects are in the wrong spot” |
 | NOC-04 | 2,2 fails in combos when opponent was launched on their back | Open | Full text + screenshot “2,2 (second hit) hitbox issues” |
 | NOC-05 | Freezes airborne on block instead of teleporting forward: f+2, 2,2,b+2, d/f+1,2 | Working — player confirmed 2026-10-25; no warp change applied | Earlier tracker; repeated in full text where applicable |
-| NOC-06 | Airborne 2,2,2 stops after its first hit in combos | Trace-backed hit-check correction installed — gameplay retest pending | Earlier tracker; repeated in full text where applicable |
+| NOC-06 | Airborne 2,2,2 stops after its first hit in combos | Second hit confirmed; T7 movement restored — full-string retest pending | Earlier tracker; repeated in full text where applicable |
 | NOC-07 | u/f+3 plays only its first kick rather than the full animation | Correction installed — automated validation passed; gameplay check pending | Earlier tracker; repeated in full text where applicable |
 | NOC-08 | Emoman unexpectedly launches; establish exact input and expected reaction | Player reports airborne launch issue fixed — 2026-10-25 | Earlier tracker; repeated in full text where applicable |
 | NOC-09 | Missing b+2,1+2 follow-up | Correction installed — source follow-up routes restored; gameplay check pending | Earlier tracker; repeated in full text where applicable |
