@@ -83,6 +83,7 @@ VOICE_PREFIX = 'mz'
 # the id maps: Heihachi in both games, and his generic moves against TTT2's (Heihachi, the donor, Asuka)
 ALIGN = [('heihachi', 13), ('self', 13), ('heihachi', 14), ('self', DONOR_ROW), ('heihachi', 9), ('self', 23)]
 MOVESET = {
+    'free_air_screws': ('Mz_s_trp01',),
     # Only these finishers retain their T7 airborne slam instead of a rebound.
     'source_air_reactions': ('Mz_t_srk02', 'Mz_t_srk02Easy'),
     'air_hit_strings': ('Mz_jprp01', 'Mz_jprp01F', 'Mz_jprp02'),

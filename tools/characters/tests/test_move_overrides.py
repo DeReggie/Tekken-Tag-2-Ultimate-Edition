@@ -238,14 +238,26 @@ class AirHitString(unittest.TestCase):
         end=dict(row(0,rq(),0,30,30,30),direction=M.LIST_END)
         k.tables={'requirements':req,'moves':[dict(cancel=0),dict(cancel=0)],'cancels':[hit,capture,dispatch,end]};k.resolve_alias=lambda n:n
         c=types.SimpleNamespace(k=k,kn={'air2':0},newidx={0:0,1:1},stats=collections.Counter(),T={'moves':[dict(cancel=0)],'requirements':[dict(condition=690,param=0)],'cancels':[dict(capture,req=0),dict(end,req=0)]})
+        c.extra_index={}
+        c.T.update(cancel_extras=[],move_begin_props=[])
+        def add(table,row):
+            c.T[table].append(row);return len(c.T[table])-1
+        c.add=add
         c.map_req=lambda n:{44:46,607:457}.get(n);c.extradata=lambda n:n
         return c
     def test_followup_requires_contact_and_airborne_target_and_keeps_timing(self):
         c=self.fixture();O.air_hit_string(c,'air2');rows=T.cancels(c.T,c.T['moves'][0]['cancel'])
-        self.assertEqual(len(rows),2)
-        r=rows[0];self.assertEqual((r['move_id'],r['button'],r['win_start'],r['win_end'],r['start_frame']),(1,0x40000002,1,15,14))
-        self.assertEqual(T.reqs(c.T,r['req']),[(46,0),(457,0)])
-        self.assertFalse(any(row['button'] and row['move_id']==0 for row in rows))
+        self.assertEqual(len(rows),4)
+        inp,hit,r=rows[:3]
+        self.assertEqual((inp['button'],inp['win_start'],inp['win_end']),(0x40000002,1,15))
+        self.assertEqual(c.T['cancel_extras'][inp['extradata']]['value'],0x2800)
+        self.assertEqual(T.reqs(c.T,inp['req']),[(0x8093,1)])
+        self.assertEqual(T.reqs(c.T,hit['req']),[(47,0),(457,0),(0x80a5,1)])
+        self.assertEqual((r['move_id'],r['button'],r['win_start'],r['win_end'],r['start_frame']),(1,0,14,15,14))
+        self.assertEqual(T.reqs(c.T,r['req']),[(307,1),(308,1)])
+        self.assertEqual(c.T['cancel_extras'][r['extradata']]['value'],0x182)
+        entry=c.T['move_begin_props'][c.T['moves'][0]['begin_props']:]
+        self.assertEqual([(p['id'],p['value']) for p in entry[:-1]],[(0x8093,0),(0x80a5,0)])
     def test_unrecognized_buffer_is_rejected(self):
         c=self.fixture();c.k.tables['requirements'][0]['condition']=43
         with self.assertRaises(ValueError):O.air_hit_string(c,'air2')

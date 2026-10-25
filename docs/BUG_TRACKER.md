@@ -72,18 +72,19 @@ Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` mea
 | NOC-03 | Sword impact effects and sounds are incorrect (e.g. 2,2,2,2); 2,2 effects appear in the wrong location | Open | Full text + screenshot “2,2 effects are in the wrong spot” |
 | NOC-04 | 2,2 fails in combos when opponent was launched on their back | Open | Full text + screenshot “2,2 (second hit) hitbox issues” |
 | NOC-05 | Freezes airborne on block instead of teleporting forward: f+2, 2,2,b+2, d/f+1,2 | Working — player confirmed 2026-10-25; no warp change applied | Earlier tracker; repeated in full text where applicable |
-| NOC-06 | Airborne 2,2,2 stops after its first hit in combos | Correction installed — gated airborne 2,2,2 continuation restored; gameplay check pending | Earlier tracker; repeated in full text where applicable |
+| NOC-06 | Airborne 2,2,2 stops after its first hit in combos | Previous candidate failed — revised native latches installed; gameplay retest pending | Earlier tracker; repeated in full text where applicable |
 | NOC-07 | u/f+3 plays only its first kick rather than the full animation | Correction installed — automated validation passed; gameplay check pending | Earlier tracker; repeated in full text where applicable |
-| NOC-08 | Emoman unexpectedly launches; establish exact input and expected reaction | Open — grounded launch cause unconfirmed; airborne finisher correction installed separately | Earlier tracker; repeated in full text where applicable |
+| NOC-08 | Emoman unexpectedly launches; establish exact input and expected reaction | Player reports airborne launch issue fixed — 2026-10-25 | Earlier tracker; repeated in full text where applicable |
 | NOC-09 | Missing b+2,1+2 follow-up | Correction installed — source follow-up routes restored; gameplay check pending | Earlier tracker; repeated in full text where applicable |
 | NOC-10 | d/f+4,2 fails against female characters at the wall | Open | Full text + screenshot “Missing SS2, DF4,2 hitbox issues” |
-| NOC-11 | Emoman does not work as a wall combo | Correction installed — source airborne finisher slam restored; wall-combo check pending | Earlier tracker; repeated in full text where applicable |
+| NOC-11 | Emoman does not work as a wall combo | Airborne finisher reaction reported fixed; specific wall-combo check pending | Earlier tracker; repeated in full text where applicable |
 | NOC-12 | WS 1,2 second-hit hitbox unreliable, especially at tip range | Open | Earlier tracker; repeated in full text where applicable |
 | NOC-13 | Missing sidestep 2 | Move available — earlier missing-input report superseded by NOC-17 hitbox report | Earlier tracker; repeated in full text where applicable |
 | NOC-14 | d/b+2 counter-hit animation is referenced as broken; confirm whether distinct from u/f+1 report | Reference identified — d/b+2 CH is distinct from u/f+1; no new change to reference | Full text, comparison in Eliza stance 4 report |
 | NOC-15 | 1+2 should not Bound | Non-Bound verified in live pack 2026-10-25; retained through rebuild | Screenshot |
 | NOC-16 | Emoman should not Bound | Correction installed — automated validation passed; gameplay check pending | Screenshot |
 | NOC-17 | Sidestep 2 hitbox is unreliable; distinct from the earlier missing-input report | Open — source timing/collision points inspected; gameplay contact check pending | BH59 report supplied 2026-10-25 |
+| NOC-18 | WS 2,2 final hit should instantly Screw an airborne opponent without consuming Bound, like Eliza CH standing 4 | Requested correction installed — source airborne Screw retained without Bound; gameplay check pending | Direct user request 2026-10-25 |
 
 ## Kunimitsu II
 
@@ -237,7 +238,7 @@ Added eight distinct reports. Master Raven, Leroy’s earlier six reports, Eliza
 
 ## Scope and history
 
-This inventory contains **109 tracked entries**. A combined report may have been split into independently testable moves; this is not a count of confirmed defects. Conversation chatter and the speculative memory-leak diagnosis are excluded as separate bugs. The long-session slowdown report keeps the memory-leak theory explicitly unproven.
+This inventory contains **110 tracked entries**. A combined report may have been split into independently testable moves; this is not a count of confirmed defects. Conversation chatter and the speculative memory-leak diagnosis are excluded as separate bugs. The long-session slowdown report keeps the memory-leak theory explicitly unproven.
 
 An autonomous implementation batch now covers 16 tracked entries, with gameplay verification still pending. See `autonomous-fix-report.md` and `autonomous-bug-audit.md` alongside this document. Existing investigation history remains in the repository tracker.
 
@@ -383,3 +384,14 @@ For d+4,1,1+2 clean/easy finishers only, retain source airborne downward slams i
 Player confirms warp works on d/f+1,2, f+2, 2,2,b+2 and WS 3,2; closed the earlier freeze report without changing warp behavior. Neutral 1+2 verified non-Bound and retained.
 
 232 Python tests ran, one skipped, no failures (launcher module excluded); 4/4 targeted CTests passed. Round-trip, animation references and earlier fixes verified. Installed only mrz.moveset/mrz.motion with backups; 2,221 other character files hash-verified unchanged. Restart only, no reimport or executable rebuild. New candidates await gameplay checks; hitbox and sword sound/effect reports remain open.
+
+
+### Noctis gameplay feedback and WS 2,2 — 2026-10-25
+
+Player confirms airborne 2,2,2 still stops after its first hit; prior direct-input candidate superseded by independent native input/contact latches. Capture input without leaving the move, latch successful hit 47 plus opponent airborne 457 during source active window, dispatch at source timing using both stored words, reset both on entry. Native action-only 0x2800 and follow-up 0x182 modes match existing working hit-latched/string fixes. New gameplay retest pending.
+
+Player clarified the d+4,1,1+2 launch issue was airborne and says it looks fixed. Retained that correction; wall-combo reproduction remains separate.
+
+NOC-18: WS 2,2 is Mz_s_trp00 → Mz_s_trp01. Final hit now uses private source airborne Screw victim states without property 0x8193; ordinary airborne gate replaces Bound gate and generated Bound tag twins are absent. Grounded/CH reactions, damage and active frames unchanged. Every other existing hit/reaction row verified unchanged, including the d+4,1,1+2 fix and neutral 1+2 non-Bound setting.
+
+232 Python tests ran (one skipped; launcher excluded), no failures; 4/4 targeted CTests passed. Round-trip and animation references passed. Installed mrz.moveset/mrz.motion only, with backups and 2,221 other character files hash-verified unchanged. Restart only; no executable rebuild/reimport.
