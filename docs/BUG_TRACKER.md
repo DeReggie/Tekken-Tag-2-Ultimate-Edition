@@ -407,3 +407,15 @@ Added opt-in TTT2_TRACE_NOCTIS_AIR logging for Noctis move/frame progression, in
 Player trace records input latch 1 at frame 9 and an airborne hit dealing 7 damage at frame 11. At the successful hit, native 46 returns 1 while hardcoded 47 returns 0. Consequently the hit latch remains zero and frame-14 dispatch rejects the follow-up. Corrected only the three opted-in air-string latches to source requirement 44's actual mapping (46). Both latches, resets, source timing and opponent-airborne condition retained.
 
 Binary comparison confirms exactly three requirement changes; every other table and all motion bytes identical. Installed mrz.moveset only with backup, 2,222 other character files hash-verified unchanged. 233 Python tests ran (one skipped; launcher excluded), no failures; 4/4 targeted CTests passed. Restart only, no executable rebuild or reimport. Player retest pending; existing diagnostic launcher still available.
+
+### 2026-10-26 — local assist checkpoint and upstream integration
+
+Merged upstream main through `8586961` into the local gameplay branch (`bc65e30`), retaining local character overrides and integrating upstream launcher 0.3.1, renderer/input changes, and T8/Reina source support. Existing installed character packs were not rebuilt as part of this merge.
+
+Player confirmed Eliza b+4 → Glide → 3,3/3,4 handoff as correct at checkpoint `6f0c49a`: the main fighter regains control when the finisher is committed rather than after its full animation recovery. Extended the scoped runtime input handling to installed Eliza/Geese special-capture and string input windows; terminal moves release control while their animation continues. Ordinary main-character cancels are outside this runtime exception.
+
+Geese 2 → f+1 → special is a Tag Assault report. The installed pack already has both cancel links. Player reports Geese now performs the sequence, but 2 → f+1 → hcb+3 still leaves the main fighter too far behind for a follow-up. A scoped bridge across hcb+3's automatic opening-stage transition removed the earlier ducking in that route; follow speed/position remains unresolved. Player also reports ducking with Geese 2 → f+1 → qcf+2. Both reports concern Geese, not Eliza. Neither remaining issue is marked fixed.
+
+Added opt-in `TTT2_TRACE_ASSIST_FOLLOW=1` position, movement/input, timer and ownership logging for Geese, Eliza and native Miguel comparisons. This diagnostic addition does not change movement speed. A recorded reproduction is still needed for the remaining Geese failures.
+
+Validation after merge and restoration of local assist work: full build passed; 662 Python character tests ran with one skip and no failures; 17 CTests passed with `keyboard_file_test` excluded. That test independently fails on the existing SDL key-name mismatch (`Front`, scancode 165); its source and the relevant keymap implementations were unchanged by this merge. Automated tests do not establish gameplay confirmation of the expanded assist handling.
