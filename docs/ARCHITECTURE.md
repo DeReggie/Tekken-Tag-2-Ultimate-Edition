@@ -873,7 +873,9 @@ a fight, which turn the moveset's offsets and indices into pointers and the
 command list's offsets into the form it keeps. The helper knows those six
 functions (and the two below) and checks their first bytes before calling
 any, so another build of the game is refused, not crashed; no address comes
-from the connection.
+from the connection. Its addresses are the ones at the exe's preferred base,
+moved to where the game is loaded (Wine Staging's builds, Proton-GE's among
+them, load the exe elsewhere).
 Nothing is pressed and no screen is read, so key bindings, settings,
 language and pop-ups play no part. The dumper then reads the result from
 the game's memory: the moveset is one buffer (header with the aliases, 19

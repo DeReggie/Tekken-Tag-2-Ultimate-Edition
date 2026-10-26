@@ -6,9 +6,9 @@
  *                                      line, each answered on the connection:
  *     dlc <steam_api64.dll path>       the game's DLC as the game asks Steam (SteamAppId=389730, Steam running):
  *                                      "<appid> <owned 0/1> <name>" lines, then "end" ("error ..." without Steam)
- *     attach                           finds the game (TekkenGame-Win64-Shipping.exe) and checks that it is the build
- *                                      whose functions this helper knows (by hashes of their first bytes): "ok", or
- *                                      "error ..."
+ *     attach                           finds the game (TekkenGame-Win64-Shipping.exe) and where it is loaded, and checks
+ *                                      that it is the build whose functions this helper knows (by hashes of their
+ *                                      first bytes): "ok", or "error ..."
  *     ready                            whether the game's task manager and file loader exist yet: "1" or "0"
  *     common                           starts loading the animations every fighter shares: "<record hex>"
  *     load <roster id>                 starts loading a fighter's files (moveset, animations, command list):
@@ -38,6 +38,11 @@
 
 /* ------------------------------------------------------------ the game (TEKKEN 7, Steam build 10546199) */
 
+#define GAME_EXE "TekkenGame-Win64-Shipping.exe"
+/* Addresses are the ones at the exe's preferred base; `attach` moves them all to where the game is loaded (Wine
+ * Staging's builds, Proton-GE's among them, load the exe elsewhere). */
+#define PREFERRED_BASE 0x140000000ull
+
 /* The game's functions the helper calls, each checked before any call by a hash (64-bit FNV-1a) of its first bytes,
  * so another build of the game is refused, not crashed. */
 struct Function {
@@ -61,6 +66,9 @@ enum { RECORD_SIZE = 0x70, RECORD_MOVESET = 0x40, RECORD_ANIMATIONS = 0x48, RECO
 
 static HANDLE g_game;
 static int g_checked;
+static unsigned long long g_delta;           /* where the game is loaded - PREFERRED_BASE */
+
+static unsigned long long at(unsigned long long preferred) { return preferred + g_delta; }
 
 /* ------------------------------------------------------------ answers */
 
@@ -147,13 +155,31 @@ static DWORD game_pid(void) {
     DWORD pid = 0;
     if (snap == INVALID_HANDLE_VALUE) return 0;
     for (BOOL ok = Process32First(snap, &pe); ok; ok = Process32Next(snap, &pe)) {
-        if (_stricmp(pe.szExeFile, "TekkenGame-Win64-Shipping.exe") == 0) {
+        if (_stricmp(pe.szExeFile, GAME_EXE) == 0) {
             pid = pe.th32ProcessID;
             break;
         }
     }
     CloseHandle(snap);
     return pid;
+}
+
+/* Where the game's exe is loaded in its process (0: not yet). */
+static unsigned long long game_base(DWORD pid) {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
+    MODULEENTRY32 me;
+    memset(&me, 0, sizeof me);
+    me.dwSize = sizeof me;
+    unsigned long long base = 0;
+    if (snap == INVALID_HANDLE_VALUE) return 0;
+    for (BOOL ok = Module32First(snap, &me); ok; ok = Module32Next(snap, &me)) {
+        if (_stricmp(me.szModule, GAME_EXE) == 0) {
+            base = (unsigned long long)(size_t)me.modBaseAddr;
+            break;
+        }
+    }
+    CloseHandle(snap);
+    return base;
 }
 
 static int read_game(unsigned long long address, void* out, size_t size) {
@@ -169,16 +195,22 @@ static unsigned long long read_u64(unsigned long long address) {
 
 static int matches(const struct Function* f) {
     unsigned char b[16];
-    if (f->length > sizeof b || !read_game(f->address, b, f->length)) return 0;
+    if (f->length > sizeof b || !read_game(at(f->address), b, f->length)) return 0;
     unsigned long long h = 0xcbf29ce484222325ull;
     for (size_t i = 0; i < f->length; ++i) h = (h ^ b[i]) * 0x100000001b3ull;
     return h == f->hash;
 }
 
 static void attach(void) {
+    g_checked = 0;
     const DWORD pid = game_pid();
     if (!pid) {
         out_printf("error Tekken 7 is not running\n");
+        return;
+    }
+    const unsigned long long base = game_base(pid);
+    if (!base) {
+        out_printf("error the game is not loaded yet\n");
         return;
     }
     if (g_game) CloseHandle(g_game);
@@ -188,6 +220,7 @@ static void attach(void) {
         out_printf("error cannot open the game (%lu)\n", (unsigned long)GetLastError());
         return;
     }
+    g_delta = base - PREFERRED_BASE;
     const struct Function* all[] = {&ALLOCATE, &FIGHTER_INFO, &LOAD_FIGHTER, &LOAD_COMMON, &FIXUP_MOVESET,
                                     &FIXUP_MOVELIST, &LOAD_FILE, &FREE};
     for (size_t i = 0; i < sizeof all / sizeof all[0]; ++i) {
@@ -220,7 +253,7 @@ static unsigned long long call(const struct Function* f, unsigned long long a1, 
     put64(code, &n, 0x48, 0xB9, a1);         /* mov rcx */
     put64(code, &n, 0x48, 0xBA, a2);         /* mov rdx */
     put64(code, &n, 0x49, 0xB8, a3);         /* mov r8 */
-    put64(code, &n, 0x48, 0xB8, f->address); /* mov rax */
+    put64(code, &n, 0x48, 0xB8, at(f->address)); /* mov rax */
     code[n++] = 0xFF; code[n++] = 0xD0;      /* call rax */
     put64(code, &n, 0x48, 0xB9, result);     /* mov rcx, result */
     code[n++] = 0x48; code[n++] = 0x89; code[n++] = 0x01;                     /* mov [rcx], rax */
@@ -266,7 +299,7 @@ static int call_each(const struct Function* f, unsigned long long table, unsigne
     } else {
         code[n++] = 0x48; code[n++] = 0x8B; code[n++] = 0x4B; code[n++] = ENTRY_ARRAY; /* mov rcx, [rbx+8] */
     }
-    put64(code, &n, 0x48, 0xB8, f->address);                                  /* mov rax, function */
+    put64(code, &n, 0x48, 0xB8, at(f->address));                              /* mov rax, function */
     code[n++] = 0xFF; code[n++] = 0xD0;                                       /* call rax */
     code[n++] = 0x48; code[n++] = 0x89; code[n++] = 0x43; code[n++] = 0x18;   /* mov [rbx+0x18], rax */
     code[n++] = 0x48; code[n++] = 0x83; code[n++] = 0xC3; code[n++] = ENTRY_SIZE; /* add rbx, 32 */
@@ -358,7 +391,7 @@ static void fetch(void) {
 }
 
 static void ready(void) {
-    out_printf("%d\n", g_checked && read_u64(TASK_MANAGER) && read_u64(FILE_LOADER) ? 1 : 0);
+    out_printf("%d\n", g_checked && read_u64(at(TASK_MANAGER)) && read_u64(at(FILE_LOADER)) ? 1 : 0);
 }
 
 static void common(void) {
