@@ -487,8 +487,9 @@ EDITION" before "& (C) 2012 …") and are centred again.
 
 ## Practice: position reset
 
-In Practice, 3 and + pressed together put both fighters back where the
-stage put them, as Tekken 8's position reset does (`title/practice.cpp`).
+In Practice, 3 and − (Select) pressed together put both fighters back
+where the stage put them, as Tekken 8's position reset does
+(`title/practice.cpp`).
 The reset is the title's own start of a Practice round: the mode manager's
 kind (+444) is 4 or 5 (`sub_06ECB3CC`), and a round starts
 (`GameMode::Impl::state_game_preinitbattle`, `sub_0726BDA0`) with the
@@ -510,14 +511,14 @@ which stay 0 for the training dummy; the fighter a side has in play is its
 first member at `0x1087FB60 + 4 * side`, or that one's partner (+172) when
 +7808 is 0 (`sub_05C5EF14`). The battle state keeps running while the pause
 menu is open; the fighters' frame (`sub_03ADB118`) stops. That frame arms
-the chord in the input layer (`cafe::os::arm_start_chord`, with whether the
-GamePad's fighter holds 3): while it is armed, VPADRead holds a press of +
+the chord in the input layer (`cafe::os::arm_select_chord`, with whether the
+GamePad's fighter holds 3): while it is armed, VPADRead holds a press of −
 back for eight of those frames (the fighter sees a button two or three
 frames after the pad has it), and if 3 is held by then the press is the
-chord's: the game never sees it, so the pause menu stays closed, and the
-battle state takes it (`take_start_chord`). Otherwise the press reaches the
-game late, also when it was let go meanwhile. 3 and + in either order
-reset, and + alone still opens the pause menu.
+chord's: the game never sees it, and the battle state takes it
+(`take_select_chord`). Otherwise the press reaches the game late, also
+when it was let go meanwhile. 3 and − in either order reset, and − alone
+still reaches the game.
 
 ## Added fighters
 

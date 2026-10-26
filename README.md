@@ -48,7 +48,7 @@ and shaders are translated to Vulkan as it runs.
   title screen's logo says "Ultimate Edition" where it said "Wii U
   Edition", in the same brush lettering. All of it is made by the port
   from the Wii U game's own files.
-- **Position reset in Practice**, as in Tekken 8: 3 and + (Start) pressed
+- **Position reset in Practice**, as in Tekken 8: 3 and − (Select) pressed
   together put both fighters back where the stage put them.
 - **Installs like any other program**: `ttt2 --install` copies the game into
   a folder you choose and adds it to the application menu.
