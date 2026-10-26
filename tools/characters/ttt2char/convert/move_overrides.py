@@ -61,6 +61,8 @@ def apply(c):
 
     for name, locations in c.defn.MOVESET.get('hitboxes', {}).items():
         c.T['moves'][c.newidx[c.kn[name]]]['hitbox'] = bytes(c.hit_location(x) for x in locations)
+    for name, reaction in c.defn.MOVESET.get('downed_reactions', {}).items():
+        downed_reaction(c, name, reaction)
     for name, template in c.defn.MOVESET.get('air_reactions', {}).items():
         # Use a native airborne reaction, not a vertical offset on every hit.
         reference = getattr(c, 'air_reaction_reference', c.d)
@@ -522,3 +524,17 @@ def free_air_screw(c, source):
             if not any(TS.has(c.T,h['req'],k) for k in (TS.BOUND,TS.BOUND_TAG,TS.AIR))]
     move['hit_condition'] = TS.write(c.T,'hit_conditions',[dict(req=req,damage=damage,reactions=rx)] + hits)
     c.stats['airborne Screws preserving Bound'] += 1
+
+
+def downed_reaction(c, name, reaction):
+    """Change only the downed opponent slot, copying shared reaction rows first."""
+    move = c.T['moves'][c.newidx[c.kn[name]]]
+    target = c.dn[reaction]
+    hits = []
+    for hit in TS.hits(c.T, move['hit_condition']):
+        hit = dict(hit)
+        if not any(TS.has(c.T, hit['req'], req) for req in (TS.AIR, TS.BOUND, TS.BOUND_TAG)):
+            row = dict(c.T['reactions'][hit['reactions']], downed=target)
+            hit['reactions'] = c.add('reactions', row)
+        hits.append(hit)
+    move['hit_condition'] = TS.write(c.T, 'hit_conditions', hits)

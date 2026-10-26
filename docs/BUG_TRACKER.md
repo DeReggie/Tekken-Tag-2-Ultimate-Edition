@@ -98,12 +98,14 @@ Input notation: `+` means simultaneous buttons; commas mean a sequence; `~F` mea
 
 | ID | Report / requested behavior | Current status | Source / notes |
 |---|---|---|---|
-| FAH-01 | f,f+1+2 does not hit a grounded opponent | Open | Earlier tracker; repeated in full text where applicable |
+| FAH-01 | f,f+1+2 does not hit a grounded opponent | Correction installed — gameplay retest pending | Earlier tracker; repeated in full text where applicable |
 | FAH-02 | Missing sidestep 4 | Open — installed sidestep input routes present; gameplay reproduction needed | Earlier tracker; repeated in full text where applicable |
-| FAH-03 | b+1 hitbox unreliable in combos | Open | Earlier tracker; repeated in full text where applicable |
+| FAH-03 | b+1 hitbox unreliable in combos | Correction installed — gameplay retest pending | Earlier tracker; repeated in full text where applicable |
 | FAH-04 | d/f+1 hitbox sometimes fails, e.g. after d/f+2,3 launch | Open | Earlier tracker; repeated in full text where applicable |
 | FAH-05 | Previously missing d+4 | Reported resolved — screenshot; not independently rechecked | Screenshot |
 | FAH-06 | Previously missing WR 3 | Reported resolved — screenshot; not independently rechecked | Screenshot |
+| FAH-07 | Final 4 of 1,2,1,4 needs a much lower hitbox | Correction installed — gameplay retest pending | Player request 2026-10-25 |
+| FAH-08 | Remove Bound from d/f+1,4 | Correction installed — gameplay retest pending | Player request 2026-10-25 |
 
 ## Lidia
 
