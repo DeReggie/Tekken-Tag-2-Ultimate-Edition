@@ -23,6 +23,8 @@ MOVESET_SOURCE = 'tekken8'
 # update the helper does not know yet): the TTT2 fighter (code, motion row) whose moveset she fights with instead,
 # as it is (MOVESET_SOURCE 'donor'), the donor of everything then (importer.with_stand_in)
 STAND_IN = ('hei', 13)        # Heihachi Mishima
+# what packs of her made before lack (pack.revision; the launcher shows "Update ready"): 1: the d/f+1,2 bound
+REVISION = 1
 
 # ------------------------------------------------------------------------------------------------ model
 # her Tekken 8 costumes: the CustomizeSet CS_zbr_<name> (tekken8/costume.py: its meshes, their merge order and the
@@ -94,8 +96,9 @@ MOVESET = {
                (r'^ju_w', 'anim', ['zbr_w%02d' % k for k in range(3)])],        # win poses
     # TTT2 bounds besides her Tekken 8 tornados (which convert to bounds by themselves): an air hit slams the
     # opponent into the floor once per juggle (convert/move_overrides.py). d+2 Tecchuu-ate, f+4 Kamadhatu Splits
-    # Kick, and the same kick out of a dash (Zbr_66RK: f,f+4 by the donor's dash rows; Tekken 8's after a Heat Dash)
-    'bounds': {'Zbr_2RP': True, 'Zbr_6RK': True, 'Zbr_66RK': True},
+    # Kick, the same kick out of a dash (Zbr_66RK: f,f+4 by the donor's dash rows; Tekken 8's after a Heat Dash), and
+    # d/f+1,2's second hit (Zbr_3LPRP)
+    'bounds': {'Zbr_2RP': True, 'Zbr_6RK': True, 'Zbr_66RK': True, 'Zbr_3LPRP': True},
     # tag combos (convert/tagcombo.py picks her launchers): EWGF and WGF for certain, as TTT2's Kazuya has them
     'tag_combos': {'Zbr_shoryu_S': True, 'Zbr_shoryu_N': True},
 }
