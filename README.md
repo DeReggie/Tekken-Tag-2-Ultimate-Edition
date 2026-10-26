@@ -148,7 +148,8 @@ tick them; of a save folder you chose with `TTT2_SAVE_DIR`, only the game's
 own saves go). While the game runs, however it was started, Play, Update and
 Uninstall wait for it to end. The gear next to Play opens its **Settings**:
 whether the game starts fullscreen, the resolution it draws at, its 120
-frames per second, and its keyboard keys ([Playing](#playing)). Its
+frames per second, whether fighters wait the Wii U version's two frames
+before acting on a button, and its keyboard keys ([Playing](#playing)). Its
 Characters section shows where Steam has Tekken 7 and Tekken 8, or why one cannot be used, and a part for each game's
 fighters (the installed game's first), with **Add** per fighter: Tekken 7's with **Add All** and its DLC
 fighters in a list that opens, with those your Steam account owns and **Add
