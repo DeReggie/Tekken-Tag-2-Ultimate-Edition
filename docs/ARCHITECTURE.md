@@ -481,13 +481,19 @@ The lettering is black ink inside a rough white shape that runs round each
 word; the port finds the white (bright, near grey, connected to the
 subtitle), the shape it goes round (closed and filled), and in it the ink
 (dark) and windows onto the logo behind (the rest, where wide enough to
-have an inside). "ULTIMATE" is put together from the ink at EDITION's size:
-T, I and E are EDITION's own strokes (ends cut from a neighbour rounded
-off), U is WiiU's, smaller; L is an I upside down with E's bottom arm, M
-the W upside down, and A the W's right arm with its mirror image and E's
-middle arm across. Its white is the ink closed over small gaps (a disc of
-four texels), holes filled, then widened by four texels give or take two
-of smooth noise, for a brushy edge. EDITION and the underline are pasted
+have an inside). "ULTIMATE" follows Excentrian's design for this logo
+(issue #9): its letters' boxes and spacing, and the outlines of its M and
+A. It is drawn finely (4x4 subtexels to a texel, averaged down for smooth,
+anti-aliased edges): U is WiiU's ink, T, I and E are EDITION's (ends cut
+from a neighbour rounded off) and L is EDITION's I with its E's bottom arm,
+each stretched over its box, set where mostly black and cleaned up (only
+its largest part, small holes and notches up to a texel wide filled); M
+and A are filled from the outlines, their edge roughened by smooth noise.
+Letters stay a texel apart. Its white is five texels wide round the ink
+without its whiskers (an opening by a disc of 1.5 texels), give or take
+half a texel of noise, at least two round the whiskers, and fills the
+shape's holes (distances: an exact Euclidean distance transform).
+EDITION and the underline are pasted
 back from the Wii U still (the shape's large solid parts and what lies
 close to them, so that highlight specks of the logo touching it stay
 behind), the line centred where the old one was: EDITION moves right, and

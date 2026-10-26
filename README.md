@@ -531,3 +531,8 @@ built into the `ttt2` program). The port also links SDL3 (zlib), shaderc
   [UE Viewer](https://github.com/gildor2/UEViewer) and
   [CUE4Parse](https://github.com/FabianFG/CUE4Parse), for Tekken 7's Unreal
   Engine 4.14 packages. The importer's code is its own.
+- [Excentrian](https://github.com/Excentrian), who designed the title
+  screen's "ULTIMATE EDITION" subtitle
+  ([#9](https://github.com/Petexy/Tekken-Tag-2-Ultimate-Edition/issues/9)):
+  the port letters it after that design, its M and A from Excentrian's
+  outlines.
