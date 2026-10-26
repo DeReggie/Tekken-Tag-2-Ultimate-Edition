@@ -649,7 +649,8 @@ void Launcher::run_next_test() {
         }
         restore_keys();
         test_done(keymap_.is_default(), keymap_.is_default() ? "the default keys" : "not restored");
-    } else if (a.name == "fullscreen" || a.name == "resolution" || a.name == "interpolation") {
+    } else if (a.name == "fullscreen" || a.name == "resolution" || a.name == "interpolation" ||
+               a.name == "input-delay") {
         // The control set as a click sets it (its handler saves display.ini),
         // then the file read back as the game reads it.
         if (!in_settings()) {
@@ -663,6 +664,9 @@ void Launcher::run_next_test() {
         } else if (a.name == "interpolation") {
             wanted.interpolation = a.args[0] == "yes";
             gtk_switch_set_active(GTK_SWITCH(interpolation_switch_), wanted.interpolation);
+        } else if (a.name == "input-delay") {
+            wanted.input_delay = a.args[0] == "yes";
+            gtk_switch_set_active(GTK_SWITCH(input_delay_switch_), wanted.input_delay);
         } else {
             wanted.resolution = display::resolution_named(a.args[0]).value_or(display::Resolution::kAuto);
             const auto& all = display::kResolutions;
@@ -673,7 +677,7 @@ void Launcher::run_next_test() {
         const display::Settings& s = loaded.settings;
         std::string text = std::string("display.ini: fullscreen ") + (s.fullscreen ? "yes" : "no") + ", resolution " +
                            std::string(display::name_of(s.resolution)) + ", interpolation " +
-                           (s.interpolation ? "yes" : "no");
+                           (s.interpolation ? "yes" : "no") + ", input delay " + (s.input_delay ? "yes" : "no");
         if (!loaded.error.empty()) text = loaded.error;
         if (gtk_widget_get_visible(display_error_)) text = gtk_label_get_text(GTK_LABEL(display_error_));
         test_done(loaded.error.empty() && s == wanted && display_ == wanted, text);

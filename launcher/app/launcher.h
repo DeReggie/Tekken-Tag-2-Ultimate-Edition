@@ -162,7 +162,7 @@ private:
 
     // ------------------------------------------------ settings.cpp
     GtkWidget* build_settings(); // the page (in the window's stack)
-    void build_display();        // its Display section
+    void build_display();        // its Game section (display.ini)
     void open_settings();
     void close_settings();
     bool in_settings() const;
@@ -326,6 +326,7 @@ private:
     GtkWidget* fullscreen_switch_ = nullptr;
     GtkWidget* resolution_list_ = nullptr; // display::kResolutions, in that order
     GtkWidget* interpolation_switch_ = nullptr;
+    GtkWidget* input_delay_switch_ = nullptr;
     GtkWidget* automatic_note_ = nullptr; // what Automatic draws at
     GtkWidget* refresh_note_ = nullptr;   // displays below 100 Hz: the game stays at 60 fps
     GtkWidget* display_error_ = nullptr;

@@ -529,9 +529,11 @@ void test_actions() {
               "actions: settings, reset-keys, back");
     }
     const auto shown = parse_test_actions(
-        "fullscreen:yes;fullscreen:no;resolution:1920x1080;resolution:AUTO;interpolation:no;interpolation:yes", &error);
-    check(shown && shown->size() == 6, "actions: display settings (" + error + ")");
-    if (shown && shown->size() == 6) {
+        "fullscreen:yes;fullscreen:no;resolution:1920x1080;resolution:AUTO;interpolation:no;interpolation:yes;"
+        "input-delay:yes",
+        &error);
+    check(shown && shown->size() == 7, "actions: display settings (" + error + ")");
+    if (shown && shown->size() == 7) {
         check((*shown)[0].name == "fullscreen" && (*shown)[0].args == std::vector<std::string>{"yes"} &&
                   (*shown)[0].label() == "fullscreen-yes" && (*shown)[1].args[0] == "no",
               "actions: fullscreen");
@@ -543,13 +545,17 @@ void test_actions() {
         check((*shown)[4].name == "interpolation" && (*shown)[4].args[0] == "no" &&
                   (*shown)[5].label() == "interpolation-yes",
               "actions: interpolation");
+        check((*shown)[6].name == "input-delay" && (*shown)[6].args[0] == "yes" &&
+                  (*shown)[6].label() == "input-delay-yes",
+              "actions: input-delay");
     }
     for (const char* bad : {"install:/only", "uninstall:some", "add:", "dance", "play:now", "wait:x", "focus:", "focus",
                             "refresh:now", "bind", "bind:face_bottom", "bind:face_bottom:", "bind:nope:38",
                             "bind:face_bottom:x", "bind:face_bottom:0", "settings:now", "reset-keys:all",
                             "bind:zl:64+", "bind:zl:+64", "bind:zl:64++23", "bind:zl:64+x", "bind:zl:-1",
                             "fullscreen", "fullscreen:", "fullscreen:on", "fullscreen:YES", "interpolation",
-                            "interpolation:1", "resolution", "resolution:", "resolution:1920", "resolution:1366x768",
+                            "interpolation:1", "input-delay", "input-delay:2", "input_delay:yes", "resolution",
+                            "resolution:", "resolution:1920", "resolution:1366x768",
                             "resolution:auto:x", "add-all", "add-all:", "add-all:tekken6", "remove-all"}) {
         check(!parse_test_actions(bad), std::string("actions: rejects ") + bad);
     }
@@ -575,20 +581,24 @@ void test_display(const fs::path& root) {
     for (const bool fullscreen : {false, true}) {
         for (const display::Resolution resolution : display::kResolutions) {
             for (const bool interpolation : {true, false}) {
-                const display::Settings settings{fullscreen, resolution, interpolation};
-                std::string error;
-                const bool ok = save_display(file, settings, &error);
-                const display::Loaded loaded = display::load(file);
-                const std::string what = "display: round trip of " + std::string(display::name_of(resolution)) +
-                                         (fullscreen ? ", fullscreen" : "") + (interpolation ? "" : ", 60 fps");
-                check(ok && error.empty(), what + ", saved (" + error + ")");
-                check(loaded.error.empty() && loaded.settings == settings && text_of(file) == display::format(settings),
-                      what + ", read back");
-                saved += ok;
+                for (const bool input_delay : {false, true}) {
+                    const display::Settings settings{fullscreen, resolution, interpolation, input_delay};
+                    std::string error;
+                    const bool ok = save_display(file, settings, &error);
+                    const display::Loaded loaded = display::load(file);
+                    const std::string what = "display: round trip of " + std::string(display::name_of(resolution)) +
+                                             (fullscreen ? ", fullscreen" : "") + (interpolation ? "" : ", 60 fps") +
+                                             (input_delay ? ", input delay" : "");
+                    check(ok && error.empty(), what + ", saved (" + error + ")");
+                    check(loaded.error.empty() && loaded.settings == settings &&
+                              text_of(file) == display::format(settings),
+                          what + ", read back");
+                    saved += ok;
+                }
             }
         }
     }
-    check(saved == 24, "display: all 24 saved");
+    check(saved == 48, "display: all 48 saved");
     std::error_code ec;
     size_t files = 0;
     for (const auto& entry : fs::directory_iterator(file.parent_path(), ec)) files += entry.path() == file ? 1 : 100;

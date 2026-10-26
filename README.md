@@ -50,6 +50,11 @@ and shaders are translated to Vulkan as it runs.
   from the Wii U game's own files.
 - **Position reset in Practice**, as in Tekken 8: 3 and − (Select) pressed
   together put both fighters back where the stage put them.
+- **No forced input delay**: the Wii U game waits two frames (33 ms) after
+  reading a button before acting on it, in every mode (Cemu's "Reduce input
+  lag" graphic pack removes it too). The port leaves that wait out; the
+  launcher's Settings can put it back. Practice's own Input Delay setting
+  works either way.
 - **Installs like any other program**: `ttt2 --install` copies the game into
   a folder you choose and adds it to the application menu.
 - **Made to be modified**: every function of the game is a C++ function that
@@ -268,15 +273,17 @@ still opens the pause menu, a few frames later than before.
 
 The launcher's **Settings** also choose how the game starts: fullscreen or
 in a window, the resolution it draws at (Automatic, the default, is enough
-to cover your main display) and whether it shows 120 frames per second on
-displays of 100 Hz and more (on by default). They are kept in
-`~/.config/ttt2/display.ini` (`$XDG_CONFIG_HOME/ttt2/`), which can be
-edited by hand too:
+to cover your main display), whether it shows 120 frames per second on
+displays of 100 Hz and more (on by default) and whether fighters wait the
+Wii U game's two frames before acting on a button (off by default). They
+are kept in `~/.config/ttt2/display.ini` (`$XDG_CONFIG_HOME/ttt2/`), which
+can be edited by hand too:
 
 ```ini
 fullscreen = no             # yes or no
 resolution = auto           # auto, 1280x720, 1920x1080, 2560x1440, 3840x2160 or 5120x2880
 interpolation = yes         # yes or no (no: 60 frames per second)
+input_delay = no            # yes: two frames between a button press and the game acting on it, as on the Wii U
 ```
 
 The game reads it when it starts, so a change applies the next time. The
@@ -290,6 +297,7 @@ variables below win over it.
 | `TTT2_SCALE=1/1.5/2/3/4` | render scale: 1280x720 times this (default from `display.ini`, else from the display) |
 | `TTT2_FPS=60/120/180/240` | frames shown per second (default 120 on displays of 100 Hz and more, unless `display.ini` turns it off) |
 | `TTT2_FULLSCREEN=1` | start fullscreen (another value: in a window) |
+| `TTT2_INPUT_DELAY=0..15` | frames between a button press and the game acting on it (the Wii U game's own: 2; default from `display.ini`: 0) |
 | `TTT2_AUDIO=0` | no sound |
 | `TTT2_AUDIO_VOLUME=0..100` | volume in percent (default 100) |
 | `TTT2_SAVE_DIR=<folder>` | where saves go |

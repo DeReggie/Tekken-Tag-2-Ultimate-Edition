@@ -536,6 +536,29 @@ chord's: the game never sees it, and the battle state takes it
 when it was let go meanwhile. 3 and − in either order reset, and − alone
 still reaches the game.
 
+## Input delay
+
+The Wii U game acts on a fighter's buttons two frames after it reads them,
+in every mode; Cemu's "Reduce input lag" graphic pack takes that away by
+loading 0 in its place (`li r7, 0` at `0x02EF885C`). The port leaves it
+out by default (`title/input_delay.cpp`). Each frame a fighter's input
+(`sub_03F536C8`) puts the pad's buttons at the front of its side's queue
+in the object at `*0x107B391C` (`sub_02EF7DC8`; per side a deque of
+words at +4 + 24 * side) and takes the buttons of as many frames back as
+the object's first word says (`sub_02EF8828`: it drops the oldest until
+that many and one are left and takes the oldest). That word is set by
+`sub_02EF9010` when a mode starts (`sub_06ECC76C`, `sub_06EDCD8C`) to the
+title's default, which only `sub_05C5D7B0` reads (the word at
+`0x107CDE3C`, 2 in the game's data), and by Practice's Input Delay setting
+(`sub_04F24EFC`: 1 to 5 bars give 15, 10, 8, 5 and 3 frames from the
+bytes at `0x1031C658`, off the default). The port replaces what
+`sub_05C5D7B0` returns with display.ini's `input_delay` (no: 0 frames;
+yes: the game's own) or `TTT2_INPUT_DELAY`, so with 0 a fighter acts on
+the buttons of the frame they are read in, and Practice's bars still
+delay as they say. The game logs `ttt2: input delay: 0 frames in place of
+the game's 2` when a mode first asks; `TTT2_TRACE_INPUT_DELAY=1` logs each
+delay the queues get.
+
 ## Added fighters
 
 `runtime/src/title/roster.*` adds fighters from character packs (folders in
@@ -1241,26 +1264,29 @@ auto`, `1280x720`, `1920x1080`, `2560x1440`, `3840x2160` or `5120x2880`
 the primary display's height in pixels) and `interpolation = yes` or `no`
 (default yes: 120 frames a second when the primary display or the one the
 window opens on refreshes at 100 Hz or more, compared exactly, 60 below;
-no: 60 always).
+no: 60 always) and `input_delay = yes` or `no` (default no: fighters act on
+a button in the frame the game reads it; yes: two frames later, as the Wii
+U game does; see [Input delay](#input-delay)).
 Booleans also take `true`/`false`, `on`/`off` and `1`/`0`, and values (not
 names) may be in any case; an unknown name or a bad value is left out with
 a warning, keeping that setting's default, and of a name given twice the
 later line counts. Only a regular file of at most 64 KiB is read; one that
 cannot be means the defaults. `TTT2_FULLSCREEN` (`1` fullscreen, another
-value windowed), `TTT2_SCALE` (1, 1.5, 2, 3 or 4) and `TTT2_FPS` win over
-the file when set and not empty, and a value they cannot use is left out
-with a line in the log. The window opens at the render size (in the
+value windowed), `TTT2_SCALE` (1, 1.5, 2, 3 or 4), `TTT2_FPS` and
+`TTT2_INPUT_DELAY` (0 to 15 frames) win over the file when set and not
+empty, and a value they cannot use is left out with a line in the log.
+The window opens at the render size (in the
 desktop's units: pixels over its scale) when that leaves at least 64 units
 across and 128 down free on the primary display, otherwise at the largest
 multiple of 640x360 that does (at least 640x360; Automatic always so). The
-game logs `ttt2: display: fullscreen no, resolution auto, interpolation yes
-(from <file>)` (or `display: defaults (no <file>)`), a line per variable
-set, `ttt2: window: <w>x<h> pixels, windowed` and `ttt2: GPU: rendering at
-<w>x<h> (scale <s>)`. The launcher's Settings show the three above the
-keys, in a Display section: Fullscreen and 120 fps switches and a
+game logs `ttt2: display: fullscreen no, resolution auto, interpolation yes,
+input delay no (from <file>)` (or `display: defaults (no <file>)`), a line
+per variable set, `ttt2: window: <w>x<h> pixels, windowed` and `ttt2: GPU:
+rendering at <w>x<h> (scale <s>)`. The launcher's Settings show the four
+above the keys, in a Game section: Fullscreen and 120 fps switches, a
 Resolution list (Automatic, 1280 × 720 ... 5120 × 2880, as wide as its
-widest item whichever is chosen). Under them it says what the game will
-do only as far as it can be sure, since GTK cannot name the primary
+widest item whichever is chosen) and an Input delay switch. Under them it
+says what the game will do only as far as it can be sure, since GTK cannot name the primary
 display on Wayland (`automatic_note` and `refresh_note` in
 `launcher/core/display.h`). With one monitor: the size Automatic gives on
 it (its height in pixels from GTK 4.14's fractional scale; before 4.14
@@ -1328,6 +1354,7 @@ ignores. Renderer debugging:
 | `TTT2_PRESENT_QUEUE=1..4` | presents kept ahead of the screen when presenting every refresh (default about 8 ms of refreshes) |
 | `TTT2_DISPLAY_HZ=<hz>` | report this refresh rate for the window's display (tests the rate check) |
 | `TTT2_FULLSCREEN=1` | start fullscreen (another value: windowed; over display.ini) |
+| `TTT2_INPUT_DELAY=0..15` | frames a fighter waits before acting on a button, in place of the game's own 2 (over display.ini's input_delay) |
 | `TTT2_TRACE_INTERP=1`, `TTT2_TRACE_PACING=1` | draw matching, carried targets; frame readiness, swap times after the vblank |
 | `TTT2_PROFILE_AT=<s>` | GPU time of every operation of one frame |
 | `TTT2_VK_VALIDATION=1` | Khronos validation layer, if installed (synchronization checks: `khronos_validation.validate_sync = true` in a file named by `VK_LAYER_SETTINGS_PATH`) |
@@ -1337,6 +1364,7 @@ ignores. Renderer debugging:
 | `TTT2_TRACE_TEXTURES=1` | every texture loaded from memory once, with the MD5 a replacement names |
 | `TTT2_TRACE_PRESENTATION=1` | how long the icons, texts and logo took to prepare |
 | `TTT2_TRACE_PRACTICE=1` | each position reset in Practice |
+| `TTT2_TRACE_INPUT_DELAY=1` | each input delay the fighters' queues get (a mode's start, Practice's Input Delay) |
 | `TTT2_CONTROLLER=playstation/nintendo/xbox` | icons and menu buttons for this kind of controller |
 
 The launcher (`launcher/app`, `ttt2-launcher`) runs by itself for tests,
@@ -1346,7 +1374,7 @@ has loaded, then quits:
 
 | Variable | Effect |
 | --- | --- |
-| `TTT2_LAUNCHER_TEST_ACTIONS="install:<GAME>:<FOLDER>;add:kazumi;quit"` | actions one after another, each once the one before has ended: `install:<GAME>:<FOLDER>`, `update`, `add:<name>[,<name>...]`, `add-all-base`, `add-all-owned`, `remove:<name>`, `uninstall:keep`, `uninstall:all`, `play` (ends once the game has run 3 s), `quit`, `add-all:<game>` and `remove-all:<game>` (a game's Add All and Remove All, `tekken7` or `tekken8`, the latter without its question), and `expand-dlc`, `expand-log`, `show-uninstall`, `wait:<seconds>`, `focus:<id>` (the keyboard focus on `play`, `uninstall`, `fighter:<name>`, `add-all`, `dlc` ...) and `refresh` (logs the id focused afterwards); for Settings `settings` (opens it through the gear), `back`, `bind:<input>:<XKB keycode>[+<XKB keycode>...]` (that input's key clicked unless it waits for one already, then those keys pressed one after another and let go the other way round through the window's key handler, e.g. `bind:face_bottom:39` gives it S, `bind:zl:64` Left Alt, `bind:zl:64+23` is Alt+Tab, which stops choosing; a refused key, Esc and a shortcut log `failed` with the reason) and `reset-keys` (Restore Defaults), and for its Display section `fullscreen:yes`/`no`, `interpolation:yes`/`no` and `resolution:<value>` (a value of display.ini's `resolution`, in any case: `auto`, `1920x1080` ...), each setting that switch or list as a click does, which saves display.ini, then reading the file back (`ok` when it holds what was set; the text is what it holds, or why it could not be saved); each logs `@test <action> ok\|failed <why>` to stderr |
+| `TTT2_LAUNCHER_TEST_ACTIONS="install:<GAME>:<FOLDER>;add:kazumi;quit"` | actions one after another, each once the one before has ended: `install:<GAME>:<FOLDER>`, `update`, `add:<name>[,<name>...]`, `add-all-base`, `add-all-owned`, `remove:<name>`, `uninstall:keep`, `uninstall:all`, `play` (ends once the game has run 3 s), `quit`, `add-all:<game>` and `remove-all:<game>` (a game's Add All and Remove All, `tekken7` or `tekken8`, the latter without its question), and `expand-dlc`, `expand-log`, `show-uninstall`, `wait:<seconds>`, `focus:<id>` (the keyboard focus on `play`, `uninstall`, `fighter:<name>`, `add-all`, `dlc` ...) and `refresh` (logs the id focused afterwards); for Settings `settings` (opens it through the gear), `back`, `bind:<input>:<XKB keycode>[+<XKB keycode>...]` (that input's key clicked unless it waits for one already, then those keys pressed one after another and let go the other way round through the window's key handler, e.g. `bind:face_bottom:39` gives it S, `bind:zl:64` Left Alt, `bind:zl:64+23` is Alt+Tab, which stops choosing; a refused key, Esc and a shortcut log `failed` with the reason) and `reset-keys` (Restore Defaults), and for its Game section `fullscreen:yes`/`no`, `interpolation:yes`/`no`, `input-delay:yes`/`no` and `resolution:<value>` (a value of display.ini's `resolution`, in any case: `auto`, `1920x1080` ...), each setting that switch or list as a click does, which saves display.ini, then reading the file back (`ok` when it holds what was set; the text is what it holds, or why it could not be saved); each logs `@test <action> ok\|failed <why>` to stderr |
 | `TTT2_LAUNCHER_TEST_SHOTS=<dir>` | the window as `<dir>/NN-<action>.png` after each action (`00-start.png` first, `NN-<action>-running.png` half-way through its task) |
 | `TTT2_LAUNCHER_TEST_PAGE=1` | also all of the window's content, scrolled into view or not, as `...-page.png` |
 | `TTT2_LAUNCHER_TEST_SCALE=2`, `TTT2_LAUNCHER_TEST_SIZE=<w>x<h>` | pictures at twice the scale; the window's size |

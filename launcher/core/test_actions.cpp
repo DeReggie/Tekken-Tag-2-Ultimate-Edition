@@ -83,7 +83,7 @@ std::optional<std::vector<TestAction>> parse_test_actions(std::string_view text,
                      number < 1024;
                 from = plus + 1;
             }
-        } else if (a.name == "fullscreen" || a.name == "interpolation") {
+        } else if (a.name == "fullscreen" || a.name == "interpolation" || a.name == "input-delay") {
             a.args = {rest};
             ok = rest == "yes" || rest == "no";
         } else if (a.name == "resolution") {
