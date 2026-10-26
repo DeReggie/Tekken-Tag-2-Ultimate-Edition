@@ -240,7 +240,9 @@ attachment formats and blend state.
   64 KiB, stored as in guest memory) are copied to staging memory at the
   end of each submission that wrote them (before a frame's replays) and
   tiled into guest memory by the retirement thread once it finished,
-  before the CPU can see that it has.
+  before the CPU can see that it has. The staging memory is CPU-cached
+  where the driver has such memory: read element by element from
+  write-combined memory, the tiling kept that thread ~12% busy.
 - Detiling (`gpu/tiling.cpp`) uses addrlib once per 8×8 micro tile: in
   thin single-sample modes every micro tile has the same internal layout
   (verified against per-element addrlib, `TTT2_CHECK_TILING=1`).
@@ -328,7 +330,16 @@ attachment formats and blend state.
   a frame is done only after its replays, so on a shared or overloaded GPU
   they would slow the game itself (measured: a fight on a desktop
   compositor taking ~80% of the GPU went from 46-51 to 55-60 title frames a
-  second; the statistics line counts the extra frames skipped).
+  second; the statistics line counts the extra frames skipped). Nor does
+  one while the command processor has no time for them: it renders them
+  too, on its one CPU thread, so a slower CPU kept it busy all the time and
+  the game slowed down (issue #15; a fight with 16 µs more per draw, as a
+  slower CPU: 46 title frames a second, now 59-60 with the extra frames
+  left out of heavy scenes only). It goes by averages over 16 frames of its
+  time without commands and of the replays' time per second of the frame's
+  own work (which holds when a scene changes), keeping them while a
+  millisecond would be left and taking them up again at three; the
+  statistics line shows how busy it is.
 - Presentation (`gpu/vulkan/present.cpp`) runs on its own thread and on a
   compute queue (AMD's asynchronous compute, `TTT2_PRESENT_BLIT=1` for
   the rendering queue): a present there waits only for its own frame, not
@@ -377,7 +388,12 @@ attachment formats and blend state.
   interpolation the real image is shown half a frame later than
   without.
 - Compiled SPIR-V and the Vulkan pipeline cache persist in
-  `~/.cache/ttt2` (`$XDG_CACHE_HOME/ttt2`).
+  `~/.cache/ttt2` (`$XDG_CACHE_HOME/ttt2`). A shader's key covers state its
+  translation may not depend on (textures the title left bound to slots it
+  does not sample, the other stage's links), so shaders that translate
+  alike share a module, and with it their pipelines: a 40-second fight
+  made 1,124 modules of 182 different translations and 1,115 pipelines,
+  each compiled by the driver on a first run (now 182 and 168).
 
 ## Presentation on a computer
 
