@@ -102,13 +102,16 @@ class FreeSpecials(unittest.TestCase):
 
     def test_converter_removes_meter_gate_and_cost_only_when_requested(self):
         for free in (False, True):
-            c = types.SimpleNamespace(defn=types.SimpleNamespace(MOVESET={'free_meter_specials': free}),
+            c = types.SimpleNamespace(game='t7', end=881, defn=types.SimpleNamespace(MOVESET={'free_meter_specials': free}),
                 k=types.SimpleNamespace(game='t7', tables={'requirements': [
                     dict(condition=629, param=500), dict(condition=0x81c2, param=0xfffffe0c),
                     dict(condition=881, param=0)]}), cache={}, T={'requirements': []},
                 stats=collections.Counter(), map_req=lambda _: None)
             c.k.iter_list = types.MethodType(fixtures.Moveset.iter_list, c.k)
-            _, ok = moveset.Converter.conv_reqs(c, 0)
+            converter = moveset.Converter.__new__(moveset.Converter)
+            converter.__dict__.update(vars(c))
+            c = converter
+            _, ok = c.conv_reqs(0)
             self.assertEqual(ok, free)
             if free:
                 self.assertEqual(c.T['requirements'], [dict(condition=690, param=0)])

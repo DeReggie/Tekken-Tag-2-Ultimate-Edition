@@ -88,6 +88,7 @@ WEAPONS = [
 ALIGN = [('heihachi', 13), ('self', 13), ('heihachi', 14), ('self', DONOR_ROW), ('heihachi', 9), ('self', 23)]
 MOVESET = {
     'direct_buffered_strings': ('Nc_6lk',),
+    'tag_combos': {'Nc_66rklkrp': 'air'},
     'hitboxes': {
         'Nc_lp00B': (0xfe, 0, 0xfe, 11),        # b+1
         'Nc_lprplprk': (0xfd, 0, 0xfd, 15),    # 1,2,1,4: final kick
@@ -97,10 +98,6 @@ MOVESET = {
     'downed_reactions': {'Nc_66WP': 'dDwrOUC00_'},
     'air_reactions': {'Nc_lp00B': 'J8_jprk00',
                       'Nc_66rklkrp': (23, 'Jn_mc03s')},
-    'tag_launchers': {'Nc_66rklkrp': 'La_Stormgear'},
-    'tag_launcher_air_only': ('Nc_66rklkrp',),
-    'electric_tag_exit': True,
-    'tag_exit_name': 'Fahkumram_Hellsweep_TagExit',
     'air_reaction_reference': 40,  # Jinpachi u+4, airborne reaction
     'bounds': {'Nc_66rklp': True, 'Nc_3rplp': True, 'Nc_3lprk': False},
     'name': '[FAHKUMRAM]',

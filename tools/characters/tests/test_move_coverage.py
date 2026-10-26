@@ -199,7 +199,7 @@ class NormalStrings(unittest.TestCase):
                         if row['button'] and frame != pressed:
                             continue
                         req = TS.reqs(c.T, row['req'])
-                        if (47, 0) in req and not (hit and frame == 15):
+                        if (46, 0) in req and not (hit and frame == 15):
                             continue
                         if (S.CONTACT_VAR, 1) in req and state != 1:
                             continue

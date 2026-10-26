@@ -8,7 +8,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
-from ttt2char.characters import fahkumram, kazumi, CHARACTERS, definition
+from ttt2char.characters import fahkumram, kazumi, CHARACTERS, definition, game_of
 from ttt2char.convert import outfits
 from ttt2char.ttt2 import nud, nut
 from ttt2char import pack
@@ -20,11 +20,11 @@ def item(path):
 
 class OutfitTests(unittest.TestCase):
     def test_all_roster_aliases_are_unique_and_fit_native_chooser(self):
-        codes = [code for name in CHARACTERS for code in outfits.codes(definition(name))]
+        codes = [code for name in CHARACTERS if game_of(definition(name)) == 'tekken7' for code in outfits.codes(definition(name))]
         self.assertEqual(len(codes), 137)
         self.assertEqual(len(codes), len(set(codes)))
         self.assertTrue(all(len(code) == 3 and code.islower() and code.isalpha() for code in codes))
-        self.assertTrue(all(len(definition(name).PRESETS) <= 14 for name in CHARACTERS))
+        self.assertTrue(all(len(definition(name).PRESETS) <= 14 for name in CHARACTERS if game_of(definition(name)) == 'tekken7'))
 
     def test_katarina_face_with_omitted_mesh_type_is_kept(self):
         from ttt2char.characters import katarina
@@ -46,7 +46,7 @@ class OutfitTests(unittest.TestCase):
                     'kunimitsu2': 'ona', 'noctis': 'oqa'}
         for name, first in expected.items():
             self.assertEqual(outfits.codes(definition(name))[0], first)
-        self.assertEqual(set(outfits.PREFIXES), {definition(name).CODE for name in CHARACTERS})
+        self.assertEqual(set(outfits.PREFIXES), {definition(name).CODE for name in CHARACTERS if game_of(definition(name)) == 'tekken7'})
 
     def test_wearable_blueprint_keeps_skeletal_tail_and_glasses_offsets(self):
         tail = dict(ItemBlueprint="BlueprintGeneratedClass'/Game/Tail.Tail_C'")
@@ -91,7 +91,7 @@ class OutfitTests(unittest.TestCase):
         base, preset = skeleton(), skeleton()
         outfits.check_tiger_skeleton(preset, base)
         preset['parent'][2] = 0
-        with self.assertRaisesRegex(ValueError, 'bone indices'):
+        with self.assertRaisesRegex(ValueError, 'tiger bones'):
             outfits.check_tiger_skeleton(preset, base)
         preset = skeleton()
         preset['t'][2, 1] = 1

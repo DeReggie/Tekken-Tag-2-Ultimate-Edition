@@ -111,20 +111,22 @@ def codes(base):
 
 
 def check_tiger_skeleton(skeleton, reference):
-    """Shared tiger animation channels address the same bone indices in every outfit."""
+    """The shared tiger animations pose its bones by number (the port's part-3 channels: OPT 600 + channel), so every
+    outfit has the base fighter's tiger bones, parents and bind transforms, wherever its cloth puts them."""
     if reference is None:
         raise ValueError('tiger presets require the base skeleton for compatibility checks')
     def layout(s):
         prefixes = tuple('cha:OPT%d_' % n for n in s['opt'] if tiger.OPT_FIRST <= n < weapons.OPT_FIRST)
-        return [(i, name, s['parent'][i]) for i, name in enumerate(s['names'])
-                if name.startswith(prefixes)]
-    if layout(skeleton) != layout(reference):
-        raise ValueError('preset tiger bone indices differ from the base animation skeleton')
-    indices = [i for i, name, parent in layout(reference)]
-    if not indices:
+        bones = [i for i, name in enumerate(s['names']) if name.startswith(prefixes)]
+        parent = lambda i: s['names'][s['parent'][i]] if 0 <= s['parent'][i] < len(s['names']) else None
+        return bones, [(s['names'][i], parent(i)) for i in bones]
+    (mine, names), (theirs, reference_names) = layout(skeleton), layout(reference)
+    if names != reference_names:
+        raise ValueError('preset tiger bones differ from the base animation skeleton')
+    if not theirs:
         raise ValueError('base skeleton has no tiger bones')
     for field in ('t', 'r', 's'):
-        if not np.allclose(skeleton[field][indices], reference[field][indices], atol=1e-4):
+        if not np.allclose(skeleton[field][mine], reference[field][theirs], atol=1e-4):
             raise ValueError('preset tiger bind transforms differ from the base skeleton')
 
 
@@ -144,10 +146,12 @@ def relocate(model_bytes, texture_bytes, first):
     return nud.write(mesh), nut.write(textures)
 
 
-def build(paks, archives, rpx, base, slot, xml, log=print, cached=None, reference_bon=None):
+def build(paks, archives, rpx, base, slot, xml, springs, body, standing=None, log=print, reference_bon=None, cached=None):
     """Build complete preset bodies and previews, sharing the base fighter's gameplay.
 
-    cached is an optional directory of already converted personal NUD/NUT/BON assets.
+    springs(bon, cloth springs) -> a body's spring entries (.mop) or None (importer.spring_file); body: the base
+    fighter's (nud, nut, bon, mop), the preset of its own costume (its 2P colours' palette entries are the base
+    fighter's: the presets made here have none); standing: the pose the cloth rests in (cloth.standing).
     No installed pack is changed here. Caller writes the returned files atomically.
     """
     files, previews = {}, []
@@ -156,32 +160,33 @@ def build(paks, archives, rpx, base, slot, xml, log=print, cached=None, referenc
         log('preset %d/%d: %s' % (i + 1, len(base.PRESETS), label))
         source_code = base.TEKKEN7_CODE.upper()
         costume = '/Game/Character/Item/Sets/%s/CS_%s_%s' % (source_code, source_code, preset)
-        d = definition(paks, base, costume)
-        if cached is None:
-            mesh, textures, skeleton, _ = model.convert(paks, archives, d, slot, log=log)
-        else:
+        if cached is not None:
+            d = definition(paks, base, costume)
             folder = Path(cached) / preset
             mesh, textures, skeleton = [(folder / (base.CODE + ext)).read_bytes()
                                        for ext in ('.nud', '.nut', '.bon')]
+            saved_springs = folder / (base.CODE + '.mop')
+            mop = saved_springs.read_bytes() if saved_springs.is_file() else springs(skeleton, None)
+        elif costume == base.TEKKEN7['costume']:
+            d = types.SimpleNamespace(**{key: value for key, value in vars(base).items() if key.isupper()})
+            mesh, textures, skeleton, mop = body
+        else:
+            d = definition(paks, base, costume)
+            mesh, textures, skeleton, _, cloth_springs = model.convert(paks, archives, d, slot, log=log,
+                                                                       standing=standing)
+            mop = springs(skeleton, cloth_springs)
         mesh, textures = relocate(mesh, textures, 0x10500000 + (slot * TEXTURE_STRIDE + i) * 0x1000)
         files.update({code + '.nud': mesh, code + '.nut': textures, code + '.bon': skeleton, code + '.xml': xml})
         skel = bone.read(skeleton)
         if reference_bon is not None and getattr(base, 'WEAPONS', ()):
             if weapons.of_skeleton(skel, base.WEAPONS) != weapons.of_skeleton(bone.read(reference_bon), base.WEAPONS):
                 raise ValueError('preset weapon bindings differ from the base fighter')
-        still = [n for n in skel['opt'] if n >= weapons.OPT_FIRST]
-        template = archives.read_name(tiger.SPRING_TEMPLATE[0] + '.mop')
-        donor = (archives.read_name(base.DONOR + '.mop') if archives.has(key_of(base.DONOR + '.mop'))
-                 else chains.empty_spring_file(template))
         if getattr(base, 'TIGER', None):
             check_tiger_skeleton(skel, bone.read(reference_bon) if reference_bon is not None else None)
-            donor = tiger.spring_file(donor, template,
-                sum(1 for n in skel['opt'] if tiger.OPT_FIRST <= n < weapons.OPT_FIRST))
-        swinging = [n for n in skel['opt'] if chains.OPT_FIRST <= n < tiger.OPT_FIRST]
-        if swinging:
-            donor = chains.spring_file(donor, archives.read_name(chains.SPRING_TEMPLATE[0] + '.mop'), swinging)
-        files[code + '.mop'] = (chains.spring_file(donor, template, still,
-                                template=tiger.SPRING_TEMPLATE[1], links=False) if still else donor)
+        if mop is None:                           # (the port needs each preset's own .mop)
+            mop = (archives.read_name(base.DONOR + '.mop') if archives.has(key_of(base.DONOR + '.mop')) else
+                   chains.empty_spring_file(archives.read_name(tiger.SPRING_TEMPLATE[0] + '.mop')))
+        files[code + '.mop'] = mop
         d.ART = dict(base.ART, costume=base.ART['costume'].rsplit('_', 1)[0] + '_' +
                      preview_suffixes.get(preset, getattr(base, 'PRESET_PREVIEWS', {}).get(preset, preset.upper())))
         picture = art.costume_previews(paks, archives, rpx, d, slot)

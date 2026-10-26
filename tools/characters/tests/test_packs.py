@@ -361,6 +361,8 @@ class Status(unittest.TestCase):
             self.assertEqual(state['claudio'], (True, False, False))
             self.assertEqual(state['josie'], (True, True, False))
             self.assertEqual(state['akuma'], (False, False, False))
+            # loaded packs of an older revision (claudio's: none) are to update; packs the game skips are not
+            self.assertEqual({name for name, f in fighters.items() if f['update']}, {'claudio'})
 
 
 class Remove(unittest.TestCase):
@@ -423,8 +425,8 @@ class NoShared(unittest.TestCase):
         from ttt2char import importer
         made = []
         scratch = os.path.join(folder, '.scratch')
-        args = mock.Mock(tekken7='t7', movesets=os.path.join(scratch, 'movesets'), files=os.path.join(scratch, 'files'),
-                         game='g', out=folder, no_shared=True)
+        args = mock.Mock(tekken7='t7', tekken8=None, movesets=os.path.join(scratch, 'movesets'),
+                         files=os.path.join(scratch, 'files'), game='g', out=folder, no_shared=True)
         with mock.patch.object(import_character, 'needs_packages'), \
                 mock.patch.object(autodump, 'dump', side_effect=AssertionError('Tekken 7 would run')), \
                 mock.patch.object(autodump, 'unowned', return_value={}), \

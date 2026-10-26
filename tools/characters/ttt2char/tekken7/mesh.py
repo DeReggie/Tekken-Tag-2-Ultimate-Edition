@@ -50,7 +50,7 @@ def _indices(r):
 
 class Section:
     __slots__ = ('material_index', 'base_index', 'num_triangles', 'base_vertex', 'num_vertices', 'bone_map',
-                 'disabled', 'cloth_mapping')
+                 'disabled', 'cloth_mapping', 'cloth_section', 'cloth_asset')
 
 
 def _section(r):
@@ -61,7 +61,7 @@ def _section(r):
     s.num_triangles = r.i32()
     r.u8()
     s.disabled = r.bool32()
-    r.i16()
+    s.cloth_section = r.i16()       # a disabled section: the section simulating it (-1: none)
     r.u8()
     r.bool32()
     s.base_vertex = r.u32()
@@ -72,7 +72,8 @@ def _section(r):
     r.skip(64 * s.cloth_mapping)
     r.skip(12 * r.i32())
     r.skip(12 * r.i32())
-    r.i16(), r.i16()
+    s.cloth_asset = r.i16()         # a cloth section: its ClothingAssets entry (apex.py)
+    r.i16()
     return s
 
 

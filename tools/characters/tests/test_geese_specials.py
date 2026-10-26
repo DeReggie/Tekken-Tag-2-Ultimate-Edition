@@ -43,13 +43,16 @@ class GeeseSpecials(unittest.TestCase):
 
     def test_max_mode_requirement_is_only_removed_for_opt_in(self):
         for free in (False, True):
-            c = types.SimpleNamespace(defn=types.SimpleNamespace(MOVESET={'free_max_mode': free}),
+            c = types.SimpleNamespace(game='t7', end=881, defn=types.SimpleNamespace(MOVESET={'free_max_mode': free}),
                 k=types.SimpleNamespace(game='t7', tables={'requirements': [
                     dict(condition=176, param=0), dict(condition=881, param=0)]}),
                 cache={}, T={'requirements': []}, stats=__import__('collections').Counter(),
                 map_req=lambda _: None)
             c.k.iter_list = types.MethodType(fixtures.Moveset.iter_list, c.k)
-            _, ok = moveset.Converter.conv_reqs(c, 0)
+            converter = moveset.Converter.__new__(moveset.Converter)
+            converter.__dict__.update(vars(c))
+            c = converter
+            _, ok = c.conv_reqs(0)
             self.assertEqual(ok, free)
 
     def test_buffered_normal_string_cannot_steal_a_special(self):

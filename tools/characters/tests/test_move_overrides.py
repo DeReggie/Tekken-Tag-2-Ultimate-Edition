@@ -8,7 +8,7 @@ from ttt2char.convert import move_overrides as O, tagsystem as T, idmaps as M
 
 class BufferedString(unittest.TestCase):
     def test_direct_followup_keeps_counterhit_gate_and_timing(self):
-        c=types.SimpleNamespace(kn={'kick':0},newidx={0:0},stats=collections.Counter())
+        c=types.SimpleNamespace(game='t7',kn={'kick':0},newidx={0:0},stats=collections.Counter())
         c.map_req=lambda i:{352:313,0x80a6:32918}.get(i)
         c.T={'moves':[{'cancel':0}], 'cancels':[], 'requirements':[]}
         def req(*items):
@@ -38,7 +38,7 @@ class BufferedString(unittest.TestCase):
 class NativeStance(unittest.TestCase):
     def test_miguel_reference_preserves_entry_timing(self):
         from ttt2char.movesets import Moveset
-        c=types.SimpleNamespace(kn={'f4':0,'set':1},newidx={0:0,1:1},
+        c=types.SimpleNamespace(game='t7',kn={'f4':0,'set':1},newidx={0:0,1:1},
             defn=types.SimpleNamespace(MOVESET={'stance_transitions':{'f4':'set'},
                 'stance_reference':(36,'native_entry','native_state')}),extra_index={},stats=collections.Counter())
         row=dict(direction=64,button=0,req=0,move_id=1,extradata=0,
@@ -65,7 +65,7 @@ class NativeStance(unittest.TestCase):
 
 class AirReaction(unittest.TestCase):
     def test_air_template_preserves_damage_ground_and_shared_lists(self):
-        c=types.SimpleNamespace(kn={'b1':0},newidx={0:0},dn={'native':0},stats=collections.Counter(),
+        c=types.SimpleNamespace(game='t7',kn={'b1':0},newidx={0:0},dn={'native':0},stats=collections.Counter(),
             defn=types.SimpleNamespace(MOVESET={'air_reactions':{'b1':'native'}}))
         requirements=[dict(condition=466,param=0),dict(condition=T.TT_END,param=0)]
         c.T={'moves':[{'hit_condition':0}], 'hit_conditions':[
@@ -95,7 +95,7 @@ class BufferedStanceCandidate(unittest.TestCase):
         row=dict(direction=64,button=0,req=0,move_id=1,extradata=0,
                  win_start=20,win_end=20,start_frame=20,option=0)
         end=dict(row,direction=M.LIST_END,move_id=0x8001)
-        c=types.SimpleNamespace(kn={'f4':0,'set':1},newidx={0:0,1:1},extra_index={0x80:0},stats=collections.Counter())
+        c=types.SimpleNamespace(game='t7',kn={'f4':0,'set':1},newidx={0:0,1:1},extra_index={0x80:0},stats=collections.Counter())
         c.T={'moves':[dict(cancel=0,first_active=15,last_active=16),
             dict(hitlevel=0,bitfield=0x20,first_active=0,last_active=0,airborne_start=0,airborne_end=0)],
             'cancels':[row,end],'cancel_extras':[dict(value=0x80)]}
@@ -110,7 +110,7 @@ class BufferedStanceCandidate(unittest.TestCase):
 
 class SafeBufferNormalization(unittest.TestCase):
     def fixture(self, complex_capture=False, missing_dispatch=False):
-        c=types.SimpleNamespace(kn={'kick':0},newidx={0:0},stats=collections.Counter())
+        c=types.SimpleNamespace(game='t7',kn={'kick':0},newidx={0:0},stats=collections.Counter())
         c.map_req=lambda i:{352:313,0x80a6:32918}.get(i)
         c.T={'moves':[{'cancel':0}], 'cancels':[], 'requirements':[]}
         def req(*items):
@@ -149,7 +149,7 @@ class BufferPriority(unittest.TestCase):
 
 class DamageOverride(unittest.TestCase):
     def test_damage_copies_shared_list_and_preserves_reactions(self):
-        c=types.SimpleNamespace(kn={'kick':0},newidx={0:0},stats=collections.Counter(),
+        c=types.SimpleNamespace(game='t7',kn={'kick':0},newidx={0:0},stats=collections.Counter(),
             defn=types.SimpleNamespace(MOVESET={'damage':{'kick':28}}),map_req=lambda i:None)
         c.T={'moves':[{'hit_condition':0},{'hit_condition':0}],
              'requirements':[dict(condition=466,param=0),dict(condition=T.TT_END,param=0)],
@@ -162,7 +162,7 @@ class DamageOverride(unittest.TestCase):
         self.assertEqual(c.T['hit_conditions'][0]['damage'],23)
 
     def test_invalid_damage_is_rejected(self):
-        c=types.SimpleNamespace(defn=types.SimpleNamespace(MOVESET={'damage':{'kick':-1}}))
+        c=types.SimpleNamespace(game='t7',defn=types.SimpleNamespace(MOVESET={'damage':{'kick':-1}}))
         with self.assertRaises(ValueError):O.apply(c)
 
 if __name__=='__main__':unittest.main()
@@ -170,7 +170,7 @@ if __name__=='__main__':unittest.main()
 class CounterhitReaction(unittest.TestCase):
     def test_only_grounded_ch_slots_change_and_shared_lists_stay_intact(self):
         import copy
-        c=types.SimpleNamespace(kn={'attack':0}, newidx={0:0}, dn={'reference':9}, stats=collections.Counter())
+        c=types.SimpleNamespace(game='t7',kn={'attack':0}, newidx={0:0}, dn={'reference':9}, stats=collections.Counter())
         reaction=dict(default=1, ch=2, crouch_ch=3, block=4, downed=5, pb_front=6, vertical_pushback=7)
         c.T={'moves':[dict(hit_condition=0),dict(hit_condition=0)],
              'requirements':[dict(condition=T.AIR,param=0),dict(condition=T.TT_END,param=0)],
@@ -199,7 +199,7 @@ class OnHitFollowup(unittest.TestCase):
         end=dict(source,direction=M.LIST_END,move_id=0)
         k.tables={'moves':[dict(cancel=0),dict(cancel=1)],'cancels':[source,end],
                   'requirements':[dict(condition=51,param=0),dict(condition=881,param=0)]}
-        c=types.SimpleNamespace(k=k,kn={'first':0,'second':1},newidx={0:0,1:1},stats=collections.Counter(),extradata=lambda _:7)
+        c=types.SimpleNamespace(game='t7',k=k,kn={'first':0,'second':1},newidx={0:0,1:1},stats=collections.Counter(),extradata=lambda _:7)
         c.T={'moves':[dict(cancel=0),dict(cancel=0)],'cancels':[dict(end)],'requirements':[]}
         O.on_hit_followup(c,'first','second')
         row=T.cancels(c.T,c.T['moves'][0]['cancel'])[0]
@@ -215,7 +215,7 @@ class ScopedRequirementConversion(unittest.TestCase):
         from ttt2char.movesets import Moveset
         c=Converter.__new__(Converter);k=Moveset();k.game='t7'
         k.tables={'requirements':[dict(condition=2,param=0),dict(condition=51,param=0),dict(condition=96,param=0),dict(condition=881,param=0)]}
-        c.k=k;c.k_id=8;c.newid=70;c.cache={};c.T={'requirements':[]};c.stats=collections.Counter();c.defn=types.SimpleNamespace(MOVESET={})
+        c.k=k;c.game='t7';c.end=881;c.k_id=8;c.newid=70;c.cache={};c.T={'requirements':[]};c.stats=collections.Counter();c.defn=types.SimpleNamespace(MOVESET={})
         c.map_req=lambda x:{96:93}.get(x)
         self.assertEqual(c.conv_reqs(0),(None,False))
         at,ok=c.conv_reqs(0,overrides={2:2,51:47})
@@ -237,7 +237,7 @@ class AirHitString(unittest.TestCase):
         dispatch=row(0,rq((352,1),(353,1)),1,14,15,14)
         end=dict(row(0,rq(),0,30,30,30),direction=M.LIST_END)
         k.tables={'requirements':req,'moves':[dict(cancel=0),dict(cancel=0)],'cancels':[hit,capture,dispatch,end]};k.resolve_alias=lambda n:n
-        c=types.SimpleNamespace(k=k,kn={'air2':0},newidx={0:0,1:1},stats=collections.Counter(),T={'moves':[dict(cancel=0)],'requirements':[dict(condition=690,param=0)],'cancels':[dict(capture,req=0),dict(end,req=0)]})
+        c=types.SimpleNamespace(game='t7',k=k,kn={'air2':0},newidx={0:0,1:1},stats=collections.Counter(),T={'moves':[dict(cancel=0)],'requirements':[dict(condition=690,param=0)],'cancels':[dict(capture,req=0),dict(end,req=0)]})
         c.extra_index={}
         c.T.update(cancel_extras=[],move_begin_props=[])
         def add(table,row):
@@ -289,7 +289,7 @@ class SourceAirReaction(unittest.TestCase):
         k.tables={'moves':[{},dict(hit_condition=0)],'reactions':[{f:0 for f in REACTION_MOVE_FIELDS}],
                   'requirements':[dict(condition=614,param=0),dict(condition=881,param=0),dict(condition=881,param=0)],
                   'hit_conditions':[dict(req=0,damage=28,reactions=0),dict(req=2,damage=28,reactions=0)]}
-        c=types.SimpleNamespace(k=k,kn={'attack':1},newidx={1:0},react_remap={'slam':'rebound'},cache={('react',0):1},stats=collections.Counter())
+        c=types.SimpleNamespace(game='t7',k=k,kn={'attack':1},newidx={1:0},react_remap={'slam':'rebound'},cache={('react',0):1},stats=collections.Counter())
         old=[dict(req=0,damage=28,reactions=1),dict(req=2,damage=28,reactions=1)]
         c.T={'moves':[dict(hit_condition=0)],'hit_conditions':old.copy(),
              'requirements':[dict(condition=T.AIR,param=0),dict(condition=690,param=0),dict(condition=690,param=0)]}

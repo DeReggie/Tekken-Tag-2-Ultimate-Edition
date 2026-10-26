@@ -1,4 +1,4 @@
-"""The added fighters' pictures and names on TTT2's 2D screens, made from their Tekken 7 UI pictures.
+"""The added fighters' pictures and names on TTT2's 2D screens, made from their Tekken 7 or Tekken 8 UI pictures.
 
 TTT2 shows a fighter's pictures in three ways, all by its UI position (its row in tables of 59):
 * labels of sprites in the 2D layouts (LMB, data007): a per-fighter sprite has one label per fighter
@@ -14,8 +14,9 @@ TTT2 shows a fighter's pictures in three ways, all by its UI position (its row i
 
 Each picture is made the same way: the pictures every fighter has at that place give the frame (pixels all of
 them share), the background (their darkest, most transparent pixels) and the area a picture covers; the fighter's
-Tekken 7 picture is scaled and placed so that its face sits where faces sit in that kind of picture, cut to that
-area, laid over the background, under the frame.
+own picture is scaled and placed so that its face sits where faces sit in that kind of picture, cut to that
+area, laid over the background, under the frame. In the big portraits it also fades into the dark background
+towards the frame, as every fighter there does (edge_fade).
 
 What every added fighter shares (layouts, the big portraits' container, the HUD's pictures) is made for all of them
 together, in the order of their places (shared_files, for shared/): layouts and the container whole
@@ -23,13 +24,22 @@ together, in the order of their places (shared_files, for shared/): layouts and 
 container. What is a fighter's own (the loading and VS screens' portraits, the costume chooser's picture) goes into
 its pack (pack_files).
 
+The fighter's own pictures come from its game through a picture source: anything with picture(path) -> (H, W, 4)
+uint8 and `game` ('tekken7', 'tekken8'; source.py's sources), or Tekken 7's paks as such (Tekken7Pictures). Its
+definition's ART names them: a bust (head and shoulders), its whole body, its name and its costume, with where the
+face is in the first two. Some kinds have a glow around the fighter that TTT2's pictures do not have, taken off
+(GLOWS): Tekken 7's whole-body pictures a pale one, Tekken 8's busts a pink rim light. Tekken 8's busts also show
+more of the fighter below the face than TTT2's pictures do: the pictures cut from them show the face bigger
+(BUST_FRAME). Tekken 7's costume picture is a render on a grey panel, Tekken 8's one on a transparent background
+(cut_out takes either).
+
 Nothing of either game is in this file: it reads the player's files.
 """
 import re
 import struct
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from ..tekken7.texture import Texture2D
 from ..tekken7.uasset import load
@@ -61,8 +71,9 @@ HUD = 0x7C476BDE
 HUD_PAUL = (30, 105, 164)
 # The select screen's costume chooser: per select id a texture container of costume pictures (124 x 304, one per
 # costume; their keys in a table of the title by select id). The fighter has one costume; its picture is made from
-# its Tekken 7 costume-slot picture (a full-body render on a grey panel between white margins): the fighter cut out
-# and stood in the room the title's pictures share, with its reflection on the floor. roster.cpp kCostumeFile.
+# its game's costume picture (Tekken 7's costume slot: a full-body render on a grey panel between white margins;
+# Tekken 8's: on a transparent background): the fighter cut out and stood in the room the title's pictures share,
+# with its reflection on the floor. roster.cpp kCostumeFile.
 COSTUME_PREVIEWS = 0x10161590
 COSTUME_FILE = 'art/costumes.nut'
 SELECT_IDS = 59
@@ -71,7 +82,7 @@ PAGE_WIDTH = 1024                 # new texture pages: at most this wide, as tal
 UI_ROWS = 59                      # UI positions (rows of the title's tables)
 
 # Where a face sits in each kind of picture: (eyes' centre x, y as fractions of the picture, eyes-to-chin as a
-# fraction of its height, which Tekken 7 picture: 'bust' or 'body'). Measured on the TTT2 pictures.
+# fraction of its height, which of the fighter's pictures: 'bust' or 'body'). Measured on the TTT2 pictures.
 FACE_TALL = (0.52, 0.40, 0.21, 'bust')          # 56x88, 100x136: head and shoulders
 FACE_SQUARE = (0.40, 0.38, 0.20, 'bust')        # 140x140
 FACE_STRIP = (0.46, 0.42, 0.36, 'bust')         # 160x56: eyes and mouth, faded at the sides
@@ -125,18 +136,52 @@ def _resize(a, w, h):
     return _straight(np.clip(np.stack(chans, -1), 0.0, 1.0))
 
 
-class Sources:
-    """The fighter's Tekken 7 pictures (d.ART), as RGBA floats, with where its face is in each."""
+class Tekken7Pictures:
+    """Tekken 7's UI pictures by object path, from its paks (tekken7.pak.Paks): the picture source of the calls
+    that pass the paks themselves."""
 
-    def __init__(self, paks, d):
+    game = 'tekken7'
+
+    def __init__(self, paks):
+        self.paks = paks
+
+    def picture(self, path):
+        return Texture2D(load(self.paks, path)).decode()
+
+
+def picture_source(source):
+    """`source` as a picture source: one (it has picture()), or Tekken 7's paks."""
+    return source if hasattr(source, 'picture') else Tekken7Pictures(source)
+
+
+def source_of(sources, slot, d):
+    """Fighter d's picture source in shared_files' `source`: one source (or paks) for every fighter, a mapping
+    {slot or d.CODE: source (or paks)}, or a function of the definition that gives it (source.Sources)."""
+    if isinstance(sources, dict):
+        return picture_source(sources[slot] if slot in sources else sources[d.CODE])
+    if callable(sources) and not hasattr(sources, 'picture'):
+        return picture_source(sources(d))
+    return picture_source(sources)
+
+
+class Sources:
+    """The fighter's pictures (d.ART: from its game through `source`, see picture_source), as RGBA floats, with
+    where its face is in each."""
+
+    def __init__(self, source, d):
+        source = picture_source(source)
+        glows = GLOWS.get(getattr(source, 'game', None), {})
+        zoom, drop = BUST_FRAME.get(getattr(source, 'game', None), (1.0, 0.0))
         self.pictures, self.faces = {}, {}
         for kind in ('bust', 'body'):
             path, face = d.ART[kind]
-            img = _float(Texture2D(load(paks, path)).decode())
-            if kind == 'body':
-                img = deglow(img)
+            img = _float(source.picture(path))
+            if kind in glows:
+                img = glows[kind](img)
+            if kind == 'bust' and (zoom, drop) != (1.0, 0.0):
+                face = (face[0], face[1] - drop * face[2], face[2] / zoom)
             self.pictures[kind], self.faces[kind] = img, face
-        self.name = _float(Texture2D(load(paks, d.ART['name'])).decode())
+        self.name = _float(source.picture(d.ART['name']))
 
     def framed(self, place, w, h, mirror=False):
         """The fighter's picture scaled and moved so that its face sits at `place` in a w x h picture."""
@@ -159,7 +204,7 @@ class Sources:
 
     def title_name(self, w, h):
         """The fighter's name for a w x h name picture of the title: in the title's own letters (see Letters) as
-        wide as it needs, else its Tekken 7 name picture fitted in w x h."""
+        wide as it needs, else its game's name picture fitted in w x h."""
         letters = getattr(self, 'letters', None)
         text = getattr(self, 'short_name', None)
         pic = letters.picture(text) if letters is not None and text else None
@@ -170,7 +215,7 @@ class Sources:
         return pic
 
     def name_picture(self, w, h, height=0.6):
-        """The fighter's name (its Tekken 7 name picture, cut to its letters) centred in a w x h picture, the
+        """The fighter's name (its game's name picture, cut to its letters) centred in a w x h picture, the
         letters `height` of it tall."""
         a = self.name
         ys, xs = np.nonzero(a[..., 3] > 0.05)
@@ -198,10 +243,54 @@ def deglow(img):
     return out
 
 
-def compose(others, picture):
+# Tekken 8's busts (Makuai_Character_L) have a rim light around the fighter: a band of one colour (pink-red, about
+# 240, 60, 100 on every fighter measured) fading out over ~100 pixels at alpha 0.15 and less (0.3 to 0.45 at most,
+# where it meets the hair). Most of the faintest pixels are that colour; pixels near it that are half transparent
+# lose their alpha, those a little different (the hair the light falls on) keep it.
+RIM_FAINT = 0.1        # the faint pixels (alpha below this) whose commonest colour is the rim light's
+RIM_SHARE = 0.25       # ... when at least this share of them have it (else the picture has no rim light)
+RIM_BIN = 16           # colours are counted in steps of this (of 255)
+RIM_NEAR, RIM_FAR = 0.06, 0.25           # colour distance (largest channel difference): all rim light .. none
+RIM_SOLID = (0.35, 0.6)                  # alpha from which a pixel is taken less and less for rim light .. never
+
+
+def deglow_rim(img):
+    """A picture without its rim light (see RIM_FAINT): its colour found among the faintest pixels, the
+    half-transparent pixels of that colour made transparent."""
+    alpha = img[..., 3]
+    faint = img[(alpha > 0.0) & (alpha < RIM_FAINT)][:, :3]
+    if len(faint) < 64:
+        return img
+    q = np.minimum((faint * 255.0) // RIM_BIN, 255 // RIM_BIN).astype(np.int64)
+    keys = (q[:, 0] * 256 + q[:, 1]) * 256 + q[:, 2]
+    values, counts = np.unique(keys, return_counts=True)
+    if counts.max() < RIM_SHARE * len(faint):
+        return img
+    key = values[counts.argmax()]
+    colour = faint[keys == key].mean(0)
+    distance = np.abs(img[..., :3] - colour).max(-1)
+    near = np.clip((RIM_FAR - distance) / (RIM_FAR - RIM_NEAR), 0.0, 1.0)
+    lo, hi = RIM_SOLID
+    thin = 1.0 - np.clip((alpha - lo) / (hi - lo), 0.0, 1.0)
+    out = img.copy()
+    out[..., 3] = alpha * (1.0 - near * thin)
+    return out
+
+
+# The glows taken off each game's pictures, by kind
+GLOWS = {'tekken7': {'body': deglow}, 'tekken8': {'bust': deglow_rim}}
+# How the pictures cut from each game's bust (its select screen cells, the faces in fights) frame the face against
+# FACE_*'s measures: (how much bigger, how much lower in eyes-to-chin lengths of the bust). Tekken 8's busts show a
+# front-facing head with much of the jacket below; TTT2's cells fill with the head (Reina's cell next to Violet's,
+# user 2026-10-26)
+BUST_FRAME = {'tekken8': (1.5, 0.1)}
+
+
+def compose(others, picture, fade=None):
     """A picture like `others` (N, h, w, 4 floats: every fighter's picture for the place) with `picture` (h, w, 4)
     in it: where all of them agree (a frame, a background they share) theirs, elsewhere `picture` cut to the area
-    theirs cover, over their darkest and most transparent pixels."""
+    theirs cover, over their darkest and most transparent pixels; `fade` (h, w, see edge_fade): how much of
+    `picture` shows at each pixel."""
     n = len(others)
     spread = others.std(0).max(-1)
     shared = spread < 0.04
@@ -213,9 +302,45 @@ def compose(others, picture):
     cover = np.percentile(others[..., 3], 85, axis=0)
     p = picture.copy()
     p[..., 3] *= cover
+    if fade is not None:
+        p[..., 3] *= fade
+        shared &= fade <= 0.0       # (where the picture fades out, theirs differ too little to tell apart)
     out = _over(p, background)
     out[shared] = mean[shared]
     return out
+
+
+FADE_REACH = 64        # how far into a window (pixels) its edges' fade is measured
+
+
+def edge_fade(others):
+    """How much of a fighter shows at each pixel (h, w floats, 0 to 1) in pictures like `others` (N, h, w, 4) whose
+    fighters fade into a dark background towards the edges of their window (the big portraits): the window is
+    where the pictures differ much; how much they differ at each distance from its edge, against how much they
+    differ deep inside, gives the fade by distance."""
+    premultiplied = np.concatenate([others[..., :3] * others[..., 3:], others[..., 3:]], -1)
+    spread = premultiplied.std(0).max(-1)
+    much = np.percentile(spread, 90)
+    if much <= 0.0:
+        return np.ones(spread.shape, np.float32)
+    rough = Image.fromarray(np.where(spread > 0.3 * much, 255, 0).astype(np.uint8))
+    window = np.asarray(rough.filter(ImageFilter.GaussianBlur(3))) > 127     # (its edges smoothed)
+    if not window.any():
+        return np.ones(spread.shape, np.float32)
+    # distance from the window's edge: up inside, down outside
+    inside = np.minimum(_distances(~window, FADE_REACH), FADE_REACH)
+    outside = np.minimum(_distances(window, FADE_REACH), FADE_REACH)
+    at = np.round(np.where(window, inside - 0.5, 0.5 - outside)).astype(np.int64)
+    steps = np.arange(at.min(), at.max() + 1)
+    deep = spread[at >= min(FADE_REACH - 8, int(at.max() * 0.7))]
+    level = np.zeros(len(steps))
+    for i, step in enumerate(steps):
+        here = spread[at == step]
+        if len(here) >= 8:
+            level[i] = np.median(here) / max(np.median(deep), 1e-6)
+    # it only grows inwards, and is whole a little before the measured differences settle (the median there ~0.95)
+    level = np.clip(np.maximum.accumulate(level) / 0.95, 0.0, 1.0)
+    return np.interp(at, steps, level).astype(np.float32)
 
 
 def _over(top, bottom):
@@ -254,17 +379,22 @@ SHADOW = 12            # how far (pixels) the shadow is measured
 
 
 def _distances(mask, limit):
-    """Per pixel, the distance to the nearest pixel of `mask` (inf beyond `limit`)."""
+    """Per pixel, the distance to the nearest pixel of `mask` (inf beyond `limit`): first down each column (at most
+    limit + 1, meaning farther), then the nearest of the columns around."""
     h, w = mask.shape
-    out = np.full(mask.shape, np.inf)
-    offsets = sorted(((dx * dx + dy * dy) ** 0.5, dx, dy) for dx in range(-limit, limit + 1)
-                     for dy in range(-limit, limit + 1) if dx * dx + dy * dy <= limit * limit)
-    for d, dx, dy in offsets:
-        shifted = np.zeros_like(mask)
-        shifted[max(dy, 0):h + min(dy, 0), max(dx, 0):w + min(dx, 0)] = \
-            mask[max(-dy, 0):h + min(-dy, 0), max(-dx, 0):w + min(-dx, 0)]
-        out = np.where(shifted & (out > d), d, out)
-    return out
+    far = float(limit + 1)
+    column = np.empty(mask.shape)
+    for rows in (range(h), range(h - 1, -1, -1)):
+        run = np.full(w, far)
+        for y in rows:
+            run = np.where(mask[y], 0.0, np.minimum(run + 1.0, far))
+            column[y] = run if rows.step > 0 else np.minimum(column[y], run)
+    column *= column
+    out = column.copy()
+    for dx in range(1, limit + 1):
+        out[:, dx:] = np.minimum(out[:, dx:], column[:, :-dx] + dx * dx)
+        out[:, :-dx] = np.minimum(out[:, :-dx], column[:, dx:] + dx * dx)
+    return np.where(out <= limit * limit, np.sqrt(out), np.inf)
 
 
 class Letters:
@@ -643,11 +773,11 @@ class Layout:
 
 # ------------------------------------------------------------------------------------------------ portraits
 
-def portrait(sources, others, player2):
-    """A big portrait (356x612) like `others` (every fighter's of that kind)."""
+def portrait(sources, others, player2, fade):
+    """A big portrait (356x612) like `others` (every fighter's of that kind; fade: edge_fade(others))."""
     w, h = PORTRAIT_SIZE
     mine = sources.framed(FACE_PORTRAIT, w, h, mirror=player2)
-    return compose(others, mine)
+    return compose(others, mine, fade)
 
 
 def container_frames(d):
@@ -699,15 +829,27 @@ def portrait_files(sources, archives, rpx):
             t = nut.read(archives.read(k))['textures'][0]
             if (t['w'], t['h']) == (paul['w'], paul['h']):
                 pics.append(_float(nut.decode(t)))
-        mine = compose(np.stack(pics), sources.framed(FACE_PORTRAIT, paul['w'], paul['h'], mirror=player2))
+        pics = np.stack(pics)
+        mine = compose(pics, sources.framed(FACE_PORTRAIT, paul['w'], paul['h'], mirror=player2), edge_fade(pics))
         files[name] = nut.write([like_texture(paul, mine)])
     return files
 
 
+CUT_TRANSPARENT = 0.01      # a costume picture with more than this share of pixels under half alpha has its
+                            # background transparent (Tekken 8's); Tekken 7's are opaque (alpha 242 at the least)
+CUT_ALPHA = 8               # ... and its fighter is where alpha is at least this (of 255)
+
+
 def cut_out(img):
-    """A Tekken 7 costume-slot picture (H, W, 4 uint8) -> the fighter alone (h, w, 4 floats) cut to it, or None.
-    The panel's background is a smooth neutral grey (red = green, blue a little higher), reached from the panel's
-    edges in small steps; everything else on the panel is the fighter."""
+    """A costume picture (H, W, 4 uint8) -> the fighter alone (h, w, 4 floats) cut to it, or None. On a
+    transparent background (Tekken 8's) the fighter is what is not transparent. On Tekken 7's costume-slot panel
+    the background is a smooth neutral grey (red = green, blue a little higher), reached from the panel's edges in
+    small steps; everything else on the panel is the fighter."""
+    if (img[..., 3] < 128).mean() > CUT_TRANSPARENT:
+        ys, xs = np.nonzero(img[..., 3] >= CUT_ALPHA)
+        if not len(ys):
+            return None
+        return _float(img[ys.min():ys.max() + 1, xs.min():xs.max() + 1])
     rgb = img[..., :3].astype(np.int32)
     r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
     white = (rgb > 240).all(-1)
@@ -739,12 +881,13 @@ def cut_out(img):
     return out[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
 
 
-def costume_previews(paks, archives, rpx, d, slot):
-    """The chooser's container for the fighter: one picture, its costume (NTP3 bytes), or None."""
+def costume_previews(source, archives, rpx, d, slot):
+    """The chooser's container for the fighter: one picture, its costume (NTP3 bytes), or None. source: its
+    picture source (or Tekken 7's paks)."""
     path = d.ART.get('costume') if hasattr(d, 'ART') else None
     if not path:
         return None
-    fighter = cut_out(Texture2D(load(paks, path)).decode())
+    fighter = cut_out(picture_source(source).picture(path))
     if fighter is None:
         return None
     textures = []
@@ -824,12 +967,13 @@ def codes_in(lm):
     return found
 
 
-def pack_files(paks, archives, rpx, d, slot, log=None):
+def pack_files(source, archives, rpx, d, slot, log=None):
     """The fighter's own pictures for its pack: the loading and VS screens' portraits and the costume chooser's
-    picture. -> {file name: bytes}."""
-    sources = Sources(paks, d)
+    picture. -> {file name: bytes}. source: the fighter's picture source (or Tekken 7's paks)."""
+    source = picture_source(source)
+    sources = Sources(source, d)
     files = portrait_files(sources, archives, rpx)
-    costumes = costume_previews(paks, archives, rpx, d, slot)
+    costumes = costume_previews(source, archives, rpx, d, slot)
     if costumes is not None:
         files[COSTUME_FILE] = costumes
     if log:
@@ -838,10 +982,11 @@ def pack_files(paks, archives, rpx, d, slot, log=None):
     return files
 
 
-def shared_files(paks, archives, rpx, fighters, log=None):
+def shared_files(source, archives, rpx, fighters, log=None):
     """What the added fighters share, for fighters [(slot, definition)]: the 2D layouts with every fighter's labels
     and grid cell, the big portraits' container with two frames per place, the HUD's pictures by place.
-    -> {file name: bytes}. rpx: the title's executable (ttt2.rpx)."""
+    -> {file name: bytes}. source: the fighters' picture source (one for all, by slot or code, or by definition:
+    source_of; or Tekken 7's paks); rpx: the title's executable (ttt2.rpx)."""
     fighters = sorted(fighters, key=lambda f: f[0])
     files = {}
     # the game's fighters' codes: from every layout's labels `face_<code>` and `face_panel_<code>`
@@ -858,7 +1003,7 @@ def shared_files(paks, archives, rpx, fighters, log=None):
     codes = [PAUL] + sorted(codes - {PAUL})
     sources = {}
     for slot, d in fighters:
-        sources[slot] = Sources(paks, d)
+        sources[slot] = Sources(source_of(source, slot, d), d)
         sources[slot].short_name = getattr(d, 'SHORT_NAME', d.NAME.split()[0].upper())
     # the fighters' names in the title's lettering, learnt from the select screen's names
     letters = None
@@ -876,7 +1021,7 @@ def shared_files(paks, archives, rpx, fighters, log=None):
         if log:
             made = letters.picture(sources[slot].short_name) if letters else None
             log('%s in the title\'s letters: %s' % (d.NAME, '%d x %d' % made.shape[1::-1] if made is not None
-                                                   else 'no (the Tekken 7 name picture instead)'))
+                                                   else 'no (its game\'s name picture instead)'))
     count = 0
     for i, key, tkey in entries:
         if i not in blobs:
@@ -916,10 +1061,11 @@ def shared_files(paks, archives, rpx, fighters, log=None):
     cont = archives.read(PORTRAITS)
     frames = container_frames(cont)
     pics = np.stack([_texture_picture(cont[o:o + s]) for o, s in frames])
+    fades = [edge_fade(pics[p::2]) for p in (0, 1)]
     new = []
     for slot in range(max(sources) + 1):
         if slot in sources:
-            new += [_one_texture(portrait(sources[slot], pics[p::2], p == 1)) for p in (0, 1)]
+            new += [_one_texture(portrait(sources[slot], pics[p::2], p == 1, fades[p])) for p in (0, 1)]
         else:
             new += [cont[o:o + s] for o, s in frames[:2]]
     files['keys/%08x.bin' % PORTRAITS] = with_frames(cont, new)

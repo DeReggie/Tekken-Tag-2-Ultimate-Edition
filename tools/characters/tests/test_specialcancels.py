@@ -11,7 +11,7 @@ from ttt2char.convert import specialcancels as S, idmaps as M, tagsystem as TS
 
 class SpecialCancels(unittest.TestCase):
     def converter(self):
-        c = types.SimpleNamespace()
+        c = types.SimpleNamespace(game='t7')
         c.defn = types.SimpleNamespace(MOVESET={'special_cancels': {'normal': ('dp',)}})
         c.kn = {'normal': 0, 'dp': 1}
         c.newidx = {0: 0, 1: 1}

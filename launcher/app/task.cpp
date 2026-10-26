@@ -214,6 +214,7 @@ void Launcher::task_line(const std::string& text, bool error) {
     case Line::Kind::kAdded:
     case Line::Kind::kRemoved: task_->added.push_back(line.word); break;
     case Line::Kind::kSkipped: task_->skipped.push_back(line.word + ": " + line.text); break;
+    case Line::Kind::kStandIn: task_->stand_ins.emplace_back(line.word, line.text); break;
     default: break;
     }
     if (task_->progress.feed(line)) show_task();
@@ -248,8 +249,9 @@ void Launcher::cancel_task() {
     gtk_button_set_label(GTK_BUTTON(task_button_), "Stopping…");
     gtk_widget_set_sensitive(task_button_, FALSE);
     ui::set_text(task_detail_, task_->kind == Kind::kImport
-                                   ? "Stopping… Tekken 7 is closed first when it runs hidden: a few seconds."
-                                   : "Stopping…");
+                                   ? "Stopping… " + (task_->hidden.empty() ? std::string("Tekken 7") : task_->hidden) +
+                                         " is closed first when it runs hidden: a few seconds."
+                                   : std::string("Stopping…"));
     log("Stopping…");
 }
 
@@ -273,16 +275,16 @@ void Launcher::task_exited(int code) {
                   : "It stopped with code " + std::to_string(code) + " (see Details)";
     }
     if (why[0] >= 'a' && why[0] <= 'z') why[0] = static_cast<char>(why[0] - 'a' + 'A'); // (as a sentence)
-    std::vector<std::string> added;
-    for (const std::string& name : t.added) {
-        std::string display = name;
+    const auto display = [&](const std::string& name) {
         if (status_) {
             for (const Fighter& f : status_->fighters) {
-                if (f.name == name) display = f.display;
+                if (f.name == name) return f.display;
             }
         }
-        added.push_back(display);
-    }
+        return name;
+    };
+    std::vector<std::string> added;
+    for (const std::string& name : t.added) added.push_back(display(name));
     switch (t.kind) {
     case Kind::kInstall:
         if (ok) {
@@ -304,12 +306,26 @@ void Launcher::task_exited(int code) {
         detail = ok ? "The game program is built again for this PC." : t.cancelled ? "The game is as it was." : why;
         break;
     case Kind::kImport:
-        if (ok) {
+        if (ok && t.update) {
+            title = added.empty() ? "No characters updated" : "Updated " + joined(added);
+            detail = added.empty() ? "" : "Their new version is in the game next time it starts.";
+        } else if (ok) {
             title = added.empty() ? "No characters added" : "Added " + joined(added);
             detail = added.empty() ? "" : "They are on the select screen next time the game starts.";
+        } else if (t.update) {
+            title = t.cancelled ? "Updating cancelled" : "Updating " + t.subject + " failed";
+            detail = t.cancelled ? "The characters updated before stay updated, the others as they were." : why;
         } else {
             title = t.cancelled ? "Adding cancelled" : "Adding " + t.subject + " failed";
             detail = t.cancelled ? "The characters added before stay." : why;
+        }
+        // (A Tekken 8 fighter whose own moves could not be saved: added all
+        // the same, with a stand-in's, until updated.)
+        for (const auto& [name, reason] : t.stand_ins) {
+            std::string said = reason;
+            while (!said.empty() && said.back() == '.') said.pop_back();
+            detail += (detail.empty() ? "" : " ") + display(name) + " fights with Heihachi's moves for now: " + said +
+                      ".";
         }
         if (!t.skipped.empty()) detail += (detail.empty() ? "" : " ") + ("Skipped " + joined(t.skipped) + ".");
         break;
