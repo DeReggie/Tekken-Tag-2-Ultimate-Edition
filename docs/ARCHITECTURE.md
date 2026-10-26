@@ -963,7 +963,7 @@ compiler.
   `lib/libttt2_runtime.a` (the objects the ttt2 target links; they must be
   position-independent) with the archives it uses, `lib/generated_stub.o`,
   `kit.ini`, `VERSION` (the launcher's version and the commit) and
-  `t7helper.exe` when MinGW is there. `kit.ini` holds the generated code's
+  `t7helper.exe` and `t8helper.exe` when MinGW is there. `kit.ini` holds the generated code's
   compile flags (the ttt2 build's own, `TTT2_GENERATED_OPTIONS`) and the
   link: the runtime archive whole (its imports must replace the generated
   weak defaults and its export registrations stay), then the other
@@ -1007,16 +1007,25 @@ compiler.
   `@progress` (at most ten a second) and `@error`.
 - **The importer's side** (`tools/characters/launcher.py`): `status` is one
   JSON object, in about 0.1 s and without numpy, with what adding fighters
-  needs (numpy and Pillow, gamescope, pactl, the helper, Steam, Tekken 7's
-  folder or why it cannot be used, the packs folder, and per fighter its
+  needs (numpy and Pillow, gamescope, pactl, each game's helper, a C
+  compiler, Steam, Tekken 7's folder or why it cannot be used and whether
+  its files can be read (`readable`: what `shared/` needs even when it
+  cannot run), Tekken 8's folder, whether it is the build its helper knows
+  (`build_known`, read from the exe only while a fighter's own moveset is
+  not saved) and why it cannot run hidden (`run_error`), the packs folder,
+  and per fighter its game (`"game": "tekken8"`), its
   DLC's app id, whether it is added, whether its pack is outdated (an older
   importer's: the game skips it) or newer (a newer importer's: skipped too,
   and never replaced by this importer), whether the pack the game loads is
-  to update (an older revision) and whether its moveset is saved);
+  to update (an older revision, or a Tekken 8 fighter's `stand_in` pack
+  once its own moveset can be had) and whether its moveset is saved);
   `owned` asks Steam through the hidden helper which DLC fighters the
   account owns (Steam is never started). `import_character.py --progress`
-  adds `@step dump|fighter|shared`, `@added`, `@removed`, `@skipped`,
-  `@error` and `@done` lines, and `--remove` deletes packs again (numpy only
+  adds `@step dump|fighter|shared`, `@added`, `@stand-in` (a Tekken 8
+  fighter added with Heihachi's moves, and why), `@removed`, `@skipped`,
+  `@error` and `@done` lines (a game the packs there need for `shared/` and
+  that is gone fails before anything is saved or written), and `--remove`
+  deletes packs again (numpy only
   when what the packs left share is made again; not at all when only packs
   the game does not load go, as `shared/` never held them). A pack is made
   whole in a hidden folder beside its place (`.<code>.part`, `character.ini`
@@ -1034,7 +1043,15 @@ compiler.
   the build and source trees it was built from (unless built with
   `TTT2_LAUNCHER_BUILD_TREE_PATHS=OFF`, as for the AppImage, whose program
   names no folder of the build machine), else `python3` in PATH, and
-  passes the kit's `t7helper.exe` to the importer as `TTT2_T7HELPER`. It
+  passes the kit's `t7helper.exe` and `t8helper.exe` to the importer as
+  `TTT2_T7HELPER` and `TTT2_T8HELPER`. Its characters have a part per game
+  (the installed one first); neither game needs the other, but while one
+  is gone with its fighters added (they need it for `shared/`), the other's
+  adds are refused with a note, removing one of them alone is too, and
+  **Remove All** (asked first) removes all of them at once. A Tekken 8
+  fighter's Add needs Steam only when its moveset can be saved (its build
+  known, it can run hidden); else it is added with Heihachi's moves as the
+  importer does, and the part says why. It
   checks the processor, the compiler and free space before an install, to
   name what is missing with the distribution's install command (on an
   image-based system, by the builder's rule and words, where it must come
@@ -1042,7 +1059,7 @@ compiler.
   its lines as they come, each in a process group of its own that gets
   SIGTERM if the launcher dies. Cancel sends SIGTERM to the program alone
   (it stops what it started in order: the importer closes the hidden
-  Tekken 7), kills what is left of the group once it has ended, and the
+  Tekken 7 or Tekken 8), kills what is left of the group once it has ended, and the
   whole group with SIGKILL when it has not ended within 45 s. The game runs
   in a session of its own; it counts as running when any `/proc/<pid>/exe`
   is the install's program (also "(deleted)"), whoever started it, and
@@ -1078,7 +1095,7 @@ folder) for Release with Clang and Ninja, with
 runtime's messages name are relative; it builds `ttt2-launcher` and
 `ttt2_kit`, installs them with `cmake --install --prefix AppDir/usr --strip`,
 refuses an AppDir holding anything but the launcher, the kit, the importer's
-scripts, the desktop entry and the icon (nothing of the game, no tests, no
+scripts and C sources (and checks that what a Tekken 8 import needs is there), the desktop entry and the icon (nothing of the game, no tests, no
 Python caches), adds `AppRun` (it only starts `usr/bin/ttt2-launcher`: no
 `LD_LIBRARY_PATH`, as the compiler, Python, gamescope, Proton and the game
 it starts must not load anything of the AppImage), the desktop entry, the
@@ -1312,12 +1329,12 @@ has loaded, then quits:
 
 | Variable | Effect |
 | --- | --- |
-| `TTT2_LAUNCHER_TEST_ACTIONS="install:<GAME>:<FOLDER>;add:kazumi;quit"` | actions one after another, each once the one before has ended: `install:<GAME>:<FOLDER>`, `update`, `add:<name>[,<name>...]`, `add-all-base`, `add-all-owned`, `remove:<name>`, `uninstall:keep`, `uninstall:all`, `play` (ends once the game has run 3 s), `quit`, and `expand-dlc`, `expand-log`, `show-uninstall`, `wait:<seconds>`, `focus:<id>` (the keyboard focus on `play`, `uninstall`, `fighter:<name>`, `add-all`, `dlc` ...) and `refresh` (logs the id focused afterwards); for Settings `settings` (opens it through the gear), `back`, `bind:<input>:<XKB keycode>[+<XKB keycode>...]` (that input's key clicked unless it waits for one already, then those keys pressed one after another and let go the other way round through the window's key handler, e.g. `bind:face_bottom:39` gives it S, `bind:zl:64` Left Alt, `bind:zl:64+23` is Alt+Tab, which stops choosing; a refused key, Esc and a shortcut log `failed` with the reason) and `reset-keys` (Restore Defaults), and for its Display section `fullscreen:yes`/`no`, `interpolation:yes`/`no` and `resolution:<value>` (a value of display.ini's `resolution`, in any case: `auto`, `1920x1080` ...), each setting that switch or list as a click does, which saves display.ini, then reading the file back (`ok` when it holds what was set; the text is what it holds, or why it could not be saved); each logs `@test <action> ok\|failed <why>` to stderr |
+| `TTT2_LAUNCHER_TEST_ACTIONS="install:<GAME>:<FOLDER>;add:kazumi;quit"` | actions one after another, each once the one before has ended: `install:<GAME>:<FOLDER>`, `update`, `add:<name>[,<name>...]`, `add-all-base`, `add-all-owned`, `remove:<name>`, `uninstall:keep`, `uninstall:all`, `play` (ends once the game has run 3 s), `quit`, `add-all:<game>` and `remove-all:<game>` (a game's Add All and Remove All, `tekken7` or `tekken8`, the latter without its question), and `expand-dlc`, `expand-log`, `show-uninstall`, `wait:<seconds>`, `focus:<id>` (the keyboard focus on `play`, `uninstall`, `fighter:<name>`, `add-all`, `dlc` ...) and `refresh` (logs the id focused afterwards); for Settings `settings` (opens it through the gear), `back`, `bind:<input>:<XKB keycode>[+<XKB keycode>...]` (that input's key clicked unless it waits for one already, then those keys pressed one after another and let go the other way round through the window's key handler, e.g. `bind:face_bottom:39` gives it S, `bind:zl:64` Left Alt, `bind:zl:64+23` is Alt+Tab, which stops choosing; a refused key, Esc and a shortcut log `failed` with the reason) and `reset-keys` (Restore Defaults), and for its Display section `fullscreen:yes`/`no`, `interpolation:yes`/`no` and `resolution:<value>` (a value of display.ini's `resolution`, in any case: `auto`, `1920x1080` ...), each setting that switch or list as a click does, which saves display.ini, then reading the file back (`ok` when it holds what was set; the text is what it holds, or why it could not be saved); each logs `@test <action> ok\|failed <why>` to stderr |
 | `TTT2_LAUNCHER_TEST_SHOTS=<dir>` | the window as `<dir>/NN-<action>.png` after each action (`00-start.png` first, `NN-<action>-running.png` half-way through its task) |
 | `TTT2_LAUNCHER_TEST_PAGE=1` | also all of the window's content, scrolled into view or not, as `...-page.png` |
 | `TTT2_LAUNCHER_TEST_SCALE=2`, `TTT2_LAUNCHER_TEST_SIZE=<w>x<h>` | pictures at twice the scale; the window's size |
 | `TTT2_LAUNCHER_TEST_CANCEL=<0..1>` | press Cancel once a task's progress is that far (`-1`: at its first step), saving `NN-<action>-stopping.png` |
-| `TTT2_LAUNCHER_TEST_CANCEL_FILE=<file>` | press Cancel once that file exists (a script watching the task makes it, e.g. once the hidden Tekken 7 runs), saving `NN-<action>-stopping.png` |
+| `TTT2_LAUNCHER_TEST_CANCEL_FILE=<file>` | press Cancel once that file exists (a script watching the task makes it, e.g. once the hidden Tekken 7 or Tekken 8 runs), saving `NN-<action>-stopping.png` |
 | `TTT2_KIT`, `TTT2_IMPORTER`, `TTT2_PYTHON` | the builder's kit, the importer (`tools/characters`) and Python the launcher uses (default: installed beside it, else the build and source trees it was built from unless `TTT2_LAUNCHER_BUILD_TREE_PATHS=OFF`, and `python3`) |
 
 ## Verification

@@ -191,7 +191,7 @@ void Launcher::build_window() {
     gtk_box_append(GTK_BOX(names), ui::label("Tekken Tag Tournament 2", "game-title"));
     gtk_box_append(GTK_BOX(names), ui::label("ULTIMATE EDITION", "game-edition"));
     GtkWidget* note = ui::label("The Wii U game as a native Linux program, built on this PC from your own copy, "
-                                "with Tekken 7's characters added from yours.",
+                                "with Tekken 7's and Tekken 8's characters added from yours.",
                                 "game-note small");
     gtk_widget_set_margin_top(note, 6);
     gtk_box_append(GTK_BOX(names), note);
@@ -272,6 +272,7 @@ Process::Environment Launcher::importer_environment() const {
     // next to it.)
     Process::Environment environment = {{"PYTHONUNBUFFERED", "1"}, {"PYTHONDONTWRITEBYTECODE", "1"}};
     if (there(kit_ / "t7helper.exe")) environment.emplace_back("TTT2_T7HELPER", (kit_ / "t7helper.exe").string());
+    if (there(kit_ / "t8helper.exe")) environment.emplace_back("TTT2_T8HELPER", (kit_ / "t8helper.exe").string());
     return environment;
 }
 
@@ -337,8 +338,9 @@ void Launcher::check_ownership() {
     if (!status_ || owned_state_ != Owned::kUnknown || task_ || !status_->steam_running || !status_->tekken7_usable()) {
         return;
     }
+    // (Tekken 7's DLC: Tekken 8's are not asked yet.)
     bool dlc = false;
-    for (const Fighter& f : status_->fighters) dlc = dlc || f.dlc != 0;
+    for (const Fighter& f : status_->fighters) dlc = dlc || (f.dlc != 0 && f.of(kTekken7));
     if (!dlc) return;
     std::vector<std::string> argv = importer_command("launcher.py");
     argv.push_back("owned");
@@ -543,10 +545,16 @@ void Launcher::run_next_test() {
         update_launcher();
     } else if (a.name == "add") {
         start_import(a.args);
-    } else if (a.name == "add-all-base" || a.name == "add-all-owned") {
-        const auto names = a.name == "add-all-base" ? base_to_add() : owned_to_add();
+    } else if (a.name == "add-all-base" || a.name == "add-all-owned" || a.name == "add-all") {
+        const auto names = a.name == "add-all-owned" ? owned_to_add()
+                                                     : base_to_add(a.name == "add-all" ? a.args[0] : kTekken7);
         if (names.empty()) test_done(false, "no characters to add");
         else start_import(names);
+    } else if (a.name == "remove-all") {
+        // (Without its question.)
+        const auto names = to_remove_all(a.args[0]);
+        if (names.empty()) test_done(false, "no Remove All: its game is there, or fewer than two of its characters");
+        else start_remove(names);
     } else if (a.name == "remove") {
         start_remove(a.args);
     } else if (a.name == "uninstall") {

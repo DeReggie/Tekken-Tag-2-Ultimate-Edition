@@ -94,7 +94,7 @@ refuse a game whose executable is not the one they were built from.
   headers recent enough to define `VK_KHR_present_wait2` (mid-2025 or
   newer), OpenSSL 3, zstd and zlib; for the launcher also GTK 4.10 or newer
   (without it the launcher is left out) and MinGW (optional: the Tekken 7
-  helper is then built in).
+  and Tekken 8 helpers are then built in).
 
 On Arch Linux:
 
@@ -144,9 +144,15 @@ own saves go). While the game runs, however it was started, Play, Update and
 Uninstall wait for it to end. The gear next to Play opens its **Settings**:
 whether the game starts fullscreen, the resolution it draws at, its 120
 frames per second, and its keyboard keys ([Playing](#playing)). Its
-Characters section shows where Steam has Tekken 7, or why it cannot be used, with **Add** per fighter and **Add All**, and Tekken 7's DLC
+Characters section shows where Steam has Tekken 7 and Tekken 8, or why one cannot be used, and a part for each game's
+fighters (the installed game's first), with **Add** per fighter: Tekken 7's with **Add All** and its DLC
 fighters in a list that opens, with those your Steam account owns and **Add
-All Owned**; **Remove** takes one out again.
+All Owned**; Tekken 8's (Reina) without Tekken 7 or any of its fighters. **Remove** takes one out again. A
+Tekken 8 fighter whose moves could not be saved from Tekken 8 (a game update its helper does not know yet, or
+nothing to run it hidden) is added with Heihachi's moves, says so and why, and is offered as an update once
+their own can be saved. What all added fighters share is made from each one's own game, so while one game is
+uninstalled its fighters stay in the game but no other can be added: the launcher says so, and offers to
+remove that game's fighters all at once.
 
 ```bash
 cmake --build build --target ttt2-launcher ttt2_kit

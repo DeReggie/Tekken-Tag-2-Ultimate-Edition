@@ -65,6 +65,9 @@ std::optional<std::vector<TestAction>> parse_test_actions(std::string_view text,
         } else if (a.name == "focus") {
             a.args = {rest};
             ok = !rest.empty();
+        } else if (a.name == "add-all" || a.name == "remove-all") {
+            a.args = {rest};
+            ok = rest == "tekken7" || rest == "tekken8";
         } else if (a.name == "bind") {
             // bind:<input>:<XKB keycode>[+<XKB keycode>...]
             const size_t at = rest.find(':');
