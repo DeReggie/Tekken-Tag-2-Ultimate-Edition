@@ -1,5 +1,6 @@
 #include "title/eliza_assist.h"
 #include <cassert>
+#include <initializer_list>
 using cafe::title::eliza_assist::Session;
 int main() {
     Session s;
@@ -14,15 +15,20 @@ int main() {
     assert(update("Vp_dash_EX", 24, 33));
     assert(update("Vp_6rklk", 1, 46));
     assert(update("Vp_6rklk", 18, 46));
-    assert(update("Vp_66lklk", 23, 58));
-    assert(update("Vp_66lklk_H", 1, 54));
-    assert(update("Vp_66lklk_H", 53, 54));
-    assert(!update("Vp_66lklk_H", 54, 54));
-    assert(!update("Vp_6rklk", 1, 46)); // cannot start midway through a string
+    // Selecting either finisher returns input ownership immediately;
+    // neither its startup nor its hit animation may extend the session.
+    assert(!update("Vp_66lklk", 1, 58));
+    assert(!update("Vp_66lklk", 23, 58));
+    assert(!update("Vp_66lklk_H", 1, 54));
+    assert(!update("Vp_6rklk", 1, 19)); // cannot restart mid-string
     assert(update("Vp_dash_C", 1, 33));
-    assert(update("Vp_6rklk", 18, 46));
-    assert(update("Vp_6rklkrk", 49, 50));
-    assert(!update("Vp_6rklkrk", 50, 50));
+    assert(update("Vp_6rklk", 18, 19));
+    assert(!update("Vp_6rklkrk", 1, 50));
+    // If no second kick was selected, return when its input window closes.
+    assert(update("Vp_dash_C", 1, 33));
+    assert(update("Vp_6rklk", 18, 19));
+    assert(!update("Vp_6rklk", 19, 19));
+    assert(!update("Jn_3lp00", 1, 30)); // next df+1 belongs to the main
     assert(update("Vp_dash_EX2", 1, 33));
     assert(!update("sDm_High", 1, 30)); // interruption releases immediately
     assert(!update("Vp_6rklk", 1, 46));
@@ -41,4 +47,13 @@ int main() {
     // Timings follow the installed pack, including modified recovery.
     assert(update("Vp_rk00B", 45, 60));
     assert(!update("Vp_rk00B", 60, 60));
+    // A deferred expiry releases on finisher selection, even when the
+    // incoming move is still at frame 1 with many recovery frames left.
+    for (const char* finisher : {"Vp_66lklk", "Vp_66lklk_H", "Vp_6rklkrk"}) {
+        Session sequence;
+        assert(sequence.update(true, true, true, 1, "Vp_dash_EX", 1, 33));
+        assert(sequence.update(true, true, true, 1, "Vp_6rklk", 18, 19));
+        assert(!sequence.update(true, true, true, 1, finisher, 1, 58));
+        assert(!sequence.update(true, true, true, 1, finisher, 2, 58));
+    }
 }

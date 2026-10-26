@@ -3589,18 +3589,26 @@ bool trace_glide_move(uint32_t player) {
            name == "Vp_6rklk" || name == "Vp_66lklk" ||
            name == "Vp_66lklk_H" || name == "Vp_6rklkrk";
 }
-// Read the move's actual neutral recovery instead of a hard-coded timeout.
+// Read the installed input window. The first Glide kick needs protection
+// only while it can select 3,3 or 3,4, not throughout its recovery.
 uint32_t assist_recovery(uint32_t player) {
     const uint32_t move = load(player + kPlayerMove);
     if (!move) return 0;
     uint32_t row = load(move + 0x14);
     if (!row) return 0;
+    uint32_t string_window_end = 0;
+    const bool first_kick = std::string_view(assist_move_name(player)) == "Vp_6rklk";
     for (unsigned i = 0; i < 512; ++i, row += 32) {
-        if (load(row) != 0x8000) continue;
-        return load(row + 16);
+        if (load(row) == 0x8000)
+            return string_window_end ? string_window_end + 1 : load(row + 16);
+        const uint32_t button = load(row + 4);
+        if (first_kick && (button == 0x40000004 || button == 0x40000008 ||
+                           button == 4 || button == 8))
+            string_window_end = std::max(string_window_end, load(row + 20));
     }
     return 0;
 }
+std::map<uint32_t, uint32_t> g_eliza_assist_returns;
 bool eliza_assist_glide_sequence(uint32_t player) {
     static std::map<uint32_t, eliza_assist::Session> sequences;
     if (!player) return false;
@@ -3611,9 +3619,14 @@ bool eliza_assist_glide_sequence(uint32_t player) {
         return false;
     }
     auto& state = sequences[player];
+    const bool was_active = state.active;
+    const uint32_t previous_partner = state.partner;
     const bool active = state.update(true, load(player + 0x408) == 0,
         load(player + 0x1e88) == 1, load(player + 0xac),
         assist_move_name(player), load(player + kPlayerFrame), assist_recovery(player));
+    if (was_active && !active && load(player + 0x1e88) == 1 &&
+        load(player + 0x408) == 0 && previous_partner == load(player + 0xac))
+        g_eliza_assist_returns[player] = previous_partner;
     if (!active) sequences.erase(player);
     return active;
 }
@@ -3635,6 +3648,29 @@ void trace_eliza_move(uint32_t player) {
 }
 } // namespace
 
+PPC_FUNC(sub_04E187B8_orig);
+// A deferred native return is a request, not a new timeout. Complete it at
+// selection boundary, before either fighter decodes another human input.
+// A committed finisher keeps animating on the native inactive assist route.
+void finish_eliza_assist(PPCContext& ctx, uint8_t* base, uint32_t player) {
+    if (!player) return;
+    const uint32_t pair[] = {player, load(player + 0xac)};
+    for (uint32_t assist : pair) {
+        if (!assist) continue;
+        eliza_assist_glide_sequence(assist);
+        const auto it = g_eliza_assist_returns.find(assist);
+        if (it == g_eliza_assist_returns.end()) continue;
+        const uint32_t partner = it->second;
+        g_eliza_assist_returns.erase(it);
+        if (load(assist + 0xac) != partner || load(assist + 0x1e88) != 1 ||
+            !load(assist + 0x1e80)) continue;
+        store(assist + 0x7b8, 0);
+        store(assist + 0x7c0, UINT32_MAX);
+        store(assist + 0x7c4, 0);
+        guest_call(ctx, base, sub_04E187B8_orig, {assist, 1});
+    }
+}
+
 // Keep the main fighter on its native inactive/assist route while Eliza
 // owns this continuation. Filtering attack buttons alone left the main
 // fighter on human movement, rather than the native waiting/follow route.
@@ -3642,8 +3678,11 @@ PPC_FUNC(sub_03F53238_orig);
 PPC_FUNC(sub_03F52F20_orig);
 PPC_FUNC(sub_03F52F20) {
     const uint32_t player = ctx.r[3];
+    const bool owned_before = player && load(player + 0x1e80);
+    finish_eliza_assist(ctx, base, player);
     const uint32_t partner = player ? load(player + 0xac) : 0;
-    if (eliza_assist_glide_sequence(partner))
+    if (eliza_assist_glide_sequence(partner) ||
+        (owned_before && !load(player + 0x1e80)))
         sub_03F53238_orig(ctx, base);
     else
         sub_03F52F20_orig(ctx, base);
@@ -3659,8 +3698,9 @@ void trace_assist_lifetime(const char* operation, uint32_t player, bool deferred
         partner ? load(partner + 0x1e88) : 0, load(player + 0x7c0));
 }
 // Native assist expiry/ownership operations. Defer them while the actual
-// b+4 -> Glide -> 3,3/3,4 graph is still running, including b+4's special
-// input window. On recovery, interruption, tag-out or assist cancellation,
+// b+4 -> Glide -> first-kick input window is still open. Committing
+// 3,3/3,4 releases control without waiting for the finisher's recovery.
+// On recovery, interruption, tag-out or assist cancellation,
 // the original operations execute unchanged.
 PPC_FUNC(sub_04E185EC_orig);
 PPC_FUNC(sub_04E185EC) {
@@ -3672,7 +3712,14 @@ PPC_FUNC(sub_04E187B8_orig);
 PPC_FUNC(sub_04E187B8) {
     const bool deferred = eliza_assist_glide_sequence(ctx.r[3]);
     trace_assist_lifetime("expiry", ctx.r[3], deferred);
-    if (!deferred) sub_04E187B8_orig(ctx, base);
+    if (deferred) {
+        // 0433B1D8 consumes the native countdown, then clears it to -1
+        // before calling us. Keep the return request alive for the next
+        // frame; otherwise neutral recovery has no expiry left to execute.
+        store(ctx.r[3] + 0x7c0, eliza_assist::kRetryExpiryNextFrame);
+    } else {
+        sub_04E187B8_orig(ctx, base);
+    }
 }
 PPC_FUNC(sub_04E19DE4_orig);
 PPC_FUNC(sub_04E19DE4) {
@@ -3683,12 +3730,14 @@ PPC_FUNC(sub_04E19DE4) {
 PPC_FUNC(sub_03F53238_orig);
 PPC_FUNC(sub_03F53238) {
     const uint32_t player = ctx.r[3];
+    const bool owned_before = player && load(player + 0x1e80);
+    finish_eliza_assist(ctx, base, player);
     const bool trace = trace_eliza_assist(player) && trace_glide_move(player);
     const uint32_t controller = ctx.r[4], raw = ctx.r[5], pressed = ctx.r[6];
     // Continue native input decoding after Glide enters its first kick, so
     // the existing 3,3 and 3,4 input windows can choose their second attack.
     const bool glide_input = eliza_assist_glide_sequence(player);
-    if (glide_input)
+    if (glide_input || (!owned_before && player && load(player + 0x1e80)))
         sub_03F52F20_orig(ctx, base);
     else
         sub_03F53238_orig(ctx, base);
@@ -3739,6 +3788,7 @@ PPC_FUNC(sub_0414E7E4) {
 PPC_FUNC(sub_04336854_orig);
 PPC_FUNC(sub_04336854) { // a fighter's physics, once a frame (r3; it recurses into the objects at +164, +168)
     const uint32_t player = ctx.r[3];
+    finish_eliza_assist(ctx, base, player);
     trace_eliza_move(player);
     trace_noctis_air_step(player);
     const bool own = ctx.lr < 0x04336854 || ctx.lr >= 0x0433AF5C;

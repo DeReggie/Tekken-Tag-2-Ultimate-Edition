@@ -3,17 +3,18 @@
 #include <string_view>
 
 namespace cafe::title::eliza_assist {
-// A move-scoped extension of the native Tag Assault session, not a timer
-// extension for all fighters. Recovery is read from the installed move's
-// neutral cancel, so custom pack timings cannot outlive their actual move.
+// Protect stance selection and the first kick's string input window.
+// Committed finishers run through native inactive assist handling, allowing
+// the main fighter to act while their animations are still playing.
 inline bool entry(std::string_view name) {
     return name == "Vp_rk00B" || name == "Vp_dash_C" ||
            name == "Vp_dash_EX" || name == "Vp_dash_EX2";
 }
 inline bool continuation(std::string_view name) {
-    return name == "Vp_6rklk" || name == "Vp_66lklk" ||
-           name == "Vp_66lklk_H" || name == "Vp_6rklkrk";
+    return name == "Vp_6rklk";
 }
+// Native 041CE0B0 consumes a positive countdown; 1 schedules its next tick.
+inline constexpr uint32_t kRetryExpiryNextFrame = 1;
 struct Session {
     uint32_t partner = 0;
     bool active = false;
